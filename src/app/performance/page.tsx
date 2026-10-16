@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
-import { Card, Table, Input, Select, Button, Tag, Progress, Empty, message, Checkbox, Modal } from 'antd';
+import { Card, Table, Input, Select, Button, Tag, Progress, Empty, message, Checkbox, Modal, DatePicker, Segmented } from 'antd';
+import dayjs, { type Dayjs } from 'dayjs';
 import { useIdentity } from '@/components/AuthGate';
 import {
   Award,
@@ -122,6 +123,7 @@ export default function PerformanceEvaluationPage() {
   const [showAllBars, setShowAllBars] = useState(false);
   const [kpiViewMode, setKpiViewMode] = useState<'FACTORY' | 'MONTH'>('FACTORY');
   const [hoveredBarItem, setHoveredBarItem] = useState<any>(null);
+  const [dateFilterMode, setDateFilterMode] = useState<'RANGE' | 'DAY' | 'MONTH'>('RANGE');
 
   // 1. Tải báo cáo tổng
   async function loadReports() {
@@ -237,9 +239,12 @@ export default function PerformanceEvaluationPage() {
       .flatMap(w => (w.assignments || []).map((a: any) => ({ ...a, worker: w })));
   }, [workers]);
 
-  // Các assignment khớp bộ lọc hiện hành (Tháng, Nhà máy PV, Team)
+  // Các assignment khớp bộ lọc hiện hành (Khoảng ngày, Ngày, Tháng, Nhà máy PV, Team)
   const filteredAssignments = useMemo(() => {
     return activeAssignments.filter(a => {
+      const d = a.interviewDate ? dateKey(a.interviewDate) : null;
+      if (filters.from && (!d || d < filters.from)) return false;
+      if (filters.to && (!d || d > filters.to)) return false;
       if (filters.month && monthOf(a.interviewDate) !== filters.month) return false;
       if (filters.interviewFactory && a.interviewFactory !== filters.interviewFactory) return false;
       if (filters.team && resolveTeam(a) !== filters.team) return false;
@@ -544,8 +549,90 @@ export default function PerformanceEvaluationPage() {
 
   // Thống kê nhanh và số lượng bộ lọc đang hoạt động
   const activeFilterCount = useMemo(() => {
-    return [filters.month, filters.interviewFactory, filters.team].filter(Boolean).length;
+    const hasDate = Boolean(filters.month || filters.from || filters.to);
+    return (hasDate ? 1 : 0) + (filters.interviewFactory ? 1 : 0) + (filters.team ? 1 : 0);
   }, [filters]);
+
+  const isAllDateActive = !filters.from && !filters.to && !filters.month;
+
+  const clearDateFilter = () => {
+    setFilters(prev => {
+      const next = { ...prev };
+      delete next.from;
+      delete next.to;
+      delete next.month;
+      return next;
+    });
+  };
+
+  const handleRangeChange = (dates: any) => {
+    if (!dates || !dates[0] || !dates[1]) {
+      clearDateFilter();
+      return;
+    }
+    setFilters(prev => {
+      const next = { ...prev };
+      delete next.month;
+      next.from = dates[0].format('YYYY-MM-DD');
+      next.to = dates[1].format('YYYY-MM-DD');
+      return next;
+    });
+  };
+
+  const handleSingleDayChange = (date: any) => {
+    if (!date) {
+      clearDateFilter();
+      return;
+    }
+    const dStr = date.format('YYYY-MM-DD');
+    setFilters(prev => {
+      const next = { ...prev };
+      delete next.month;
+      next.from = dStr;
+      next.to = dStr;
+      return next;
+    });
+  };
+
+  const handleMonthChange = (date: any) => {
+    if (!date) {
+      clearDateFilter();
+      return;
+    }
+    const mStr = date.format('YYYY-MM');
+    setFilters(prev => {
+      const next = { ...prev };
+      delete next.from;
+      delete next.to;
+      next.month = mStr;
+      return next;
+    });
+  };
+
+  const rangeValue: [Dayjs | null, Dayjs | null] | null = useMemo(() => {
+    if (filters.from && filters.to) {
+      const s = dayjs(filters.from);
+      const e = dayjs(filters.to);
+      return [s.isValid() ? s : null, e.isValid() ? e : null];
+    }
+    return null;
+  }, [filters.from, filters.to]);
+
+  const singleDayValue: Dayjs | null = useMemo(() => {
+    if (filters.from && filters.from === filters.to) {
+      const d = dayjs(filters.from);
+      return d.isValid() ? d : null;
+    }
+    return null;
+  }, [filters.from, filters.to]);
+
+  const monthValue: Dayjs | null = useMemo(() => {
+    if (filters.month) {
+      const m = dayjs(filters.month + '-01');
+      return m.isValid() ? m : null;
+    }
+    return null;
+  }, [filters.month]);
 
   const quickFilterSummary = useMemo(() => {
     const passed = filteredAssignments.filter(isPassed).length;
@@ -621,34 +708,79 @@ export default function PerformanceEvaluationPage() {
         {/* Khối các trường Select lọc chính */}
         <div className="p-5 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* 1. Tháng phỏng vấn */}
+            {/* 1. Thời gian phỏng vấn (Type Date/Time Picker + Nút Tất cả) */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
                   <Calendar className="w-3.5 h-3.5 text-blue-500" />
-                  <span>Tháng phỏng vấn</span>
+                  <span>Thời gian phỏng vấn</span>
                 </label>
-                {filters.month && (
-                  <button
-                    onClick={() => setFilter('month', '')}
-                    className="text-[11px] text-slate-400 hover:text-slate-600 cursor-pointer"
-                  >
-                    Xóa
-                  </button>
+                <Segmented
+                  size="small"
+                  value={dateFilterMode}
+                  onChange={(val) => setDateFilterMode(val as any)}
+                  options={[
+                    { label: 'Khoảng ngày', value: 'RANGE' },
+                    { label: 'Theo ngày', value: 'DAY' },
+                    { label: 'Theo tháng', value: 'MONTH' }
+                  ]}
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                {/* Nút Tất cả */}
+                <Button
+                  size="large"
+                  type={isAllDateActive ? 'primary' : 'default'}
+                  onClick={clearDateFilter}
+                  className={`text-xs font-semibold px-3 shrink-0 ${
+                    isAllDateActive
+                      ? 'bg-blue-600 hover:bg-blue-700 text-white border-blue-600'
+                      : 'text-slate-600 hover:text-blue-600 border-slate-300'
+                  }`}
+                  title="Xem toàn bộ thời gian (không lọc theo ngày)"
+                >
+                  Tất cả
+                </Button>
+
+                {/* Date Picker theo chế độ đang chọn */}
+                {dateFilterMode === 'RANGE' && (
+                  <DatePicker.RangePicker
+                    size="large"
+                    className="w-full text-xs"
+                    format="DD/MM/YYYY"
+                    placeholder={['Từ ngày', 'Đến ngày']}
+                    value={rangeValue as any}
+                    onChange={handleRangeChange}
+                    allowClear
+                  />
+                )}
+
+                {dateFilterMode === 'DAY' && (
+                  <DatePicker
+                    size="large"
+                    className="w-full text-xs"
+                    format="DD/MM/YYYY"
+                    placeholder="Gõ hoặc chọn ngày (DD/MM/YYYY)"
+                    value={singleDayValue}
+                    onChange={handleSingleDayChange}
+                    allowClear
+                  />
+                )}
+
+                {dateFilterMode === 'MONTH' && (
+                  <DatePicker
+                    picker="month"
+                    size="large"
+                    className="w-full text-xs"
+                    format="MM/YYYY"
+                    placeholder="Gõ hoặc chọn tháng (MM/YYYY)"
+                    value={monthValue}
+                    onChange={handleMonthChange}
+                    allowClear
+                  />
                 )}
               </div>
-              <Select
-                size="large"
-                className="w-full text-xs"
-                placeholder="Tất cả các tháng (Toàn kỳ)"
-                value={filters.month || undefined}
-                onChange={(v) => setFilter('month', v || '')}
-                allowClear
-                options={[
-                  { value: '', label: 'Tất cả các tháng (Toàn kỳ)' },
-                  ...availableMonths.map(m => ({ value: m, label: `Tháng ${m}` }))
-                ]}
-              />
             </div>
 
             {/* 2. Nhà máy phỏng vấn */}
@@ -714,40 +846,51 @@ export default function PerformanceEvaluationPage() {
             </div>
           </div>
 
-          {/* Quick Month Chips (Phím tắt chọn nhanh tháng gần nhất) */}
-          {availableMonths.length > 0 && (
-            <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2">
-              <span className="text-[11px] font-medium text-slate-400">Chọn nhanh tháng:</span>
+          {/* Quick Month Chips (Phím tắt chọn nhanh) */}
+          <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-medium text-slate-400">Chọn nhanh:</span>
+            <button
+              onClick={clearDateFilter}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                isAllDateActive
+                  ? 'bg-blue-600 text-white shadow-xs font-semibold'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Tất cả thời gian
+            </button>
+            {availableMonths.slice(-6).reverse().map((m) => (
               <button
-                onClick={() => setFilter('month', '')}
+                key={m}
+                onClick={() => setFilter('month', filters.month === m ? '' : m)}
                 className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                  !filters.month
+                  filters.month === m
                     ? 'bg-indigo-600 text-white shadow-xs font-semibold'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
-                Toàn kỳ
+                Tháng {m}
               </button>
-              {availableMonths.slice(-6).reverse().map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setFilter('month', filters.month === m ? '' : m)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                    filters.month === m
-                      ? 'bg-indigo-600 text-white shadow-xs font-semibold'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  Tháng {m}
-                </button>
-              ))}
-            </div>
-          )}
+            ))}
+          </div>
 
           {/* Danh sách thẻ tag đang lọc (nếu có) */}
           {activeFilterCount > 0 && (
             <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2">
               <span className="text-[11px] font-medium text-slate-400">Đang lọc theo:</span>
+              {filters.from && filters.to && (
+                <Tag
+                  closable
+                  onClose={clearDateFilter}
+                  className="px-2.5 py-0.5 rounded-md text-xs bg-blue-50 text-blue-700 border-blue-200 flex items-center gap-1"
+                >
+                  <span>
+                    {filters.from === filters.to
+                      ? `Ngày: ${dayjs(filters.from).format('DD/MM/YYYY')}`
+                      : `Từ ${dayjs(filters.from).format('DD/MM/YYYY')} đến ${dayjs(filters.to).format('DD/MM/YYYY')}`}
+                  </span>
+                </Tag>
+              )}
               {filters.month && (
                 <Tag
                   closable
