@@ -18,7 +18,9 @@ import {
   Sparkles,
   Download,
   Star,
-  UserCheck
+  UserCheck,
+  Calendar,
+  SlidersHorizontal
 } from 'lucide-react';
 
 const pct = (n: number | null | undefined) => (n == null ? '—' : `${n}%`);
@@ -118,6 +120,8 @@ export default function PerformanceEvaluationPage() {
   const [modalStatusFilter, setModalStatusFilter] = useState<string>('ALL');
   const [groupFilter, setGroupFilter] = useState<'ALL' | 'STAR' | 'QUALITY' | 'VOLUME' | 'SUPPORT'>('ALL');
   const [showAllBars, setShowAllBars] = useState(false);
+  const [kpiViewMode, setKpiViewMode] = useState<'FACTORY' | 'MONTH'>('FACTORY');
+  const [hoveredBarItem, setHoveredBarItem] = useState<any>(null);
 
   // 1. Tải báo cáo tổng
   async function loadReports() {
@@ -326,62 +330,78 @@ export default function PerformanceEvaluationPage() {
   }, [filteredAssignments, catalogRecruiters, recruiterTeamMap]);
 
   // =========================================================================
-  // 2. DỮ LIỆU THẬT 100%: MA TRẬN THÁNG & BIỂU ĐỒ DIỄN BIẾN
+  // 2. DỮ LIỆU THẬT 100%: TỔNG QUAN TIẾN ĐỘ KPI & BIỂU ĐỒ CỘT SO SÁNH
   // =========================================================================
-  const monthlyKpiData = useMemo(() => {
-    if (!teamCards.length || !availableMonths.length) return [];
+  const overallKpi = useMemo(() => {
+    const total = filteredAssignments.length;
+    const passed = filteredAssignments.filter(isPassed).length;
+    const retained10 = filteredAssignments.filter(isWorking).length;
+    const quit10 = filteredAssignments.filter(isQuitBefore10).length;
+    const abandon = filteredAssignments.filter(isAbandon).length;
+    const failed = filteredAssignments.filter(isFailed).length;
 
-    return teamCards.map(team => {
-      const monthValues = availableMonths.map(mStr => {
-        const inMonth = filteredAssignments.filter(
-          a => resolveTeam(a) === team.name && monthOf(a.interviewDate) === mStr
-        );
-        if (!inMonth.length) return '—';
-        const passedCount = inMonth.filter(isPassed).length;
-        const retainedCount = inMonth.filter(isWorking).length;
-        const rate = passedCount > 0 ? Math.round((retainedCount / passedCount) * 100) : 0;
-        return `${rate}%`;
-      });
-      return {
-        name: team.name,
-        months: monthValues
-      };
+    const retentionRate = passed > 0 ? Math.round((retained10 / passed) * 1000) / 10 : 0;
+    const quit10Rate = passed > 0 ? Math.round((quit10 / passed) * 1000) / 10 : 0;
+    const abandonRate = total > 0 ? Math.round((abandon / total) * 1000) / 10 : 0;
+
+    return {
+      total,
+      passed,
+      retained10,
+      quit10,
+      abandon,
+      failed,
+      retentionRate,
+      quit10Rate,
+      abandonRate
+    };
+  }, [filteredAssignments]);
+
+  // Dữ liệu so sánh cột theo các Nhà máy tiếp nhận (Top nhà máy lớn)
+  const factoryChartData = useMemo(() => {
+    const byFac = new Map<string, any[]>();
+    for (const a of filteredAssignments) {
+      const fac = (a.workingFactory || a.interviewFactory || 'Chưa gán').trim() || 'Chưa gán';
+      const list = byFac.get(fac) || [];
+      list.push(a);
+      byFac.set(fac, list);
+    }
+
+    const items = Array.from(byFac.entries()).map(([fac, list]) => {
+      const total = list.length;
+      const passed = list.filter(isPassed).length;
+      const retained10 = list.filter(isWorking).length;
+      const quit10 = list.filter(isQuitBefore10).length;
+      const rate = passed > 0 ? Math.round((retained10 / passed) * 1000) / 10 : 0;
+      return { name: fac, total, passed, retained10, quit10, rate };
     });
-  }, [teamCards, availableMonths, filteredAssignments, recruiterTeamMap]);
 
-  const chartPoints = useMemo(() => {
-    if (!teamCards.length || !availableMonths.length) return [];
-    const colors = ['#2563eb', '#10b981', '#8b5cf6', '#0ea5e9', '#f59e0b', '#64748b'];
+    return items.sort((a, b) => b.passed - a.passed).slice(0, 8);
+  }, [filteredAssignments]);
 
-    return teamCards.map((team, idx) => {
-      const values = availableMonths.map(mStr => {
-        const inMonth = filteredAssignments.filter(
-          a => resolveTeam(a) === team.name && monthOf(a.interviewDate) === mStr
-        );
-        const passed = inMonth.filter(isPassed).length;
-        const working = inMonth.filter(isWorking).length;
+  // Dữ liệu so sánh cột theo chuỗi thời gian các Tháng
+  const monthlyChartData = useMemo(() => {
+    const byMo = new Map<string, any[]>();
+    for (const a of filteredAssignments) {
+      const mo = monthOf(a.interviewDate);
+      if (mo !== 'UNKNOWN') {
+        const list = byMo.get(mo) || [];
+        list.push(a);
+        byMo.set(mo, list);
+      }
+    }
 
-        if (monthlyMetric === 'achieved') {
-          return working;
-        } else if (monthlyMetric === 'rate') {
-          return passed > 0 ? Math.round((working / passed) * 100) : 0;
-        } else if (monthlyMetric === 'per_recruiter') {
-          return team.recruitersCount > 0 ? Math.round((working / team.recruitersCount) * 10) / 10 : working;
-        } else {
-          const totalMonthRetained = filteredAssignments.filter(
-            a => monthOf(a.interviewDate) === mStr && isWorking(a)
-          ).length;
-          return totalMonthRetained > 0 ? Math.round((working / totalMonthRetained) * 100) : 0;
-        }
-      });
-
-      return {
-        team: team.name,
-        color: colors[idx % colors.length],
-        values
-      };
+    const items = Array.from(byMo.entries()).map(([mo, list]) => {
+      const total = list.length;
+      const passed = list.filter(isPassed).length;
+      const retained10 = list.filter(isWorking).length;
+      const quit10 = list.filter(isQuitBefore10).length;
+      const rate = passed > 0 ? Math.round((retained10 / passed) * 1000) / 10 : 0;
+      return { name: mo, total, passed, retained10, quit10, rate };
     });
-  }, [teamCards, availableMonths, filteredAssignments, monthlyMetric, recruiterTeamMap]);
+
+    return items.sort((a, b) => a.name.localeCompare(b.name));
+  }, [filteredAssignments]);
 
   // =========================================================================
   // 3. DỮ LIỆU THẬT 100%: BẢNG XẾP HẠNG CHUYÊN VIÊN TUYỂN DỤNG
@@ -522,111 +542,276 @@ export default function PerformanceEvaluationPage() {
     message.success('Đã tải xuống file CSV thành công!');
   };
 
+  // Thống kê nhanh và số lượng bộ lọc đang hoạt động
+  const activeFilterCount = useMemo(() => {
+    return [filters.month, filters.interviewFactory, filters.team].filter(Boolean).length;
+  }, [filters]);
+
+  const quickFilterSummary = useMemo(() => {
+    const passed = filteredAssignments.filter(isPassed).length;
+    const working = filteredAssignments.filter(isWorking).length;
+    const rate = passed > 0 ? Math.round((working / passed) * 1000) / 10 : 0;
+    return { passed, working, rate };
+  }, [filteredAssignments]);
+
   return (
     <div className="space-y-6 pb-12 bg-slate-50/50 min-h-screen">
       {/* =========================================================================
           1. HEADER CHÍNH & THANH CÔNG CỤ
           ========================================================================= */}
-      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">So sánh team</h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Đánh giá năng suất, hiệu quả giữ chân và tiến độ thực hiện KPI tuyển dụng từ dữ liệu CSDL thực tế.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            type="primary"
-            className="bg-emerald-600 hover:bg-emerald-700 font-medium rounded-lg flex items-center gap-1.5"
-            onClick={() => window.location.href = '/excel-tools'}
-          >
-            <CheckCircle2 className="w-4 h-4"/> Nhập Excel/CSV
-          </Button>
-
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            Chế độ: Đồng bộ CSDL trực tiếp (100% dữ liệu thực)
-          </span>
-
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">
-            <span className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">
-              {user?.username ? user.username.slice(0, 2).toUpperCase() : 'BL'}
-            </span>
-            {user?.username || 'leader@trithucviet.vn'}
-          </span>
-        </div>
+      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">So sánh team</h1>
+        <p className="text-xs text-slate-500 mt-1">
+          Đánh giá năng suất, hiệu quả giữ chân và tiến độ thực hiện KPI tuyển dụng từ dữ liệu CSDL thực tế.
+        </p>
       </div>
 
       {/* =========================================================================
-          2. BỘ LỌC ĐIỀU HÀNH & HỘP THÔNG BÁO VÀNG
+          2. BỘ LỌC ĐIỀU HÀNH & THANH CÔNG CỤ HIỆN ĐẠI
           ========================================================================= */}
-      <Card className="shadow-xs border-slate-200">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Tháng phỏng vấn</label>
-            <Select
-              className="w-full"
-              placeholder="Tất cả các tháng (Toàn kỳ)"
-              value={filters.month || undefined}
-              onChange={(v) => setFilter('month', v)}
-              allowClear
-              options={[
-                { value: '', label: 'Tất cả các tháng (Toàn kỳ)' },
-                ...availableMonths.map(m => ({ value: m, label: `Tháng ${m}` }))
-              ]}
-            />
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        {/* Header hàng điều khiển */}
+        <div className="px-5 py-3.5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-slate-50/70 via-white to-slate-50/30">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shadow-xs">
+              <SlidersHorizontal className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold text-slate-800 tracking-tight">Bộ lọc & Phân tích điều hành</span>
+                {activeFilterCount > 0 ? (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse" />
+                    Đang lọc {activeFilterCount} tiêu chí
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600">
+                    Toàn bộ dữ liệu
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">Tự động đồng bộ và tổng hợp theo thời gian thực từ CSDL hồ sơ ứng viên</p>
+            </div>
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nhà máy phỏng vấn</label>
-            <Select
-              className="w-full"
-              placeholder="Tất cả nhà máy"
-              value={filters.interviewFactory || undefined}
-              onChange={(v) => setFilter('interviewFactory', v)}
-              allowClear
-              options={factoryNames.map((f) => ({ value: f, label: f }))}
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Team tuyển dụng</label>
-            <Select
-              className="w-full"
-              placeholder="Tất cả team"
-              value={filters.team || undefined}
-              onChange={(v) => setFilter('team', v)}
-              allowClear
-              options={catalogTeams.map((t) => ({ value: t.name, label: t.name }))}
-            />
-          </div>
-        </div>
-
-        {/* Khung ghi chú nghiệp vụ màu vàng */}
-        <div className="mt-4 p-3.5 bg-amber-50/70 border border-amber-200/80 rounded-xl text-xs text-amber-900 leading-relaxed space-y-1">
-          <p className="font-semibold text-amber-950">
-            HỆ THỐNG SO SÁNH & ĐÁNH GIÁ • Đang xử lý hoàn toàn theo dữ liệu CSDL thực tế.
-          </p>
-          <p className="text-amber-800">
-            Tỷ lệ đạt 10 công là số đạt / số đỗ trong bộ lọc đang chọn. Mọi chỉ số phản ánh trung thực trạng thái hồ sơ.
-          </p>
-          <div className="pt-1 flex items-center gap-4 text-xs font-semibold text-amber-900">
-            <button
+          {/* Action buttons */}
+          <div className="flex items-center gap-2">
+            {activeFilterCount > 0 && (
+              <Button
+                size="middle"
+                icon={<RotateCcw className="w-3.5 h-3.5" />}
+                onClick={() => setFilters({})}
+                className="text-xs text-slate-600 hover:text-rose-600 hover:border-rose-300 font-medium rounded-lg h-9"
+              >
+                Đặt lại bộ lọc
+              </Button>
+            )}
+            <Button
+              type="primary"
+              size="middle"
+              icon={<Download className="w-3.5 h-3.5" />}
               onClick={exportToCSV}
-              className="underline hover:text-amber-950 flex items-center gap-1 cursor-pointer"
+              className="bg-indigo-600 hover:bg-indigo-700 text-xs font-semibold rounded-lg h-9 shadow-xs"
             >
-              <Download className="w-3.5 h-3.5"/> Xuất báo cáo tổng hợp CSV
-            </button>
-            <button
-              onClick={() => setFilters({})}
-              className="underline hover:text-amber-950 flex items-center gap-1 cursor-pointer"
-            >
-              <RotateCcw className="w-3.5 h-3.5"/> Bỏ tất cả bộ lọc
-            </button>
+              Xuất báo cáo CSV
+            </Button>
           </div>
         </div>
-      </Card>
+
+        {/* Khối các trường Select lọc chính */}
+        <div className="p-5 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* 1. Tháng phỏng vấn */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Tháng phỏng vấn</span>
+                </label>
+                {filters.month && (
+                  <button
+                    onClick={() => setFilter('month', '')}
+                    className="text-[11px] text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    Xóa
+                  </button>
+                )}
+              </div>
+              <Select
+                size="large"
+                className="w-full text-xs"
+                placeholder="Tất cả các tháng (Toàn kỳ)"
+                value={filters.month || undefined}
+                onChange={(v) => setFilter('month', v || '')}
+                allowClear
+                options={[
+                  { value: '', label: 'Tất cả các tháng (Toàn kỳ)' },
+                  ...availableMonths.map(m => ({ value: m, label: `Tháng ${m}` }))
+                ]}
+              />
+            </div>
+
+            {/* 2. Nhà máy phỏng vấn */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                  <Building className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Nhà máy đối tác</span>
+                </label>
+                {filters.interviewFactory && (
+                  <button
+                    onClick={() => setFilter('interviewFactory', '')}
+                    className="text-[11px] text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    Xóa
+                  </button>
+                )}
+              </div>
+              <Select
+                size="large"
+                className="w-full text-xs"
+                placeholder="Tất cả nhà máy"
+                value={filters.interviewFactory || undefined}
+                onChange={(v) => setFilter('interviewFactory', v || '')}
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                options={[
+                  { value: '', label: 'Tất cả nhà máy' },
+                  ...factoryNames.map((f) => ({ value: f, label: f }))
+                ]}
+              />
+            </div>
+
+            {/* 3. Team tuyển dụng */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                  <Users className="w-3.5 h-3.5 text-purple-500" />
+                  <span>Team tuyển dụng</span>
+                </label>
+                {filters.team && (
+                  <button
+                    onClick={() => setFilter('team', '')}
+                    className="text-[11px] text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    Xóa
+                  </button>
+                )}
+              </div>
+              <Select
+                size="large"
+                className="w-full text-xs"
+                placeholder="Tất cả team"
+                value={filters.team || undefined}
+                onChange={(v) => setFilter('team', v || '')}
+                allowClear
+                options={[
+                  { value: '', label: 'Tất cả team' },
+                  ...catalogTeams.map((t) => ({ value: t.name, label: t.name }))
+                ]}
+              />
+            </div>
+          </div>
+
+          {/* Quick Month Chips (Phím tắt chọn nhanh tháng gần nhất) */}
+          {availableMonths.length > 0 && (
+            <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-medium text-slate-400">Chọn nhanh tháng:</span>
+              <button
+                onClick={() => setFilter('month', '')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                  !filters.month
+                    ? 'bg-indigo-600 text-white shadow-xs font-semibold'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                Toàn kỳ
+              </button>
+              {availableMonths.slice(-6).reverse().map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setFilter('month', filters.month === m ? '' : m)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                    filters.month === m
+                      ? 'bg-indigo-600 text-white shadow-xs font-semibold'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  Tháng {m}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Danh sách thẻ tag đang lọc (nếu có) */}
+          {activeFilterCount > 0 && (
+            <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-medium text-slate-400">Đang lọc theo:</span>
+              {filters.month && (
+                <Tag
+                  closable
+                  onClose={() => setFilter('month', '')}
+                  className="px-2.5 py-0.5 rounded-md text-xs bg-blue-50 text-blue-700 border-blue-200 flex items-center gap-1"
+                >
+                  <span>Tháng: <strong>{filters.month}</strong></span>
+                </Tag>
+              )}
+              {filters.interviewFactory && (
+                <Tag
+                  closable
+                  onClose={() => setFilter('interviewFactory', '')}
+                  className="px-2.5 py-0.5 rounded-md text-xs bg-emerald-50 text-emerald-700 border-emerald-200 flex items-center gap-1"
+                >
+                  <span>Nhà máy: <strong>{filters.interviewFactory}</strong></span>
+                </Tag>
+              )}
+              {filters.team && (
+                <Tag
+                  closable
+                  onClose={() => setFilter('team', '')}
+                  className="px-2.5 py-0.5 rounded-md text-xs bg-purple-50 text-purple-700 border-purple-200 flex items-center gap-1"
+                >
+                  <span>Team: <strong>{filters.team}</strong></span>
+                </Tag>
+              )}
+              <button
+                onClick={() => setFilters({})}
+                className="text-[11px] text-rose-500 hover:text-rose-700 underline font-medium cursor-pointer ml-1"
+              >
+                Xóa tất cả
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Dải thông tin tóm tắt & trạng thái bộ lọc (thay thế hoàn toàn cho hộp vàng cũ) */}
+        <div className="bg-slate-50/70 border-t border-slate-100 px-5 py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2 text-slate-500">
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-semibold text-[11px] border border-emerald-200/80">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> CSDL Thực tế
+            </span>
+            <span className="hidden sm:inline">
+              Khảo sát trên <strong>{filteredAssignments.length.toLocaleString('vi-VN')}</strong> hồ sơ ứng tuyển
+            </span>
+          </div>
+
+          {/* Thống kê nhanh kết quả lọc */}
+          <div className="flex items-center gap-3 text-xs font-medium">
+            <span className="text-slate-600">
+              Đỗ PV: <strong className="text-blue-600 font-bold">{quickFilterSummary.passed.toLocaleString('vi-VN')}</strong>
+            </span>
+            <span className="text-slate-300">|</span>
+            <span className="text-slate-600">
+              Đạt 10 công: <strong className="text-emerald-600 font-bold">{quickFilterSummary.working.toLocaleString('vi-VN')}</strong>
+            </span>
+            <span className="text-slate-300">|</span>
+            <span className="text-slate-600">
+              Tỷ lệ giữ chân: <strong className="text-indigo-600 font-bold">{quickFilterSummary.rate}%</strong>
+            </span>
+          </div>
+        </div>
+      </div>
 
       {/* =========================================================================
           KHỐI 1: THẺ ĐIỂM TỪNG TEAM (100% DỮ LIỆU THỰC)
@@ -725,174 +910,223 @@ export default function PerformanceEvaluationPage() {
       </div>
 
       {/* =========================================================================
-          KHỐI 2: THỰC HIỆN KPI THEO THÁNG & DIỄN BIẾN THEO THÁNG (100% DỮ LIỆU THỰC)
+          KHỐI 2: ĐÁNH GIÁ THỰC HIỆN KPI & TIẾN ĐỘ THEO CỘT / VÒNG TRÒN
           ========================================================================= */}
-      <div className="space-y-6">
-        {/* Phần 2.1: Thực hiện KPI theo tháng */}
-        <Card className="shadow-xs border-slate-200">
-          <div className="mb-4">
-            <h2 className="text-base font-bold text-slate-900">Thực hiện KPI theo tháng</h2>
+      <Card className="shadow-xs border-slate-200">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+          <div>
+            <h2 className="text-base font-bold text-slate-900">
+              Đánh giá thực hiện KPI &amp; Tiến độ giữ chân
+            </h2>
             <p className="text-xs text-slate-500">
-              Số đỗ / chỉ tiêu đã lưu năm 2026. Dấu —: chưa có chỉ tiêu, bảng chỉ tính các hồ sơ trong bộ lọc.
+              Kết hợp đo lường tỷ lệ hoàn thành KPI (Vòng tròn) và so sánh trực quan theo cột giữa các Nhà máy / Tháng.
             </p>
           </div>
 
-          {monthlyKpiData.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead>
-                  <tr className="bg-slate-50/80 text-slate-600 border-b border-slate-200 font-semibold">
-                    <th className="py-2.5 px-3">Team</th>
-                    {availableMonths.map(m => (
-                      <th key={m} className="py-2.5 px-3 text-center">{m}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {monthlyKpiData.map(row => (
-                    <tr key={row.name} className="hover:bg-slate-50/50">
-                      <td className="py-3 px-3 font-bold text-slate-900">{row.name}</td>
-                      {row.months.map((val, mIdx) => (
-                        <td key={mIdx} className="py-3 px-3 text-center">
-                          <span className={`inline-block px-2.5 py-0.5 rounded-full font-bold ${
-                            val === '—'
-                              ? 'text-slate-400'
-                              : val === '0%'
-                              ? 'bg-rose-50 text-rose-600'
-                              : 'bg-emerald-50 text-emerald-700'
-                          }`}>
-                            {val}
-                          </span>
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <Empty description="Chưa có dữ liệu theo tháng để tổng hợp KPI" />
-          )}
-        </Card>
+          <div className="inline-flex rounded-lg bg-slate-100 p-0.5 text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => setKpiViewMode('FACTORY')}
+              className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+                kpiViewMode === 'FACTORY' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              📊 Cột: Theo Nhà máy tiếp nhận
+            </button>
+            <button
+              type="button"
+              onClick={() => setKpiViewMode('MONTH')}
+              className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+                kpiViewMode === 'MONTH' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              📅 Cột: Theo Tháng phỏng vấn
+            </button>
+          </div>
+        </div>
 
-        {/* Phần 2.2: Diễn biến theo tháng */}
-        <Card className="shadow-xs border-slate-200">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+          {/* CỘT TRÁI (4/12): VÒNG TRÒN ĐO LƯỜNG TIẾN ĐỘ KPI (DONUT METER GAUGE) */}
+          <div className="lg:col-span-4 bg-slate-50/80 rounded-2xl p-5 border border-slate-200 flex flex-col justify-between">
             <div>
-              <h2 className="text-base font-bold text-slate-900">Diễn biến theo tháng</h2>
-              <p className="text-xs text-slate-500">
-                So sánh xu hướng tăng trưởng giữa các team qua các tháng
-              </p>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                  Tỷ lệ đạt 10 công toàn kỳ
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                  Chuẩn: &ge; 80%
+                </span>
+              </div>
+
+              {/* Vòng tròn Donut SVG */}
+              <div className="relative w-40 h-40 mx-auto my-3 flex items-center justify-center">
+                <svg className="w-full h-full -rotate-90 transform" viewBox="0 0 100 100">
+                  {/* Vòng tròn nền mờ */}
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="38"
+                    stroke="#e2e8f0"
+                    strokeWidth="10"
+                    fill="transparent"
+                  />
+                  {/* Phân đoạn đạt 10 công */}
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="38"
+                    stroke="#10b981"
+                    strokeWidth="10"
+                    strokeDasharray={`${(overallKpi.retentionRate / 100) * 238.76} 238.76`}
+                    strokeLinecap="round"
+                    fill="transparent"
+                  />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                  <div className="text-3xl font-extrabold text-slate-900 leading-none">
+                    {overallKpi.retentionRate}%
+                  </div>
+                  <div className="text-[11px] font-semibold text-emerald-700 mt-1">
+                    Đạt 10 công
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div className="inline-flex rounded-lg bg-slate-100 p-0.5 text-xs font-semibold">
-              <button
-                onClick={() => setMonthlyMetric('achieved')}
-                className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
-                  monthlyMetric === 'achieved' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Số đạt
-              </button>
-              <button
-                onClick={() => setMonthlyMetric('rate')}
-                className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
-                  monthlyMetric === 'rate' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Tỷ lệ đạt 10 công / đỗ
-              </button>
-              <button
-                onClick={() => setMonthlyMetric('per_recruiter')}
-                className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
-                  monthlyMetric === 'per_recruiter' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Đạt / người tuyển
-              </button>
-              <button
-                onClick={() => setMonthlyMetric('contribution')}
-                className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
-                  monthlyMetric === 'contribution' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Tỷ trọng đóng góp
-              </button>
+            {/* 4 Thống kê mini bên dưới vòng tròn */}
+            <div className="grid grid-cols-2 gap-2 pt-3 border-t border-slate-200/80 text-xs">
+              <div className="p-2 rounded-lg bg-white border border-slate-200">
+                <div className="text-[10px] text-slate-500">Tổng đỗ PV</div>
+                <div className="text-sm font-extrabold text-blue-700">{overallKpi.passed.toLocaleString('vi-VN')}</div>
+              </div>
+              <div className="p-2 rounded-lg bg-white border border-slate-200">
+                <div className="text-[10px] text-slate-500">Đạt &ge; 10 công</div>
+                <div className="text-sm font-extrabold text-emerald-700">{overallKpi.retained10.toLocaleString('vi-VN')}</div>
+              </div>
+              <div className="p-2 rounded-lg bg-white border border-slate-200">
+                <div className="text-[10px] text-slate-500">Nghỉ &lt; 10 ngày</div>
+                <div className="text-sm font-extrabold text-amber-600">{overallKpi.quit10.toLocaleString('vi-VN')}</div>
+              </div>
+              <div className="p-2 rounded-lg bg-white border border-slate-200">
+                <div className="text-[10px] text-slate-500">Bỏ xưởng / Rớt</div>
+                <div className="text-sm font-extrabold text-rose-600">{(overallKpi.abandon + overallKpi.failed).toLocaleString('vi-VN')}</div>
+              </div>
             </div>
           </div>
 
-          {chartPoints.length > 0 && availableMonths.length > 0 ? (
-            <>
-              <div className="flex flex-wrap items-center gap-5 text-xs font-medium mb-4">
-                {chartPoints.map(p => (
-                  <span key={p.team} className="inline-flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: p.color }} />
-                    <span className="text-slate-700">{p.team}</span>
-                  </span>
-                ))}
+          {/* CỘT PHẢI (8/12): BIỂU ĐỒ CỘT KÉP TRỰC QUAN (GROUPED COLUMN BAR CHART) */}
+          <div className="lg:col-span-8 flex flex-col justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+              <div className="text-xs text-slate-500">
+                {kpiViewMode === 'FACTORY'
+                  ? 'So sánh số lượng Đạt 10 công vs Nghỉ sớm giữa các Nhà máy lớn tiếp nhận lao động'
+                  : 'So sánh diễn biến tăng trưởng qua các tháng trong dữ liệu'}
               </div>
 
-              <div className="w-full h-56 relative border-t border-b border-dashed border-slate-200 py-2">
-                <svg className="w-full h-full overflow-visible" viewBox="0 0 800 200" preserveAspectRatio="none">
-                  <line x1="0" y1="40" x2="800" y2="40" stroke="#f1f5f9" strokeDasharray="4 4" />
-                  <line x1="0" y1="80" x2="800" y2="80" stroke="#f1f5f9" strokeDasharray="4 4" />
-                  <line x1="0" y1="120" x2="800" y2="120" stroke="#f1f5f9" strokeDasharray="4 4" />
-                  <line x1="0" y1="160" x2="800" y2="160" stroke="#f1f5f9" strokeDasharray="4 4" />
+              <div className="flex items-center gap-4 text-xs font-semibold">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-xs bg-emerald-500" /> Đạt &ge; 10 công
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-xs bg-amber-400" /> Nghỉ &lt; 10 ngày
+                </span>
+              </div>
+            </div>
 
-                  {chartPoints.map((series) => {
-                    const maxVal = Math.max(1, ...chartPoints.flatMap(s => s.values));
-                    const totalPoints = availableMonths.length;
-                    const step = totalPoints > 1 ? 740 / (totalPoints - 1) : 740;
+            {/* Vùng vẽ các cột (Column Bars) */}
+            {(() => {
+              const activeList = kpiViewMode === 'FACTORY' ? factoryChartData : monthlyChartData;
+              if (!activeList.length) {
+                return (
+                  <div className="h-64 flex items-center justify-center border border-dashed border-slate-200 rounded-xl">
+                    <Empty description="Chưa có dữ liệu phù hợp để vẽ biểu đồ cột" />
+                  </div>
+                );
+              }
 
-                    const points = series.values.map((v, i) => {
-                      const x = 30 + i * step;
-                      const y = 175 - (v / maxVal) * 140;
-                      return `${x},${y}`;
-                    });
-                    const d = 'M ' + points.join(' L ');
+              const maxCol = Math.max(1, ...activeList.map(item => item.passed));
 
-                    return (
-                      <g key={series.team}>
-                        <path
-                          d={d}
-                          fill="none"
-                          stroke={series.color}
-                          strokeWidth="2.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                        {series.values.map((v, i) => {
-                          const cx = 30 + i * step;
-                          const cy = 175 - (v / maxVal) * 140;
-                          return (
-                            <circle
-                              key={i}
-                              cx={cx}
-                              cy={cy}
-                              r="4"
-                              fill="#ffffff"
-                              stroke={series.color}
-                              strokeWidth="2"
+              return (
+                <div className="space-y-2">
+                  <div className="h-64 flex items-end gap-3 sm:gap-6 pt-8 pb-3 px-2 border-b border-slate-200 overflow-x-auto">
+                    {activeList.map(item => {
+                      const retH = Math.max(6, Math.round((item.retained10 / maxCol) * 190));
+                      const quitH = item.quit10 > 0 ? Math.max(4, Math.round((item.quit10 / maxCol) * 190)) : 0;
+                      const isHovered = hoveredBarItem?.name === item.name;
+
+                      return (
+                        <div
+                          key={item.name}
+                          onMouseEnter={() => setHoveredBarItem(item)}
+                          onMouseLeave={() => setHoveredBarItem(null)}
+                          className="flex-1 min-w-[65px] flex flex-col items-center justify-end h-full group cursor-pointer transition-transform"
+                        >
+                          {/* Nhãn % và số lượng trên đầu cột */}
+                          <div className="text-center mb-1.5">
+                            <span className="inline-block px-1.5 py-0.2 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 font-extrabold text-[10px]">
+                              {item.rate}%
+                            </span>
+                            <div className="text-[10px] font-bold text-slate-700 mt-0.5">
+                              {item.passed.toLocaleString('vi-VN')}
+                            </div>
+                          </div>
+
+                          {/* 2 Cột song song: Cột xanh (Đạt 10 công) & Cột vàng (Nghỉ < 10) */}
+                          <div className="w-full flex items-end justify-center gap-1">
+                            <div
+                              className={`w-6 sm:w-8 rounded-t-md bg-emerald-500 transition-all duration-300 ${
+                                isHovered ? 'brightness-110 ring-2 ring-emerald-300' : ''
+                              }`}
+                              style={{ height: `${retH}px` }}
+                              title={`${item.name} · Đạt 10 công: ${item.retained10} người`}
                             />
-                          );
-                        })}
-                      </g>
-                    );
-                  })}
-                </svg>
+                            {item.quit10 > 0 && (
+                              <div
+                                className={`w-3.5 sm:w-5 rounded-t-md bg-amber-400 transition-all duration-300 ${
+                                  isHovered ? 'brightness-110 ring-2 ring-amber-300' : ''
+                                }`}
+                                style={{ height: `${quitH}px` }}
+                                title={`${item.name} · Nghỉ < 10 ngày: ${item.quit10} người`}
+                              />
+                            )}
+                          </div>
 
-                <div className="flex justify-between text-[11px] font-semibold text-slate-400 mt-2 px-6">
-                  {availableMonths.map(m => (
-                    <span key={m}>{m}</span>
-                  ))}
+                          {/* Tên danh mục bên dưới cột */}
+                          <div
+                            className={`text-[11px] font-bold text-center mt-2 truncate w-full ${
+                              isHovered ? 'text-blue-700' : 'text-slate-600'
+                            }`}
+                            title={item.name}
+                          >
+                            {item.name}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Thanh chú thích nhanh khi trỏ chuột vào cột */}
+                  <div className="min-h-[30px] flex items-center justify-between text-xs text-slate-600 px-2 pt-1">
+                    {hoveredBarItem ? (
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span className="font-bold text-slate-900">{hoveredBarItem.name}:</span>
+                        <span>Đỗ: <b className="text-blue-700">{hoveredBarItem.passed}</b></span>
+                        <span>Đạt 10 công: <b className="text-emerald-700">{hoveredBarItem.retained10} ({hoveredBarItem.rate}%)</b></span>
+                        <span>Nghỉ &lt; 10: <b className="text-amber-700">{hoveredBarItem.quit10}</b></span>
+                      </div>
+                    ) : (
+                      <span className="text-slate-400 italic">Di chuột vào từng cột để xem chi tiết số liệu theo từng đơn vị.</span>
+                    )}
+                    <span className="text-slate-400 text-[11px]">
+                      Trục cao nhất: <b>{maxCol.toLocaleString('vi-VN')} đỗ</b>
+                    </span>
+                  </div>
                 </div>
-              </div>
-            </>
-          ) : (
-            <Empty description="Chưa có dữ liệu chuỗi thời gian để vẽ biểu đồ diễn biến" />
-          )}
-        </Card>
-      </div>
+              );
+            })()}
+          </div>
+        </div>
+      </Card>
 
       {/* =========================================================================
           KHỐI 3: NĂNG SUẤT & CHẤT LƯỢNG (100% DỮ LIỆU THỰC)
