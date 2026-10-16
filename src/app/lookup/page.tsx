@@ -22,13 +22,19 @@ export default function LookupPage() {
   const [form] = Form.useForm();
 
   const handleLookup = async (values: any) => {
+    const idCard = values?.idCard?.trim() || "";
+    const code = values?.code?.trim() || "";
+    if (!idCard && !code) {
+      message.warning("Vui lòng nhập Số CCCD hoặc Mã Nhân Viên để tra cứu");
+      return;
+    }
     try {
       setLoading(true);
       setResult(null);
       const res = await fetch("/api/lookup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
+        body: JSON.stringify({ idCard, code }),
       });
       const json = await res.json();
       if (json.success) {
@@ -65,24 +71,32 @@ export default function LookupPage() {
           <Form.Item
             name="idCard"
             label="Số Thẻ Căn Cước Công Dân (CCCD)"
-            rules={[{ required: true, message: "Vui lòng nhập số CCCD" }]}
           >
             <Input
               size="large"
+              allowClear
               placeholder="Nhập 12 chữ số CCCD hoặc 9 số CMT..."
             />
           </Form.Item>
 
+          <div className="relative flex items-center justify-center my-2">
+            <div className="border-t border-slate-200 w-full" />
+            <span className="bg-white px-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider shrink-0">
+              Hoặc tra cứu bằng
+            </span>
+            <div className="border-t border-slate-200 w-full" />
+          </div>
+
           <Form.Item
-            name="lastPhone4"
-            label="4 Số Cuối Điện Thoại Đăng Ký"
-            rules={[
-              { required: true, message: "Vui lòng nhập 4 số cuối SĐT" },
-              { pattern: /^\d{4}$/, message: "Phải đúng 4 chữ số" },
-            ]}
-            extra="Nhập 4 số cuối số điện thoại để đối chiếu xác thực hồ sơ."
+            name="code"
+            label="Mã Nhân Viên (Mã NV)"
+            extra="Chỉ cần nhập 1 trong 2 thông tin (Số CCCD hoặc Mã Nhân Viên) để tra cứu nhanh hồ sơ."
           >
-            <Input size="large" maxLength={4} placeholder="Ví dụ: 4567" />
+            <Input
+              size="large"
+              allowClear
+              placeholder="Ví dụ: V3910429..."
+            />
           </Form.Item>
 
           <Button
@@ -112,11 +126,19 @@ export default function LookupPage() {
                   {result.fullName}
                 </h2>
                 <div className="text-xs text-slate-500 mt-1 flex flex-wrap gap-3">
-                  {result.idCard && (
+                  {result.code && (
+                    <span>
+                      Mã NV:{" "}
+                      <strong className="font-mono text-blue-700">
+                        {result.code}
+                      </strong>
+                    </span>
+                  )}
+                  {(result.idCardDisplay || result.idCard || form.getFieldValue("idCard")) && (
                     <span>
                       CCCD:{" "}
                       <strong className="font-mono text-slate-700">
-                        {result.idCard}
+                        {result.idCardDisplay || result.idCard || form.getFieldValue("idCard")}
                       </strong>
                     </span>
                   )}
