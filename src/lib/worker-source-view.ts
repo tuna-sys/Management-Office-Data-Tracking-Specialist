@@ -46,6 +46,49 @@ const fields: Record<string, string> = {
   "Ngày đào tạo chuẩn": "standardTrainingDate",
   "Tháng nhận việc": "onboardingMonth",
 };
+function sourceHeaderKey(value: string) {
+  return value
+    .normalize("NFKC")
+    .toLocaleLowerCase("vi")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[+‐‑‒–—/-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+const sourceHeaderAliases = new Map<string, string>();
+for (const column of workerSourceColumns)
+  sourceHeaderAliases.set(sourceHeaderKey(column), column);
+for (const [column, aliases] of [
+  ["Đón xe + KTX", ["Đón xe - KTX", "Đón xe / KTX", "Đón xe KTX"]],
+  [
+    "Tình trạng đào tạo",
+    ["Tình trạng Đào tạo dự kiến", "TT ĐT dự kiến"],
+  ],
+] as const)
+  for (const alias of aliases)
+    sourceHeaderAliases.set(sourceHeaderKey(alias), column);
+
+export function normalizeWorkerSourceValues(values: Record<string, unknown>) {
+  const entries = Object.entries(values || {});
+  const result: Record<string, unknown> = Object.fromEntries(
+    entries.map(([key, value]) => [sourceHeader(key), value]),
+  );
+  for (const [key, value] of entries) {
+    const canonical = sourceHeaderAliases.get(sourceHeaderKey(key));
+    if (!canonical) continue;
+    const current = result[canonical];
+    const exactCanonical = sourceHeaderKey(key) === sourceHeaderKey(canonical);
+    if (
+      exactCanonical ||
+      current === undefined ||
+      current === null ||
+      current === ""
+    )
+      result[canonical] = value;
+  }
+  return result;
+}
 export function workerSourceView(worker: any, assignment: any) {
   const result: Record<string, unknown> = {};
   for (const [name, key] of Object.entries(fields))
@@ -58,8 +101,7 @@ export function workerSourceView(worker: any, assignment: any) {
       const snapshot = JSON.parse(
         event.note.slice("Import Excel — source:".length),
       );
-      for (const [k, v] of Object.entries(snapshot.values || {}))
-        result[sourceHeader(k)] = v;
+      Object.assign(result, normalizeWorkerSourceValues(snapshot.values || {}));
       warnings = snapshot.warnings || [];
       hasSource = true;
       break;

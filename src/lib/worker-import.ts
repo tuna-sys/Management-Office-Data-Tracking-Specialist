@@ -36,7 +36,11 @@ const mappings: Record<string, string[]> = {
   orderId: ["Mã liên kết đơn hàng"],
   batchId: ["Mã liên kết đợt"],
   expectedTrainingDate: ["Ngày Đào tạo dự kiến"],
-  expectedTrainingStatus: ["Tình trạng Đào tạo dự kiến", "Tình trạng đào tạo"],
+  expectedTrainingStatus: [
+    "Tình trạng Đào tạo dự kiến",
+    "Tình trạng đào tạo",
+    "TT ĐT dự kiến",
+  ],
   standardTrainingDate: ["Ngày đào tạo chuẩn"],
   onboardingMonth: ["Tháng nhận việc", "Tháng"],
 };
@@ -50,17 +54,30 @@ const dates = [
   "passedDate",
   "startDate",
 ];
+function normalizeImportHeader(value: string) {
+  return value
+    .normalize("NFKC")
+    .toLocaleLowerCase("vi")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[+‐‑‒–—-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 export function parseImportRow(
   raw: Record<string, unknown>,
   sourceImport = false,
 ) {
-  const row = Object.fromEntries(
-    Object.entries(raw).map(([k, v]) => [sourceHeader(k), v]),
+  const row = new Map(
+    Object.entries(raw).map(([k, v]) => [
+      normalizeImportHeader(sourceHeader(k)),
+      v,
+    ]),
   );
   const body: Record<string, string> = {};
   for (const [field, headers] of Object.entries(mappings)) {
     let v = headers
-      .map((h) => row[h])
+      .map((h) => row.get(normalizeImportHeader(h)))
       .find((v) => v !== undefined && v !== null && v !== "");
     if (v === undefined) continue;
     if (["idCard", "phone"].includes(field) && typeof v === "number")

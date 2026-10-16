@@ -1,0 +1,254 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"sources\":[{\"source\":\"gmail\",\"title\":\"Gmail\",\"events\":[{\"event_type\":\"gmail.message_received\",\"title\":\"New email\",\"description\":\"When an email is received in mailbox {{mailbox}} of the account {{account_uid}}\",\"delivery_policy\":\"per_poll_batch\",\"poll_interval_seconds\":600,\"settings\":[{\"key\":\"account_uid\",\"title\":\"Connected account\",\"required\":true},{\"key\":\"mailbox\",\"title\":\"Mailbox\"}],\"matched_fields\":[\"important\"]},{\"event_type\":\"gmail.attachment_received\",\"title\":\"New attachment\",\"description\":\"When an attachment is received in mailbox {{mailbox}} of the account {{account_uid}}\",\"delivery_policy\":\"per_poll_batch\",\"poll_interval_seconds\":600,\"settings\":[{\"key\":\"account_uid\",\"title\":\"Connected account\",\"required\":true},{\"key\":\"mailbox\",\"title\":\"Mailbox\"}],\"matched_fields\":[\"important\"]},{\"event_type\":\"gmail.conversation_started\",\"title\":\"New conversation\",\"description\":\"When a new conversation is started in mailbox {{mailbox}} of the account {{account_uid}}\",\"delivery_policy\":\"per_poll_batch\",\"poll_interval_seconds\":600,\"settings\":[{\"key\":\"account_uid\",\"title\":\"Connected account\",\"required\":true},{\"key\":\"mailbox\",\"title\":\"Mailbox\"}],\"matched_fields\":[\"important\"]},{\"event_type\":\"gmail.message_search_matched\",\"title\":\"New email matching keyword search\",\"description\":\"When a new email contains keywords {{query}} in the account {{account_uid}}\",\"delivery_policy\":\"per_poll_batch\",\"poll_interval_seconds\":600,\"settings\":[{\"key\":\"account_uid\",\"title\":\"Connected account\",\"required\":true},{\"key\":\"query\",\"title\":\"Search query\",\"required\":true}],\"matched_fields\":[\"important\"]},{\"event_type\":\"gmail.conversation_labeled\",\"title\":\"Newly labeled conversation\",\"description\":\"When a conversation is newly labelled in {{label_uid}} of the account {{account_uid}}\",\"delivery_policy\":\"per_poll_batch\",\"poll_interval_seconds\":600,\"settings\":[{\"key\":\"account_uid\",\"title\":\"Connected account\",\"required\":true},{\"key\":\"label_uid\",\"title\":\"Label\",\"required\":true}],\"matched_fields\":[\"important\"]},{\"event_type\":\"gmail.message_labeled\",\"title\":\"Newly labeled email or reply\",\"description\":\"When an email or reply is newly labeled as {{label_uid}} in the account {{account_uid}}\",\"delivery_policy\":\"per_poll_batch\",\"poll_interval_seconds\":600,\"settings\":[{\"key\":\"account_uid\",\"title\":\"Connected account\",\"required\":true},{\"key\":\"label_uid\",\"title\":\"Label\",\"required\":true}],\"matched_fields\":[\"important\"]},{\"event_type\":\"gmail.message_starred\",\"title\":\"Newly starred email\",\"description\":\"When an email is newly starred in the account {{account_uid}}\",\"delivery_policy\":\"per_poll_batch\",\"poll_interval_seconds\":600,\"settings\":[{\"key\":\"account_uid\",\"title\":\"Connected account\",\"required\":true}],\"matched_fields\":[\"important\"]}],\"description\":\"New email · New attachment · New label\"},{\"source\":\"outlook_mail\",\"title\":\"Outlook Mail\",\"events\":[{\"event_type\":\"outlook_mail.message_received\",\"title\":\"New email\",\"description\":\"When a new email is received in folder {{folder_uid}}\",\"delivery_policy\":\"per_poll_batch\",\"poll_interval_seconds\":600,\"settings\":[{\"key\":\"folder_uid\",\"title\":\"Folder\"}],\"matched_fields\":[\"importance\"]},{\"event_type\":\"outlook_mail.shared_message_received\",\"title\":\"New email in shared mailbox\",\"description\":\"When a new email is received in shared mailbox {{mailbox}}\",\"delivery_policy\":\"per_poll_batch\",\"poll_interval_seconds\":600,\"settings\":[{\"key\":\"mailbox\",\"title\":\"Mailbox\",\"required\":true},{\"key\":\"folder_uid\",\"title\":\"Folder\"}],\"matched_fields\":[\"importance\"]},{\"event_type\":\"outlook_mail.message_search_matched\",\"title\":\"New email matching keyword search\",\"description\":\"When a new email contains keywords {{query}}\",\"delivery_policy\":\"per_poll_batch\",\"poll_interval_seconds\":600,\"settings\":[{\"key\":\"query\",\"title\":\"Search query\",\"required\":true}],\"matched_fields\":[\"importance\"]},{\"event_type\":\"outlook_mail.message_flagged\",\"title\":\"Email gets flagged\",\"description\":\"When an email gets flagged in folder {{folder_uid}}\",\"delivery_policy\":\"per_poll_batch\",\"poll_interval_seconds\":600,\"settings\":[{\"key\":\"folder_uid\",\"title\":\"Folder\"}],\"matched_fields\":[\"importance\"]},{\"event_type\":\"outlook_mail.attachment_received\",\"title\":\"New attachment received\",\"description\":\"When a new attachment is received in folder {{folder_uid}}\",\"delivery_policy\":\"per_poll_batch\",\"poll_interval_seconds\":600,\"settings\":[{\"key\":\"folder_uid\",\"title\":\"Folder\"}],\"matched_fields\":[\"importance\"]},{\"event_type\":\"outlook_mail.folder_message_added\",\"title\":\"Message enters a folder\",\"description\":\"When a message enters the folder {{folder_uid}}\",\"delivery_policy\":\"per_poll_batch\",\"poll_interval_seconds\":600,\"settings\":[{\"key\":\"folder_uid\",\"title\":\"Folder\",\"required\":true}],\"matched_fields\":[\"importance\"]}],\"description\":\"New email · New attachment · New contact · Updated contact\"},{\"source\":\"outlook_calendar\",\"title\":\"Outlook Calendar\",\"events\":[{\"event_type\":\"outlook_calendar.event_created\",\"title\":\"New calendar event\",\"description\":\"When a new event is added in calendar {{calendar_uid}}\",\"delivery_policy\":\"per_poll_batch\",\"poll_interval_seconds\":600,\"settings\":[{\"key\":\"calendar_uid\",\"title\":\"Calendar\"}],\"matched_fields\":[\"importance\"]},{\"event_type\":\"outlook_calendar.event_starting\",\"title\":\"Calendar event starting\",\"description\":\"{{lead_minutes}} minutes before an event from the calendar {{calendar_uid}} starts\",\"delivery_policy\":\"per_poll_batch\",\"poll_interval_seconds\":600,\"settings\":[{\"key\":\"calendar_uid\",\"title\":\"Calendar\"},{\"key\":\"lead_minutes\",\"title\":\"Minutes before start\"}],\"matched_fields\":[\"importance\"]},{\"event_type\":\"outlook_calendar.event_cancelled\",\"title\":\"Calendar event cancelled\",\"description\":\"When an event is cancelled in calendar {{calendar_uid}}\",\"delivery_policy\":\"per_poll_batch\",\"poll_interval_seconds\":600,\"settings\":[{\"key\":\"calendar_uid\",\"title\":\"Calendar\"}],\"matched_fields\":[\"importance\"]},{\"event_type\":\"outlook_calendar.attendee_event_cancelled\",\"title\":\"Accepted calendar event cancelled\",\"description\":\"When an event I have accepted is cancelled in calendar {{calendar_uid}}\",\"delivery_policy\":\"per_poll_batch\",\"poll_interval_seconds\":600,\"settings\":[{\"key\":\"calendar_uid\",\"title\":\"Calendar\"}],\"matched_fields\":[\"importance\"]},{\"event_type\":\"outlook_calendar.event_updated\",\"title\":\"Updated calendar event\",\"description\":\"When an event is updated in calendar {{calendar_uid}}\",\"delivery_policy\":\"per_poll_batch\",\"poll_interval_seconds\":600,\"settings\":[{\"key\":\"calendar_uid\",\"title\":\"Calendar\"}],\"matched_fields\":[\"importance\"]}],\"description\":\"New calendar event · Updated calendar event · Calendar cancellation confirmed\"}],\"note\":\"Index only. Call list_events with this source and event_type to get setting value paths, filter fields and operators before creating a trigger.\"}"
+    }
+  ],
+  "structuredContent": {
+    "sources": [
+      {
+        "source": "gmail",
+        "title": "Gmail",
+        "events": [
+          {
+            "event_type": "gmail.message_received",
+            "title": "New email",
+            "description": "When an email is received in mailbox {{mailbox}} of the account {{account_uid}}",
+            "delivery_policy": "per_poll_batch",
+            "poll_interval_seconds": 600,
+            "settings": [
+              {
+                "key": "account_uid",
+                "title": "Connected account",
+                "required": true
+              },
+              { "key": "mailbox", "title": "Mailbox" }
+            ],
+            "matched_fields": ["important"]
+          },
+          {
+            "event_type": "gmail.attachment_received",
+            "title": "New attachment",
+            "description": "When an attachment is received in mailbox {{mailbox}} of the account {{account_uid}}",
+            "delivery_policy": "per_poll_batch",
+            "poll_interval_seconds": 600,
+            "settings": [
+              {
+                "key": "account_uid",
+                "title": "Connected account",
+                "required": true
+              },
+              { "key": "mailbox", "title": "Mailbox" }
+            ],
+            "matched_fields": ["important"]
+          },
+          {
+            "event_type": "gmail.conversation_started",
+            "title": "New conversation",
+            "description": "When a new conversation is started in mailbox {{mailbox}} of the account {{account_uid}}",
+            "delivery_policy": "per_poll_batch",
+            "poll_interval_seconds": 600,
+            "settings": [
+              {
+                "key": "account_uid",
+                "title": "Connected account",
+                "required": true
+              },
+              { "key": "mailbox", "title": "Mailbox" }
+            ],
+            "matched_fields": ["important"]
+          },
+          {
+            "event_type": "gmail.message_search_matched",
+            "title": "New email matching keyword search",
+            "description": "When a new email contains keywords {{query}} in the account {{account_uid}}",
+            "delivery_policy": "per_poll_batch",
+            "poll_interval_seconds": 600,
+            "settings": [
+              {
+                "key": "account_uid",
+                "title": "Connected account",
+                "required": true
+              },
+              { "key": "query", "title": "Search query", "required": true }
+            ],
+            "matched_fields": ["important"]
+          },
+          {
+            "event_type": "gmail.conversation_labeled",
+            "title": "Newly labeled conversation",
+            "description": "When a conversation is newly labelled in {{label_uid}} of the account {{account_uid}}",
+            "delivery_policy": "per_poll_batch",
+            "poll_interval_seconds": 600,
+            "settings": [
+              {
+                "key": "account_uid",
+                "title": "Connected account",
+                "required": true
+              },
+              { "key": "label_uid", "title": "Label", "required": true }
+            ],
+            "matched_fields": ["important"]
+          },
+          {
+            "event_type": "gmail.message_labeled",
+            "title": "Newly labeled email or reply",
+            "description": "When an email or reply is newly labeled as {{label_uid}} in the account {{account_uid}}",
+            "delivery_policy": "per_poll_batch",
+            "poll_interval_seconds": 600,
+            "settings": [
+              {
+                "key": "account_uid",
+                "title": "Connected account",
+                "required": true
+              },
+              { "key": "label_uid", "title": "Label", "required": true }
+            ],
+            "matched_fields": ["important"]
+          },
+          {
+            "event_type": "gmail.message_starred",
+            "title": "Newly starred email",
+            "description": "When an email is newly starred in the account {{account_uid}}",
+            "delivery_policy": "per_poll_batch",
+            "poll_interval_seconds": 600,
+            "settings": [
+              {
+                "key": "account_uid",
+                "title": "Connected account",
+                "required": true
+              }
+            ],
+            "matched_fields": ["important"]
+          }
+        ],
+        "description": "New email · New attachment · New label"
+      },
+      {
+        "source": "outlook_mail",
+        "title": "Outlook Mail",
+        "events": [
+          {
+            "event_type": "outlook_mail.message_received",
+            "title": "New email",
+            "description": "When a new email is received in folder {{folder_uid}}",
+            "delivery_policy": "per_poll_batch",
+            "poll_interval_seconds": 600,
+            "settings": [{ "key": "folder_uid", "title": "Folder" }],
+            "matched_fields": ["importance"]
+          },
+          {
+            "event_type": "outlook_mail.shared_message_received",
+            "title": "New email in shared mailbox",
+            "description": "When a new email is received in shared mailbox {{mailbox}}",
+            "delivery_policy": "per_poll_batch",
+            "poll_interval_seconds": 600,
+            "settings": [
+              { "key": "mailbox", "title": "Mailbox", "required": true },
+              { "key": "folder_uid", "title": "Folder" }
+            ],
+            "matched_fields": ["importance"]
+          },
+          {
+            "event_type": "outlook_mail.message_search_matched",
+            "title": "New email matching keyword search",
+            "description": "When a new email contains keywords {{query}}",
+            "delivery_policy": "per_poll_batch",
+            "poll_interval_seconds": 600,
+            "settings": [
+              { "key": "query", "title": "Search query", "required": true }
+            ],
+            "matched_fields": ["importance"]
+          },
+          {
+            "event_type": "outlook_mail.message_flagged",
+            "title": "Email gets flagged",
+            "description": "When an email gets flagged in folder {{folder_uid}}",
+            "delivery_policy": "per_poll_batch",
+            "poll_interval_seconds": 600,
+            "settings": [{ "key": "folder_uid", "title": "Folder" }],
+            "matched_fields": ["importance"]
+          },
+          {
+            "event_type": "outlook_mail.attachment_received",
+            "title": "New attachment received",
+            "description": "When a new attachment is received in folder {{folder_uid}}",
+            "delivery_policy": "per_poll_batch",
+            "poll_interval_seconds": 600,
+            "settings": [{ "key": "folder_uid", "title": "Folder" }],
+            "matched_fields": ["importance"]
+          },
+          {
+            "event_type": "outlook_mail.folder_message_added",
+            "title": "Message enters a folder",
+            "description": "When a message enters the folder {{folder_uid}}",
+            "delivery_policy": "per_poll_batch",
+            "poll_interval_seconds": 600,
+            "settings": [
+              { "key": "folder_uid", "title": "Folder", "required": true }
+            ],
+            "matched_fields": ["importance"]
+          }
+        ],
+        "description": "New email · New attachment · New contact · Updated contact"
+      },
+      {
+        "source": "outlook_calendar",
+        "title": "Outlook Calendar",
+        "events": [
+          {
+            "event_type": "outlook_calendar.event_created",
+            "title": "New calendar event",
+            "description": "When a new event is added in calendar {{calendar_uid}}",
+            "delivery_policy": "per_poll_batch",
+            "poll_interval_seconds": 600,
+            "settings": [{ "key": "calendar_uid", "title": "Calendar" }],
+            "matched_fields": ["importance"]
+          },
+          {
+            "event_type": "outlook_calendar.event_starting",
+            "title": "Calendar event starting",
+            "description": "{{lead_minutes}} minutes before an event from the calendar {{calendar_uid}} starts",
+            "delivery_policy": "per_poll_batch",
+            "poll_interval_seconds": 600,
+            "settings": [
+              { "key": "calendar_uid", "title": "Calendar" },
+              { "key": "lead_minutes", "title": "Minutes before start" }
+            ],
+            "matched_fields": ["importance"]
+          },
+          {
+            "event_type": "outlook_calendar.event_cancelled",
+            "title": "Calendar event cancelled",
+            "description": "When an event is cancelled in calendar {{calendar_uid}}",
+            "delivery_policy": "per_poll_batch",
+            "poll_interval_seconds": 600,
+            "settings": [{ "key": "calendar_uid", "title": "Calendar" }],
+            "matched_fields": ["importance"]
+          },
+          {
+            "event_type": "outlook_calendar.attendee_event_cancelled",
+            "title": "Accepted calendar event cancelled",
+            "description": "When an event I have accepted is cancelled in calendar {{calendar_uid}}",
+            "delivery_policy": "per_poll_batch",
+            "poll_interval_seconds": 600,
+            "settings": [{ "key": "calendar_uid", "title": "Calendar" }],
+            "matched_fields": ["importance"]
+          },
+          {
+            "event_type": "outlook_calendar.event_updated",
+            "title": "Updated calendar event",
+            "description": "When an event is updated in calendar {{calendar_uid}}",
+            "delivery_policy": "per_poll_batch",
+            "poll_interval_seconds": 600,
+            "settings": [{ "key": "calendar_uid", "title": "Calendar" }],
+            "matched_fields": ["importance"]
+          }
+        ],
+        "description": "New calendar event · Updated calendar event · Calendar cancellation confirmed"
+      }
+    ],
+    "note": "Index only. Call list_events with this source and event_type to get setting value paths, filter fields and operators before creating a trigger."
+  }
+}
