@@ -447,7 +447,7 @@ export default function ExcelToolsPage() {
                   <CheckCircle2 className="w-4 h-4" />
                   Kết Quả Xử Lý Dữ Liệu
                 </h4>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-center">
+                <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 text-center">
                   {[
                     {
                       label: "Tổng dòng",
@@ -471,6 +471,11 @@ export default function ExcelToolsPage() {
                       value: result.summary?.duplicateCount || 0,
                       color: "text-rose-700",
                     },
+                    {
+                      label: "Không thể chuẩn hóa",
+                      value: result.summary?.errorCount || 0,
+                      color: "text-red-700",
+                    },
                   ].map((item) => (
                     <div key={item.label} className="bg-white p-3 rounded-lg">
                       <div className={`text-sm ${item.color}`}>
@@ -483,6 +488,13 @@ export default function ExcelToolsPage() {
                   ))}
                 </div>
               </div>
+              {result.preview && (
+                <Alert
+                  type={result.summary?.errorCount ? "warning" : "success"}
+                  showIcon
+                  message={`Cảnh báo ${result.summary?.warningCount || 0} dòng không chặn nạp. ${result.summary?.errorCount || 0} dòng thiếu/sai dữ liệu bắt buộc mới không được ghi vào danh sách nghiệp vụ; toàn bộ dòng nguồn vẫn được lưu để đối chiếu.`}
+                />
+              )}
               {result.detectedType === "DS_THUONG" &&
                 result.summary?.newWorkerCount > 0 && (
                   <Alert
@@ -524,7 +536,7 @@ export default function ExcelToolsPage() {
                       loading={uploading}
                       className="bg-emerald-600 hover:bg-emerald-500 font-bold shadow-md text-white"
                     >
-                      Xác nhận ghi dữ liệu và tách{" "}
+                      Xác nhận nạp {result.summary?.readyCount || 0} dòng và tách{" "}
                       {result.summary?.duplicateCount || 0} dòng trùng
                     </Button>
                   </Popconfirm>

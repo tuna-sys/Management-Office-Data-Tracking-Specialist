@@ -49,10 +49,10 @@ const raw = {
   "Số CCCD": "000000000001",
   STK: "000123456789",
   "Ngân hàng": "QA Bank",
-  "Thưởng lần 1": 300000,
+  "Thưởng lần 1": "Xét 1 tháng - 2tr - 25/10",
   "Thưởng lần 2": "—",
-  "Thưởng lần 3": "100,000",
-  "Thưởng lần 4": 0,
+  "Thưởng lần 3": "Ck - 500k - Đã chốt 16/09",
+  "Thưởng lần 4": "Đang chờ xác nhận từ công ty",
   "Thưởng lần 5": 50000,
   "Thưởng lần 6": "-",
   "Thưởng lần 7": 25000,
@@ -70,9 +70,11 @@ assert.equal(parsed.accountNumber, "000123456789");
 assert.equal(parsed.bankName, "QA Bank");
 assert.deepEqual(
   Array.from(parsed.bonuses),
-  [300000, 0, 100000, 0, 50000, 0, 25000],
+  [2000000, 0, 500000, 0, 50000, 0, 25000],
 );
-assert.equal(parsed.totalBonus, 475000);
+assert.equal(parsed.totalBonus, 2575000);
+assert.equal(parsed.amountWarnings.length, 1);
+assert.match(parsed.amountWarnings[0], /không suy ra được số tiền/);
 const statusRaw = {
   ...raw,
   STT: 8,
@@ -241,15 +243,19 @@ const makeRequest = (confirm) => ({
       saved.bonus6,
       saved.bonus7,
     ],
-    [300000, 0, 100000, 0, 50000, 0, 25000],
+    [2000000, 0, 500000, 0, 50000, 0, 25000],
   );
-  assert.equal(saved.totalBonus, 475000);
+  assert.equal(saved.totalBonus, 2575000);
   const source = JSON.parse(saved.note);
   assert.equal(source.sequence, "7");
   assert.equal(source.sourceValues["Họ tên"], "Nguyễn Văn A");
   assert.equal(source.sourceValues["Số CCCD"], "000000000001");
   assert.equal(source.sourceValues.STK, "000123456789");
   assert.equal(source.sourceValues["Ngân hàng"], "QA Bank");
+  assert.equal(source.rewards[0], "Xét 1 tháng - 2tr - 25/10");
+  assert.equal(source.rewards[2], "Ck - 500k - Đã chốt 16/09");
+  assert.equal(source.rewards[3], "Đang chờ xác nhận từ công ty");
+  assert.ok(savedWarnings.some((warning) => warning.includes("Thưởng lần 4")));
   const statusSaved = writtenBonuses[1];
   assert.deepEqual(
     [

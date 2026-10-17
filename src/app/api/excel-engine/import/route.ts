@@ -432,7 +432,10 @@ export async function POST(request: NextRequest) {
             sequence,
             bonuses,
             totalBonus,
+            amountWarnings,
           } = parsed;
+          for (const warning of amountWarnings)
+            warnings.push(`Dòng ${e.row}: ${warning}`);
           if (!company) throw new Error("Thiếu công ty");
           if (typeof cccdRaw === "number")
             warnings.push(
