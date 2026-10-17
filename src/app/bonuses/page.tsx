@@ -29,6 +29,10 @@ import {
   LayoutDashboard,
   ArrowLeft,
   Award,
+  Search,
+  Fingerprint,
+  RotateCcw,
+  User,
 } from "lucide-react";
 const MONTHS = [
   "T01.2026",
@@ -67,17 +71,34 @@ export default function BonusesPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [selectedCompany, setSelectedCompany] = useState("");
+  const [idCardFilter, setIdCardFilter] = useState("");
+  const [workerCodeFilter, setWorkerCodeFilter] = useState("");
   // Modal thêm thưởng
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [workersList, setWorkersList] = useState<any[]>([]);
   const [addForm] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
+
+  const hasActiveFilters = Boolean(
+    selectedMonth || selectedCompany || idCardFilter || workerCodeFilter,
+  );
+
+  const handleResetFilters = () => {
+    setSelectedMonth("");
+    setSelectedCompany("");
+    setIdCardFilter("");
+    setWorkerCodeFilter("");
+    setCurrentPage(1);
+  };
+
   const fetchBonuses = async () => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
       if (selectedMonth) params.append("month", selectedMonth);
       if (selectedCompany) params.append("company", selectedCompany);
+      if (idCardFilter.trim()) params.append("idCard", idCardFilter.trim());
+      if (workerCodeFilter.trim()) params.append("workerCode", workerCodeFilter.trim());
       const res = await fetch(`/api/bonuses?${params.toString()}`);
       const json = await res.json();
       if (json.success) {
@@ -89,6 +110,7 @@ export default function BonusesPage() {
       setLoading(false);
     }
   };
+
   const fetchWorkers = async () => {
     try {
       const res = await fetch("/api/workers");
@@ -100,8 +122,8 @@ export default function BonusesPage() {
       console.error(err);
     }
   };
+
   useEffect(() => {
-    fetchBonuses();
     fetchWorkers();
     fetch("/api/policies")
       .then((r) => r.json())
@@ -109,7 +131,14 @@ export default function BonusesPage() {
         if (j.success) setPolicies(j.data.filter((p: any) => p.isActive));
       })
       .catch(() => message.error("Không thể tải chính sách"));
-  }, [selectedMonth, selectedCompany]);
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchBonuses();
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [selectedMonth, selectedCompany, idCardFilter, workerCodeFilter]);
   // Duyệt thưởng
   const handleApprove = async (id: string, newStatus: string) => {
     if (
@@ -425,35 +454,83 @@ export default function BonusesPage() {
 
       {/* Filter & Summary Bar */}
       <Card className="shadow-sm border-slate-200">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-bold text-slate-700">
-              Chọn Kỳ Tháng:
-            </span>
-            <Select
-              value={selectedMonth}
-              onChange={setSelectedMonth}
-              className="w-36"
-              options={[
-                { label: "Tất cả tháng", value: "" },
-                ...MONTHS.map((m) => ({ label: m, value: m })),
-              ]}
-            />
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-3 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-700 whitespace-nowrap">
+                Chọn Kỳ Tháng:
+              </span>
+              <Select
+                value={selectedMonth}
+                onChange={(v) => {
+                  setSelectedMonth(v);
+                  setCurrentPage(1);
+                }}
+                className="w-36"
+                options={[
+                  { label: "Tất cả tháng", value: "" },
+                  ...MONTHS.map((m) => ({ label: m, value: m })),
+                ]}
+              />
+            </div>
+
             <Select
               placeholder="Tất cả Nhà máy"
               allowClear
               value={selectedCompany || undefined}
-              onChange={(v) => setSelectedCompany(v || "")}
-              className="w-48"
+              onChange={(v) => {
+                setSelectedCompany(v || "");
+                setCurrentPage(1);
+              }}
+              className="w-44"
               options={FACTORIES.map((f) => ({ label: f, value: f }))}
             />
+
+            {/* Bộ lọc theo Căn cước (CCCD) */}
+            <Input
+              placeholder="Lọc theo số CCCD..."
+              allowClear
+              prefix={<Search className="w-3.5 h-3.5 text-slate-400" />}
+              value={idCardFilter}
+              onChange={(e) => {
+                setIdCardFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              onPressEnter={fetchBonuses}
+              className="w-44 sm:w-48"
+            />
+
+            {/* Bộ lọc theo Mã nhân viên */}
+            <Input
+              placeholder="Lọc theo Mã NV..."
+              allowClear
+              prefix={<Fingerprint className="w-3.5 h-3.5 text-slate-400" />}
+              value={workerCodeFilter}
+              onChange={(e) => {
+                setWorkerCodeFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              onPressEnter={fetchBonuses}
+              className="w-40 sm:w-44"
+            />
+
+            {hasActiveFilters && (
+              <Button
+                size="middle"
+                onClick={handleResetFilters}
+                icon={<RotateCcw className="w-3.5 h-3.5" />}
+                className="text-xs text-slate-500 hover:text-red-600 hover:border-red-300"
+              >
+                Đặt lại
+              </Button>
+            )}
           </div>
 
-          <div className="flex items-center gap-4 bg-amber-50 px-4 py-2 rounded-xl border border-amber-200">
+          <div className="flex items-center gap-4 bg-amber-50 px-4 py-2.5 rounded-xl border border-amber-200 shrink-0">
             <Coins className="w-5 h-5 text-amber-600" />
             <div>
               <div className="text-[11px] text-amber-700 font-semibold uppercase">
-                Tổng số tiền trong danh sách {selectedMonth || "tất cả tháng"}
+                Tổng tiền ({bonuses.length.toLocaleString("vi-VN")} bản ghi)
               </div>
               <div className="text-lg font-black text-amber-800">
                 {totalMonthAmount.toLocaleString("vi-VN")} VNĐ

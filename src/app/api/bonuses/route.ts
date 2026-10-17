@@ -10,10 +10,31 @@ export async function GET(request: NextRequest) {
     const month = searchParams.get("month") || "";
     const company = searchParams.get("company") || "";
     const status = searchParams.get("status") || "";
+    const idCard = searchParams.get("idCard")?.trim() || "";
+    const workerCode = searchParams.get("workerCode")?.trim() || "";
+    const search = searchParams.get("search")?.trim() || "";
+
     const whereClause: any = {};
     if (month) whereClause.month = month;
     if (company) whereClause.company = company;
     if (status) whereClause.status = status;
+    if (workerCode) {
+      whereClause.workerCode = { contains: workerCode };
+    }
+    if (idCard) {
+      whereClause.worker = {
+        is: {
+          idCard: { contains: idCard },
+        },
+      };
+    }
+    if (search) {
+      whereClause.OR = [
+        { workerCode: { contains: search } },
+        { worker: { is: { idCard: { contains: search } } } },
+        { worker: { is: { fullName: { contains: search } } } },
+      ];
+    }
     const bonuses = await prisma.bonusRecord.findMany({
       where: whereClause,
       include: {
