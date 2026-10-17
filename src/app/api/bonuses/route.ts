@@ -2,18 +2,56 @@ import { guard, identity } from "@/lib/auth";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { canTransition, validAmount, validMonth } from "@/lib/payment-safety";
+import { dateKey } from "@/lib/worker-validation";
+
+function filterValues(params: URLSearchParams, key: string) {
+  return [
+    ...new Set(
+      params
+        .getAll(key)
+        .flatMap((value) => value.split(","))
+        .map((value) => value.trim())
+        .filter(Boolean),
+    ),
+  ];
+}
+
 export async function GET(request: NextRequest) {
   const denied = await guard(request, "read");
   if (denied) return denied;
   try {
     const { searchParams } = new URL(request.url);
-    const month = searchParams.get("month") || "";
-    const company = searchParams.get("company") || "";
+    const months = filterValues(searchParams, "month");
+    const companies = filterValues(searchParams, "company");
     const status = searchParams.get("status") || "";
+    const idCard = searchParams.get("idCard")?.trim() || "";
+    const workerCode = searchParams.get("workerCode")?.trim() || "";
+    const search = searchParams.get("search")?.trim() || "";
+
     const whereClause: any = {};
-    if (month) whereClause.month = month;
-    if (company) whereClause.company = company;
+    if (months.length === 1) whereClause.month = months[0];
+    else if (months.length > 1) whereClause.month = { in: months };
+    if (companies.length === 1) whereClause.company = companies[0];
+    else if (companies.length > 1) whereClause.company = { in: companies };
     if (status) whereClause.status = status;
+    if (workerCode) {
+      whereClause.workerCode = { contains: workerCode };
+    }
+    if (idCard) {
+      whereClause.worker = {
+        is: {
+          idCard: { contains: idCard },
+        },
+      };
+    }
+    if (search) {
+      whereClause.OR = [
+        { workerCode: { contains: search } },
+        { worker: { is: { idCard: { contains: search } } } },
+        { worker: { is: { fullName: { contains: search } } } },
+      ];
+    }
+    const orderDirection = searchParams.get("order") === "desc" ? "desc" : "asc";
     const bonuses = await prisma.bonusRecord.findMany({
       where: whereClause,
       include: {
@@ -23,7 +61,7 @@ export async function GET(request: NextRequest) {
           },
         },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: { createdAt: orderDirection },
     });
     return NextResponse.json({ success: true, data: bonuses });
   } catch (error: any) {
@@ -43,28 +81,49 @@ export async function POST(request: NextRequest) {
   if (denied) return denied;
   try {
     const body = await request.json();
+    const workerId = body?.workerId;
+    const assignmentId = body?.assignmentId;
     const {
-      workerId,
       company,
       month,
       interviewDate,
       policy,
-      bonus1 = 0,
-      bonus2 = 0,
-      bonus3 = 0,
-      bonus4 = 0,
-      bonus5 = 0,
-      bonus6 = 0,
-      bonus7 = 0,
+      workerCode,
+      accountNumber,
+      bankName,
     } = body || {};
+    const amounts = Array.from(
+      { length: 7 },
+      (_, index) => body?.[`bonus${index + 1}`] ?? 0,
+    );
     if (
       !body ||
       typeof workerId !== "string" ||
       !workerId.trim() ||
       !validMonth(month) ||
-      ![bonus1, bonus2, bonus3, bonus4, bonus5, bonus6, bonus7].every(
-        validAmount,
-      )
+      typeof company !== "string" ||
+      !company.trim() ||
+      company.trim().length > 200 ||
+      (assignmentId !== undefined &&
+        assignmentId !== null &&
+        typeof assignmentId !== "string") ||
+      (interviewDate !== undefined &&
+        interviewDate !== null &&
+        (typeof interviewDate !== "string" || interviewDate.length > 100)) ||
+      (interviewDate && !dateKey(interviewDate)) ||
+      (policy !== undefined &&
+        policy !== null &&
+        (typeof policy !== "string" || policy.length > 1000)) ||
+      (workerCode !== undefined &&
+        workerCode !== null &&
+        (typeof workerCode !== "string" || workerCode.length > 100)) ||
+      (accountNumber !== undefined &&
+        accountNumber !== null &&
+        (typeof accountNumber !== "string" || accountNumber.length > 100)) ||
+      (bankName !== undefined &&
+        bankName !== null &&
+        (typeof bankName !== "string" || bankName.length > 200)) ||
+      !amounts.every(validAmount)
     ) {
       return NextResponse.json(
         {
@@ -74,14 +133,7 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
-    const totalBonus =
-      Number(bonus1) +
-      Number(bonus2) +
-      Number(bonus3) +
-      Number(bonus4) +
-      Number(bonus5) +
-      Number(bonus6) +
-      Number(bonus7);
+    const totalBonus = amounts.reduce((sum, amount) => sum + amount, 0);
     if (!validAmount(totalBonus))
       return NextResponse.json(
         {
@@ -95,42 +147,95 @@ export async function POST(request: NextRequest) {
       const worker = await tx.worker.findUnique({
         where: { id: workerId },
         include: {
-          assignments: {
-            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-            take: 1,
-          },
+          assignments: true,
+          bankAccounts: { orderBy: { createdAt: "desc" } },
         },
       });
-      if (!worker || !worker.assignments[0])
-        throw new Error("BONUS_WORKER_MISSING");
-      const assignment = worker.assignments[0];
-      if (body.assignmentId !== assignment.id)
+      if (!worker) throw new Error("BONUS_WORKER_MISSING");
+      const assignment = assignmentId
+        ? worker.assignments.find((item) => item.id === assignmentId)
+        : null;
+      if (assignmentId && !assignment)
         throw new Error("BONUS_ASSIGNMENT_CHANGED");
+      const fallbackBank = worker.bankAccounts[0];
+      const resolvedCompany =
+        company.trim() ||
+        assignment?.workingFactory ||
+        assignment?.interviewFactory ||
+        "";
+      const resolvedInterviewDate = (
+        interviewDate ||
+        assignment?.interviewDate ||
+        ""
+      ).trim();
+      if (
+        !resolvedCompany ||
+        (resolvedInterviewDate && !dateKey(resolvedInterviewDate))
+      )
+        throw new Error("BONUS_FIELDS_INVALID");
       if (
         await tx.bonusRecord.findFirst({
           where: {
             workerId,
             month,
-            OR: [{ assignmentId: assignment.id }, { assignmentId: null }],
+            company: resolvedCompany,
+            ...(assignment
+              ? {
+                  OR: [{ assignmentId: assignment.id }, { assignmentId: null }],
+                }
+              : { assignmentId: null }),
           },
         })
       )
         throw new Error("BONUS_ALREADY_EXISTS");
+      const inputAccount =
+        typeof accountNumber === "string" && accountNumber.trim()
+          ? accountNumber.trim()
+          : null;
+      const inputBankName =
+        typeof bankName === "string" && bankName.trim()
+          ? bankName.trim()
+          : null;
+      if (tx.bankAccount && inputAccount) {
+        const existingBank = await tx.bankAccount.findFirst({
+          where: { workerId, accountNumber: inputAccount },
+        });
+        if (existingBank) {
+          if (inputBankName && !existingBank.bankName) {
+            await tx.bankAccount.update({
+              where: { id: existingBank.id },
+              data: { bankName: inputBankName },
+            });
+          }
+        } else {
+          await tx.bankAccount.create({
+            data: {
+              workerId,
+              accountNumber: inputAccount,
+              bankName: inputBankName || "Chưa xác định",
+              accountHolderName: worker.fullName,
+              isNameVerified: true,
+              verificationStatus: "VERIFIED",
+            },
+          });
+        }
+      }
       const created = await tx.bonusRecord.create({
         data: {
           workerId,
-          assignmentId: assignment.id,
-          company: assignment.workingFactory || assignment.interviewFactory,
+          assignmentId: assignment?.id || null,
+          company: resolvedCompany,
           month,
-          interviewDate,
-          policy: typeof policy === "string" ? policy.trim() : null,
-          bonus1: Number(bonus1),
-          bonus2: Number(bonus2),
-          bonus3: Number(bonus3),
-          bonus4: Number(bonus4),
-          bonus5: Number(bonus5),
-          bonus6: Number(bonus6),
-          bonus7: Number(bonus7),
+          interviewDate: resolvedInterviewDate || null,
+          policy:
+            typeof policy === "string" && policy.trim() ? policy.trim() : null,
+          workerCode:
+            typeof workerCode === "string" && workerCode.trim()
+              ? workerCode.trim()
+              : assignment?.employeeCode || worker.code || null,
+          ...Object.fromEntries(
+            amounts.map((amount, index) => [`bonus${index + 1}`, amount]),
+          ),
           totalBonus,
           status: "DRAFT",
         },
@@ -143,7 +248,11 @@ export async function POST(request: NextRequest) {
           details: `Tạo dự thảo thưởng kỳ ${month} cho công nhân - Tổng tiền: ${totalBonus.toLocaleString("vi-VN")} đ`,
         },
       });
-      return created;
+      return {
+        ...created,
+        accountNumber: inputAccount || fallbackBank?.accountNumber || null,
+        bankName: inputBankName || fallbackBank?.bankName || null,
+      };
     });
     return NextResponse.json({ success: true, data: record }, { status: 201 });
   } catch (error: any) {
@@ -176,6 +285,14 @@ export async function POST(request: NextRequest) {
           message: "Không tìm thấy lao động hoặc đợt tuyển dụng",
         },
         { status: 404 },
+      );
+    if (error.message === "BONUS_FIELDS_INVALID")
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Thông tin công ty hoặc ngày PV không hợp lệ",
+        },
+        { status: 400 },
       );
     return NextResponse.json(
       { success: false, message: "Không thể xử lý yêu cầu lúc này" },
@@ -296,12 +413,25 @@ export async function PATCH(request: NextRequest) {
     );
   }
   const amounts = Array.from({ length: 7 }, (_, i) => body?.[`bonus${i + 1}`]);
+  const limits: Record<string, number> = {
+    company: 200,
+    interviewDate: 100,
+    policy: 1000,
+    workerCode: 100,
+    accountNumber: 100,
+    bankName: 200,
+  };
   if (
     typeof body?.id !== "string" ||
     !amounts.every(validAmount) ||
     !validAmount(amounts.reduce((sum, n) => sum + n, 0)) ||
-    typeof body.policy !== "string" ||
-    body.policy.length > 1000
+    Object.entries(limits).some(
+      ([field, limit]) =>
+        body[field] !== undefined &&
+        body[field] !== null &&
+        (typeof body[field] !== "string" || body[field].length > limit),
+    ) ||
+    (body.interviewDate && !dateKey(body.interviewDate))
   )
     return NextResponse.json(
       { success: false, message: "Chi tiết thưởng không hợp lệ" },
@@ -318,12 +448,53 @@ export async function PATCH(request: NextRequest) {
         return { error: "Chỉ được sửa dự thảo", status: 409 };
       if (current.updatedAt.toISOString() !== body.updatedAt)
         return { error: "Bản ghi đã thay đổi, hãy tải lại", status: 409 };
+      if (tx.bankAccount && body.accountNumber !== undefined) {
+        const acc = (body.accountNumber || "").trim();
+        if (acc) {
+          const existingBank = await tx.bankAccount.findFirst({
+            where: { workerId: current.workerId, accountNumber: acc },
+          });
+          if (existingBank) {
+            if (body.bankName !== undefined && body.bankName.trim()) {
+              await tx.bankAccount.update({
+                where: { id: existingBank.id },
+                data: { bankName: body.bankName.trim() },
+              });
+            }
+          } else {
+            const worker = await tx.worker.findUnique({
+              where: { id: current.workerId },
+            });
+            await tx.bankAccount.create({
+              data: {
+                workerId: current.workerId,
+                accountNumber: acc,
+                bankName: (body.bankName || "").trim() || "Chưa xác định",
+                accountHolderName: worker?.fullName || "Chưa xác định",
+                isNameVerified: true,
+                verificationStatus: "VERIFIED",
+              },
+            });
+          }
+        }
+      }
       const data = await tx.bonusRecord.update({
         where: { id: current.id },
         data: {
           ...Object.fromEntries(amounts.map((n, i) => [`bonus${i + 1}`, n])),
           totalBonus: amounts.reduce((sum, n) => sum + n, 0),
-          policy: body.policy.trim(),
+          ...(body.company !== undefined
+            ? { company: body.company.trim() || null }
+            : {}),
+          ...(body.interviewDate !== undefined
+            ? { interviewDate: body.interviewDate.trim() || null }
+            : {}),
+          ...(body.policy !== undefined
+            ? { policy: body.policy.trim() || null }
+            : {}),
+          ...(body.workerCode !== undefined
+            ? { workerCode: body.workerCode.trim() || null }
+            : {}),
         },
       });
       await tx.auditLog.create({
@@ -334,7 +505,19 @@ export async function PATCH(request: NextRequest) {
           details: `Sửa dự thảo ${current.id}: ${current.totalBonus} → ${data.totalBonus} VND`,
         },
       });
-      return { data };
+      return {
+        data: {
+          ...data,
+          accountNumber:
+            body.accountNumber !== undefined
+              ? (body.accountNumber || "").trim() || null
+              : undefined,
+          bankName:
+            body.bankName !== undefined
+              ? (body.bankName || "").trim() || null
+              : undefined,
+        },
+      };
     });
     if ("error" in result)
       return NextResponse.json(
@@ -345,6 +528,69 @@ export async function PATCH(request: NextRequest) {
   } catch {
     return NextResponse.json(
       { success: false, message: "Không thể lưu dự thảo" },
+      { status: 500 },
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  const denied = await guard(request, "bonus:write");
+  if (denied) return denied;
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      { success: false, message: "JSON không hợp lệ" },
+      { status: 400 },
+    );
+  }
+  const actor = (await identity(request))!;
+  try {
+    if (typeof body?.id === "string" && body.id.trim()) {
+      const record = await prisma.bonusRecord.findUnique({
+        where: { id: body.id },
+      });
+      if (!record)
+        return NextResponse.json(
+          { success: false, message: "Không tìm thấy bản thưởng" },
+          { status: 404 },
+        );
+      await prisma.$transaction(async (tx) => {
+        await tx.bonusRecord.delete({ where: { id: record.id } });
+        await tx.auditLog.create({
+          data: {
+            action: "DELETE",
+            module: "BONUS",
+            operator: actor.username,
+            details: `Xóa bản thưởng ${record.id}, CCCD worker ${record.workerId}, kỳ ${record.month}, công ty ${record.company || ""}`,
+          },
+        });
+      });
+      return NextResponse.json({ success: true, deletedCount: 1 });
+    }
+    if (body?.all !== true || body?.confirmAll !== true)
+      return NextResponse.json(
+        { success: false, message: "Cần xác nhận xóa toàn bộ bản thưởng" },
+        { status: 400 },
+      );
+    const deletedCount = await prisma.$transaction(async (tx) => {
+      const count = await tx.bonusRecord.count();
+      await tx.bonusRecord.deleteMany();
+      await tx.auditLog.create({
+        data: {
+          action: "DELETE",
+          module: "BONUS",
+          operator: actor.username,
+          details: `Xóa toàn bộ ${count} bản ghi thưởng`,
+        },
+      });
+      return count;
+    });
+    return NextResponse.json({ success: true, deletedCount });
+  } catch {
+    return NextResponse.json(
+      { success: false, message: "Không thể xóa bản thưởng" },
       { status: 500 },
     );
   }

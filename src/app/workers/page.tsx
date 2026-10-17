@@ -329,7 +329,12 @@ export default function WorkersPage() {
       interviewFactory: getVal("interviewFactory", "Nhà máy PV"),
       workingFactory: getVal("workingFactory", "Nhà máy làm việc"),
       contractType: getVal("contractType", "Loại hợp đồng", "Loại HĐ"),
-      shuttleBusKtx: getVal("shuttleBusKtx", "Đón xe + KTX", "Đón xe / KTX"),
+      shuttleBusKtx: getVal(
+        "shuttleBusKtx",
+        "Đón xe + KTX",
+        "Đón xe - KTX",
+        "Đón xe / KTX",
+      ),
       interviewDate: getVal("interviewDate", "Ngày PV", "Ngày phỏng vấn"),
       expectedTrainingDate: getVal(
         "expectedTrainingDate",
@@ -339,6 +344,8 @@ export default function WorkersPage() {
       expectedTrainingStatus: getVal(
         "expectedTrainingStatus",
         "Tình trạng đào tạo",
+        "Tình trạng Đào tạo dự kiến",
+        "TT ĐT dự kiến",
       ),
       standardTrainingDate: getVal(
         "standardTrainingDate",
@@ -644,8 +651,12 @@ export default function WorkersPage() {
       title: "Đón xe + KTX",
       key: "Đón xe + KTX",
       width: 120,
-      render: (_: any, record: any) =>
-        record.sourceValues?.["Đón xe + KTX"] || "—",
+      render: (_: any, record: any) => {
+        const value = record.sourceValues?.["Đón xe + KTX"];
+        return value !== undefined && value !== null && value !== ""
+          ? String(value)
+          : "—";
+      },
     },
     {
       title: "Ngày PV",
@@ -665,8 +676,12 @@ export default function WorkersPage() {
       title: "Tình trạng đào tạo",
       key: "Tình trạng đào tạo",
       width: 130,
-      render: (_: any, record: any) =>
-        record.sourceValues?.["Tình trạng đào tạo"] || "—",
+      render: (_: any, record: any) => {
+        const value = record.sourceValues?.["Tình trạng đào tạo"];
+        return value !== undefined && value !== null && value !== ""
+          ? String(value)
+          : "—";
+      },
     },
     {
       title: "Ngày đào tạo chuẩn",

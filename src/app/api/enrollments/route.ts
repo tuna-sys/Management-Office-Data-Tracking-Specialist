@@ -20,27 +20,192 @@ export async function GET(r: NextRequest) {
   if (denied) return denied;
   try {
     const p = r.nextUrl.searchParams;
-    let rows = await prisma.policyEnrollment.findMany({
+    const dbEnrollments = await prisma.policyEnrollment.findMany({
       include,
       orderBy: { createdAt: "desc" },
     });
-    rows = rows.filter(
-      (e) =>
-        (!p.get("month") ||
-          monthOf(e.assignment.interviewDate) === p.get("month")) &&
-        (!p.get("factory") || e.factory === p.get("factory")) &&
-        (!p.get("orderId") || e.assignment.orderId === p.get("orderId")) &&
-        (!p.get("assignmentId") || e.assignmentId === p.get("assignmentId")) &&
-        (!p.get("search") ||
-          [
-            e.assignment.worker.fullName,
-            e.assignment.worker.idCard,
-            e.assignment.employeeCode,
-            e.assignment.worker.code,
-          ].some((v) =>
-            v?.toLowerCase().includes(p.get("search")!.toLowerCase()),
-          )),
+    const existingAssignmentIds = new Set(
+      dbEnrollments.map((e) => e.assignmentId).filter(Boolean),
     );
+
+    const bonusRecords = await prisma.bonusRecord.findMany({
+      include: {
+        worker: true,
+        assignment: {
+          include: {
+            order: true,
+            batch: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+
+    const bonusEnrollments = bonusRecords
+      .filter((b) => !b.assignmentId || !existingAssignmentIds.has(b.assignmentId))
+      .map((b) => {
+        let noteObj: any = {};
+        try {
+          noteObj = JSON.parse(b.note || "{}");
+        } catch {}
+        const rewards = Array.isArray(noteObj.rewards) ? noteObj.rewards : [];
+
+        const stages = Array.from({ length: 7 }, (_, i) => {
+          const step = i + 1;
+          const labelRaw = String(rewards[i] || "").trim();
+          const amount = Number((b as any)[`bonus${step}`] || 0);
+
+          let thresholdDays: number | null = null;
+          const mDays = /(\d+)\s*công/i.exec(labelRaw);
+          if (mDays) thresholdDays = Number(mDays[1]);
+          else if (/1\s*tháng/i.test(labelRaw)) thresholdDays = 26;
+          else if (/3\s*tháng/i.test(labelRaw)) thresholdDays = 78;
+          else if (/6\s*tháng/i.test(labelRaw)) thresholdDays = 156;
+
+          const label = labelRaw || `Thưởng lần ${step}`;
+          const achieved = amount > 0;
+          const eligible = achieved || (labelRaw ? !/^(ko|không|hết)/i.test(labelRaw) : false);
+
+          const payments = achieved
+            ? [
+                {
+                  id: `pay-${b.id}-${step}`,
+                  stageId: `stage-${b.id}-${step}`,
+                  amount: amount,
+                  paidOn: b.interviewDate || "Tháng 05/2026",
+                  reference: `UNC-EXCEL-L${step}`,
+                  note: `Đã chi trả theo file Excel nguồn: ${label}`,
+                  confirmedBy: "Nguồn Excel",
+                  createdAt: b.createdAt,
+                },
+              ]
+            : [];
+
+          return {
+            id: `stage-${b.id}-${step}`,
+            enrollmentId: `enroll-${b.id}`,
+            step,
+            label,
+            thresholdDays,
+            amount,
+            eligible,
+            eligibleAsOf: achieved ? b.interviewDate : null,
+            achieved,
+            achievedOn: achieved ? b.interviewDate : null,
+            confirmedBy: achieved ? "Nguồn Excel" : null,
+            confirmationNote: labelRaw || null,
+            updatedAt: b.updatedAt,
+            payments,
+          };
+        });
+
+        const monthOriginal = noteObj.monthOriginal || b.month || "";
+
+        return {
+          id: b.id,
+          assignmentId: b.assignmentId || b.id,
+          policyId: "excel-source-policy",
+          policyName: b.policy || "Chính sách thưởng theo Excel",
+          factory: b.company,
+          effectiveFrom: b.interviewDate || "2026-01-01",
+          effectiveTo: "2026-12-31",
+          rulesSnapshot: "[]",
+          createdBy: "Import Excel",
+          createdAt: b.createdAt,
+          isSourceExcel: true,
+          stages,
+          assignment: {
+            id: b.assignmentId || b.id,
+            workerId: b.workerId,
+            employeeCode: b.workerCode || b.worker?.code || "",
+            interviewDate: b.interviewDate || "",
+            onboardingMonth: monthOriginal,
+            interviewFactory: b.company,
+            workingFactory: b.company,
+            orderId: b.assignment?.orderId || null,
+            worker: b.worker || {
+              id: b.workerId,
+              fullName: "Người lao động",
+              idCard: "",
+              phone: "",
+              code: b.workerCode || "",
+            },
+            order: b.assignment?.order || null,
+            batch: b.assignment?.batch || null,
+          },
+        };
+      });
+
+    let rows: any[] = [...dbEnrollments, ...bonusEnrollments];
+
+    const month = p.get("month") || "";
+    const factory = p.get("factory") || p.get("company") || "";
+    const idCard = p.get("idCard")?.trim() || "";
+    const workerCode = p.get("workerCode")?.trim() || "";
+    const search = p.get("search")?.trim() || "";
+    const assignmentId = p.get("assignmentId") || "";
+
+    function matchesMonth(targetMonth: string, filterMonth: string): boolean {
+      if (!filterMonth) return true;
+      if (!targetMonth) return false;
+      const cleanT = targetMonth.toLowerCase().replace(/[^0-9]/g, "");
+      const cleanF = filterMonth.toLowerCase().replace(/[^0-9]/g, "");
+      if (targetMonth === filterMonth) return true;
+      if (cleanT && cleanF && (cleanT.includes(cleanF) || cleanF.includes(cleanT))) return true;
+      return false;
+    }
+
+    rows = rows.filter((e) => {
+      const a = e.assignment;
+      const w = a?.worker;
+      if (!a || !w) return false;
+
+      if (month) {
+        const m1 = monthOf(a.interviewDate);
+        const m2 = a.onboardingMonth || "";
+        if (!matchesMonth(m1, month) && !matchesMonth(m2, month)) {
+          return false;
+        }
+      }
+
+      if (factory) {
+        const fLower = factory.toLowerCase();
+        const fMatch =
+          (e.factory && e.factory.toLowerCase().includes(fLower)) ||
+          (a.interviewFactory && a.interviewFactory.toLowerCase().includes(fLower)) ||
+          (a.workingFactory && a.workingFactory.toLowerCase().includes(fLower));
+        if (!fMatch) return false;
+      }
+
+      if (p.get("orderId") && a.orderId !== p.get("orderId")) return false;
+      if (assignmentId && e.assignmentId !== assignmentId) return false;
+
+      if (idCard) {
+        if (!w.idCard || !w.idCard.toLowerCase().includes(idCard.toLowerCase())) {
+          return false;
+        }
+      }
+
+      if (workerCode) {
+        const code = a.employeeCode || w.code || "";
+        if (!code.toLowerCase().includes(workerCode.toLowerCase())) {
+          return false;
+        }
+      }
+
+      if (search) {
+        const sLower = search.toLowerCase();
+        const matched =
+          (w.fullName && w.fullName.toLowerCase().includes(sLower)) ||
+          (w.idCard && w.idCard.toLowerCase().includes(sLower)) ||
+          (a.employeeCode && a.employeeCode.toLowerCase().includes(sLower)) ||
+          (w.code && w.code.toLowerCase().includes(sLower));
+        if (!matched) return false;
+      }
+
+      return true;
+    });
+
     return NextResponse.json({ success: true, data: rows });
   } catch (e) {
     return resultError(e);

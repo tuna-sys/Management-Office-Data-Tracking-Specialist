@@ -29,6 +29,7 @@ function load(f) {
 deps["@/lib/import-review"] = load("src/lib/import-review.ts");
 deps["@/lib/worker-validation"] = load("src/lib/worker-validation.ts");
 deps["@/lib/source-format"] = load("src/lib/source-format.ts");
+deps["@/lib/bonus-import"] = load("src/lib/bonus-import.ts");
 deps["@/lib/factory-matching"] = load("src/lib/factory-matching.ts");
 deps["@/lib/worker-import"] = load("src/lib/worker-import.ts");
 deps["@/lib/auth"] = {

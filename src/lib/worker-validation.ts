@@ -80,10 +80,44 @@ export function cleanFields(
   if (result.phone) result.phone = phoneKey(result.phone);
   return result;
 }
-export function dateKey(value: string): string | null {
+export function normalizeCccd(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  const s = String(value).trim().replace(/\s+/g, '');
+  if (/^\d{10,11}$/.test(s)) return s.padStart(12, '0');
+  if (/^\d{7,8}$/.test(s)) return s.padStart(9, '0');
+  return s;
+}
+
+export function formatExcelDate(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '';
+  if (typeof value === 'number' || (typeof value === 'string' && /^\d{4,5}$/.test(value.trim()))) {
+    const num = Number(value);
+    if (num > 20000 && num < 80000) {
+      const d = new Date(Math.round((num - 25569) * 86400 * 1000));
+      const y = d.getUTCFullYear();
+      const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(d.getUTCDate()).padStart(2, '0');
+      return `${day}/${m}/${y}`;
+    }
+  }
+  return String(value).trim();
+}
+
+export function dateKey(value: unknown): string | null {
   if (!value) return null;
-  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  const vn = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(value);
+  const s = String(value).trim();
+  if (/^\d{4,5}$/.test(s)) {
+    const num = Number(s);
+    if (num > 20000 && num < 80000) {
+      const d = new Date(Math.round((num - 25569) * 86400 * 1000));
+      const y = d.getUTCFullYear();
+      const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(d.getUTCDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+  }
+  const iso = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(s);
+  const vn = /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/.exec(s);
   if (!iso && !vn) return null;
   const y = Number(iso ? iso[1] : vn![3]),
     m = Number(iso ? iso[2] : vn![2]),

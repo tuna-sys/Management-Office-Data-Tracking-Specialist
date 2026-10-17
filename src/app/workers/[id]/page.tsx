@@ -237,6 +237,21 @@ export default function WorkerDetailPage() {
                   ),
                 },
                 {
+                  key: "shuttleBusKtx",
+                  label: "Đón xe + KTX",
+                  children: a.shuttleBusKtx || "—",
+                },
+                {
+                  key: "expectedTrainingDate",
+                  label: "Ngày đào tạo dự kiến",
+                  children: formatDate(a.expectedTrainingDate),
+                },
+                {
+                  key: "expectedTrainingStatus",
+                  label: "Tình trạng đào tạo",
+                  children: a.expectedTrainingStatus || "—",
+                },
+                {
                   key: "code",
                   label: "Mã NV tại công ty",
                   children: a.employeeCode || "—",

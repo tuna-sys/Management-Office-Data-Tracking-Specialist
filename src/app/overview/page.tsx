@@ -43,6 +43,7 @@ import {
   TrendingUp,
   HelpCircle,
   Info,
+  ChevronRight,
 } from "lucide-react";
 
 const pct = (n: number | null | undefined) => (n == null ? "—" : `${n}%`);
@@ -488,6 +489,14 @@ export default function OverviewPage() {
           >
             Làm Mới
           </Button>
+          <Link href="/bonuses">
+            <Button
+              className="bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border-amber-400/40 hover:border-amber-400/60 font-semibold"
+              icon={<Coins className="w-4 h-4 text-amber-300" />}
+            >
+              Quản Lý Thưởng (DS_THUONG)
+            </Button>
+          </Link>
           <Link href="/excel-tools">
             <Button
               className="bg-white/10 hover:bg-white/20 text-white border-white/20 hover:border-white/40"
@@ -902,84 +911,126 @@ export default function OverviewPage() {
           </div>
 
           {/* NHÓM B: TÀI CHÍNH & DÒNG TIỀN THƯỞNG (ĐÃ ĐỒNG BỘ NGUỒN EXCEL) */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mt-2 mb-2">
+            <div className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+              <Coins className="w-3.5 h-3.5 text-amber-600" />
+              <span>Tài chính & Dòng tiền thưởng (Theo DS_THUONG)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Link
+                href="/bonuses"
+                className="text-xs font-semibold text-amber-700 hover:text-amber-800 flex items-center gap-1 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-200 transition"
+              >
+                <Coins className="w-3.5 h-3.5 text-amber-600" />
+                <span>Mở Quản Lý Thưởng (DS_THUONG)</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+              <Link
+                href="/rewards"
+                className="text-xs font-semibold text-purple-700 hover:text-purple-800 flex items-center gap-1 bg-purple-50 hover:bg-purple-100 px-2.5 py-1 rounded-lg border border-purple-200 transition"
+              >
+                <Award className="w-3.5 h-3.5 text-purple-600" />
+                <span>Mốc thưởng / Đã trả</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {/* Tiền Đạt Mốc */}
-            <div className="p-4 rounded-xl bg-white border border-purple-100 shadow-xs hover:shadow-md transition-all">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-semibold text-slate-500">
-                  Tiền Đạt Mốc Thưởng
-                </span>
-                <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
-                  <Award className="w-4 h-4" />
+            <Link href="/rewards" className="block group">
+              <div className="p-4 rounded-xl bg-white border border-purple-100 shadow-xs group-hover:border-purple-300 group-hover:shadow-md transition-all h-full flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs font-semibold text-slate-500 group-hover:text-purple-700 transition">
+                      Tiền Đạt Mốc Thưởng
+                    </span>
+                    <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center group-hover:bg-purple-600 group-hover:text-white transition">
+                      <Award className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="text-2xl font-black text-purple-700 tracking-tight">
+                    {money(earnedMoney)}
+                  </div>
+                </div>
+                <div className="mt-2 text-xs text-slate-500 flex items-center justify-between">
+                  {rewSummary.achieved > 0 ? (
+                    <span>
+                      {rewSummary.achieved} / {rewSummary.eligible} mốc đạt tiêu
+                      chuẩn ({pct(rewSummary.achieveRate)})
+                    </span>
+                  ) : (
+                    <span className="text-purple-600 font-medium">
+                      Hạch toán từ{" "}
+                      {sourcePaid?.rows?.length?.toLocaleString("vi-VN") || 0}{" "}
+                      lượt chi thưởng DS_THUONG
+                    </span>
+                  )}
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-purple-600 transition" />
                 </div>
               </div>
-              <div className="text-2xl font-black text-purple-700 tracking-tight">
-                {money(earnedMoney)}
-              </div>
-              <div className="mt-1 text-xs text-slate-500">
-                {rewSummary.achieved > 0 ? (
-                  <span>
-                    {rewSummary.achieved} / {rewSummary.eligible} mốc đạt tiêu
-                    chuẩn ({pct(rewSummary.achieveRate)})
-                  </span>
-                ) : (
-                  <span className="text-purple-600 font-medium">
-                    Hạch toán từ{" "}
-                    {sourcePaid?.rows?.length?.toLocaleString("vi-VN") || 0}{" "}
-                    lượt chi thưởng DS_THUONG
-                  </span>
-                )}
-              </div>
-            </div>
+            </Link>
 
             {/* Thực Tế Đã Chi Trả */}
-            <div className="p-4 rounded-xl bg-white border border-emerald-100 shadow-xs hover:shadow-md transition-all">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-semibold text-slate-500">
-                  Thực Tế Đã Chi Trả
-                </span>
-                <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                  <Coins className="w-4 h-4" />
+            <Link href="/bonuses" className="block group">
+              <div className="p-4 rounded-xl bg-white border border-emerald-100 shadow-xs group-hover:border-emerald-300 group-hover:shadow-md transition-all h-full flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs font-semibold text-slate-500 group-hover:text-emerald-700 transition">
+                      Thực Tế Đã Chi Trả
+                    </span>
+                    <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center group-hover:bg-emerald-600 group-hover:text-white transition">
+                      <Coins className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="text-2xl font-black text-emerald-700 tracking-tight">
+                    {money(paidMoney)}
+                  </div>
+                </div>
+                <div className="mt-2 text-xs text-slate-500 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Tag color="green" className="text-[11px] font-semibold m-0">
+                      {payRate}% Đã giải ngân
+                    </Tag>
+                    {sourcePaidMoney > 0 && (
+                      <span className="text-emerald-700 font-medium">
+                        (Đồng bộ file DS_THUONG)
+                      </span>
+                    )}
+                  </div>
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-emerald-600 transition" />
                 </div>
               </div>
-              <div className="text-2xl font-black text-emerald-700 tracking-tight">
-                {money(paidMoney)}
-              </div>
-              <div className="mt-1 text-xs text-slate-500 flex items-center gap-1.5">
-                <Tag color="green" className="text-[11px] font-semibold m-0">
-                  {payRate}% Đã giải ngân
-                </Tag>
-                {sourcePaidMoney > 0 && (
-                  <span className="text-emerald-700 font-medium">
-                    (Đồng bộ file DS_THUONG)
-                  </span>
-                )}
-              </div>
-            </div>
+            </Link>
 
             {/* Còn Phải Trả */}
-            <div className="p-4 rounded-xl bg-white border border-amber-100 shadow-xs hover:shadow-md transition-all">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-semibold text-slate-500">
-                  Dư Nợ Còn Phải Trả
-                </span>
-                <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
-                  <Clock className="w-4 h-4" />
+            <Link href="/rewards" className="block group">
+              <div className="p-4 rounded-xl bg-white border border-amber-100 shadow-xs group-hover:border-amber-300 group-hover:shadow-md transition-all h-full flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs font-semibold text-slate-500 group-hover:text-amber-700 transition">
+                      Dư Nợ Còn Phải Trả
+                    </span>
+                    <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center group-hover:bg-amber-600 group-hover:text-white transition">
+                      <Clock className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="text-2xl font-black text-amber-700 tracking-tight">
+                    {money(outstandingMoney)}
+                  </div>
+                </div>
+                <div className="mt-2 text-xs text-slate-500 flex items-center justify-between">
+                  {outstandingMoney > 0 ? (
+                    <span className="text-amber-600 font-medium">
+                      Cần chuẩn bị kế hoạch thanh toán
+                    </span>
+                  ) : (
+                    <span className="text-slate-400">Không có dư nợ quá hạn</span>
+                  )}
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-amber-600 transition" />
                 </div>
               </div>
-              <div className="text-2xl font-black text-amber-700 tracking-tight">
-                {money(outstandingMoney)}
-              </div>
-              <div className="mt-1 text-xs text-slate-500">
-                {outstandingMoney > 0 ? (
-                  <span className="text-amber-600 font-medium">
-                    Cần chuẩn bị kế hoạch thanh toán
-                  </span>
-                ) : (
-                  <span className="text-slate-400">Không có dư nợ quá hạn</span>
-                )}
-              </div>
-            </div>
+            </Link>
           </div>
         </div>
       )}
@@ -1002,18 +1053,28 @@ export default function OverviewPage() {
                     </span>
                   </div>
                 </div>
-                <Tag
-                  color="cyan"
-                  className="text-sm font-bold px-3 py-1 rounded-lg"
-                >
-                  Tổng tiền đã chi: {money(sourcePaid.total)}
-                </Tag>
+                <div className="flex items-center gap-2">
+                  <Tag
+                    color="cyan"
+                    className="text-sm font-bold px-3 py-1 rounded-lg"
+                  >
+                    Tổng tiền đã chi: {money(sourcePaid.total)}
+                  </Tag>
+                  <Link
+                    href="/bonuses"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shadow-xs transition"
+                  >
+                    <Coins className="w-3.5 h-3.5" />
+                    <span>Mở Quản Lý Thưởng (DS_THUONG)</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </Link>
+                </div>
               </div>
             }
             className="border-slate-200 shadow-xs rounded-2xl"
           >
             {/* Hộp giải thích rõ ràng, thân thiện cho người dùng */}
-            <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3.5 mb-4 text-xs space-y-1.5">
+            <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3.5 mb-4 text-xs space-y-2">
               <div className="font-bold text-blue-900 flex items-center gap-1.5 text-sm">
                 <CheckCircle2 className="w-4 h-4 text-blue-600" />
                 Toàn bộ số tiền thưởng {money(sourcePaid.total)} đã được ghi
@@ -1033,6 +1094,19 @@ export default function OverviewPage() {
                 nhỏ so với ngày đăng ký ban đầu trong file <code>DS_TONG</code>,
                 hoàn toàn không làm mất hay sai lệch tiền thưởng.
               </p>
+              <div className="pt-2 border-t border-blue-200/70 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-slate-600">
+                  👉 Xem danh sách chi tiết từng lao động, trạng thái tài khoản ngân hàng hoặc xuất lệnh chi tiền thưởng:
+                </span>
+                <Link
+                  href="/bonuses"
+                  className="inline-flex items-center gap-1 font-bold text-blue-700 hover:text-blue-900 bg-white hover:bg-blue-50 px-2.5 py-1 rounded-md border border-blue-300 transition"
+                >
+                  <Coins className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Đi đến Trang Quản lý Thưởng (DS_THUONG)</span>
+                  <ExternalLink className="w-3 h-3" />
+                </Link>
+              </div>
             </div>
 
             <Tabs
@@ -1324,8 +1398,25 @@ export default function OverviewPage() {
                   </span>
                 ),
                 children: (
-                  <Tabs
-                    type="card"
+                  <div className="space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-amber-50/70 p-3 rounded-xl border border-amber-200">
+                      <div className="text-xs text-amber-900 flex items-center gap-1.5 font-medium">
+                        <Coins className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span>
+                          Dữ liệu chi thưởng các lần 1 → 7 tổng hợp từ bảng tính <strong>DS_THUONG</strong>.
+                        </span>
+                      </div>
+                      <Link
+                        href="/bonuses"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shadow-xs transition shrink-0"
+                      >
+                        <Coins className="w-3.5 h-3.5" />
+                        <span>Vào trang Quản Lý Thưởng Chi Tiết</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </Link>
+                    </div>
+                    <Tabs
+                      type="card"
                     items={[
                       {
                         key: "bCompanies",
@@ -1373,6 +1464,7 @@ export default function OverviewPage() {
                       },
                     ]}
                   />
+                  </div>
                 ),
               },
             ]}

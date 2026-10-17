@@ -5,8 +5,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { guard } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { readImportSources } from "@/lib/import-source-store";
-import { workerSourceView } from "@/lib/worker-source-view";
-import { sourceHeader } from "@/lib/source-format";
+import {
+  normalizeWorkerSourceValues,
+  workerSourceView,
+} from "@/lib/worker-source-view";
 
 export const dynamic = "force-dynamic";
 
@@ -101,9 +103,7 @@ export async function GET(request: NextRequest) {
           .map((r: any) => ({
             ...r,
             id: `${s.id}-${r.row}`,
-            values: Object.fromEntries(
-              Object.entries(r.values).map(([k, v]) => [sourceHeader(k), v]),
-            ),
+            values: normalizeWorkerSourceValues(r.values),
             file: s.file,
           })),
       );
@@ -118,9 +118,7 @@ export async function GET(request: NextRequest) {
 
     const sourceRows = stored.flatMap((s) =>
       s.rows.map((r: any) => {
-        const values = Object.fromEntries(
-          Object.entries(r.values).map(([k, v]) => [sourceHeader(k), v]),
-        );
+        const values = normalizeWorkerSourceValues(r.values);
         const card = String(
           values["Số CCCD"] || values["số CCCD"] || values.CCCD || "",
         ).trim();

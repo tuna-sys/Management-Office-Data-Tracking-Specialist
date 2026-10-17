@@ -6,6 +6,8 @@ import {
   ASSIGNMENT_FIELDS,
   validateWorker,
   validateInterview,
+  normalizeCccd,
+  formatExcelDate,
 } from "@/lib/worker-validation";
 const mappings: Record<string, string[]> = {
   fullName: ["Họ và tên", "Họ tên"],
@@ -36,7 +38,11 @@ const mappings: Record<string, string[]> = {
   orderId: ["Mã liên kết đơn hàng"],
   batchId: ["Mã liên kết đợt"],
   expectedTrainingDate: ["Ngày Đào tạo dự kiến"],
-  expectedTrainingStatus: ["Tình trạng Đào tạo dự kiến", "Tình trạng đào tạo"],
+  expectedTrainingStatus: [
+    "Tình trạng Đào tạo dự kiến",
+    "Tình trạng đào tạo",
+    "TT ĐT dự kiến",
+  ],
   standardTrainingDate: ["Ngày đào tạo chuẩn"],
   onboardingMonth: ["Tháng nhận việc", "Tháng"],
 };
@@ -50,27 +56,44 @@ const dates = [
   "passedDate",
   "startDate",
 ];
+function normalizeImportHeader(value: string) {
+  return value
+    .normalize("NFKC")
+    .toLocaleLowerCase("vi")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[+‐‑‒–—-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 export function parseImportRow(
   raw: Record<string, unknown>,
   sourceImport = false,
 ) {
-  const row = Object.fromEntries(
-    Object.entries(raw).map(([k, v]) => [sourceHeader(k), v]),
+  const row = new Map(
+    Object.entries(raw).map(([k, v]) => [
+      normalizeImportHeader(sourceHeader(k)),
+      v,
+    ]),
   );
   const body: Record<string, string> = {};
   for (const [field, headers] of Object.entries(mappings)) {
     let v = headers
-      .map((h) => row[h])
+      .map((h) => row.get(normalizeImportHeader(h)))
       .find((v) => v !== undefined && v !== null && v !== "");
     if (v === undefined) continue;
-    if (["idCard", "phone"].includes(field) && typeof v === "number")
+    if (!sourceImport && ["idCard", "phone"].includes(field) && typeof v === "number")
       throw new Error(
         `${field === "idCard" ? "CCCD" : "SĐT"} phải lưu dạng Text để bảo toàn số 0 đầu; không tự khôi phục số thiếu`,
       );
-    if (dates.includes(field) && typeof v === "number") {
-      const d = XLSX.SSF.parse_date_code(v);
-      if (!d) throw new Error(`Ngày ${field} không hợp lệ`);
-      v = `${String(d.d).padStart(2, "0")}/${String(d.m).padStart(2, "0")}/${d.y}`;
+    if (field === "idCard") {
+      v = normalizeCccd(v);
+    } else if (field === "phone") {
+      let p = String(v).trim().replace(/[\s().-]/g, "");
+      if (typeof v === "number" && p.length === 9) p = "0" + p;
+      v = p;
+    } else if (dates.includes(field)) {
+      v = formatExcelDate(v);
     }
     body[field] = String(v).trim();
   }
