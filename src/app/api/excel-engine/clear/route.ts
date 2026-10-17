@@ -57,50 +57,69 @@ export async function POST(request: NextRequest) {
     }
 
     // 2. Thu thập và xóa dữ liệu nạp từ Excel
+    // 2. Thu thập và xóa dữ liệu nạp từ Excel
     const result = await prisma.$transaction(async (tx) => {
-      // Tìm các assignment được tạo từ import Excel
-      const importedEvents = await tx.assignmentEvent.findMany({
-        where: { note: { startsWith: 'Import Excel' } },
-        select: { assignmentId: true }
-      });
-      const importedAssignmentIds = [...new Set(importedEvents.map(e => e.assignmentId))];
+      // 1. Tạo bảng tạm chứa các assignmentId được tạo từ import
+      await tx.$executeRawUnsafe(`CREATE TEMP TABLE TempImportAssignments (id TEXT PRIMARY KEY)`);
+      await tx.$executeRawUnsafe(`
+        INSERT OR IGNORE INTO TempImportAssignments (id)
+        SELECT DISTINCT assignmentId FROM AssignmentEvent WHERE note LIKE 'Import Excel%'
+      `);
 
-      // Xóa thưởng import
-      const deletedBonuses = await tx.bonusRecord.deleteMany({
-        where: {
-          OR: [
-            { assignmentId: { in: importedAssignmentIds } },
-            { note: { contains: 'SOURCE_EXCEL_ACTUAL_PAID' } }
-          ]
-        }
-      });
+      // 2. Xóa các khoản thanh toán & mốc thưởng chính sách (RewardPayment -> RewardStage -> PolicyEnrollment)
+      await tx.$executeRawUnsafe(`
+        DELETE FROM RewardPayment WHERE stageId IN (
+          SELECT id FROM RewardStage WHERE enrollmentId IN (
+            SELECT id FROM PolicyEnrollment WHERE assignmentId IN (SELECT id FROM TempImportAssignments)
+          )
+        )
+      `);
+      await tx.$executeRawUnsafe(`
+        DELETE FROM RewardStage WHERE enrollmentId IN (
+          SELECT id FROM PolicyEnrollment WHERE assignmentId IN (SELECT id FROM TempImportAssignments)
+        )
+      `);
+      await tx.$executeRawUnsafe(`
+        DELETE FROM PolicyEnrollment WHERE assignmentId IN (SELECT id FROM TempImportAssignments)
+      `);
 
-      // Xóa STK import
-      const deletedBanks = await tx.bankAccount.deleteMany({
-        where: {
-          OR: [
-            { checkResult: { contains: 'Tự động tạo từ danh sách thưởng' } },
-            { checkResult: { contains: 'Đối soát' } }
-          ]
-        }
-      });
+      // 3. Xóa các bản ghi thưởng (BonusRecord)
+      const deletedBonuses = await tx.$executeRawUnsafe(`
+        DELETE FROM BonusRecord 
+        WHERE note LIKE '%SOURCE_EXCEL_ACTUAL_PAID%' 
+           OR assignmentId IN (SELECT id FROM TempImportAssignments)
+      `);
 
-      // Xóa sự kiện và đợt tuyển
-      await tx.assignmentEvent.deleteMany({
-        where: { assignmentId: { in: importedAssignmentIds } }
-      });
-      const deletedAssignments = await tx.workAssignment.deleteMany({
-        where: { id: { in: importedAssignmentIds } }
-      });
+      // 4. Xóa sự kiện đợt tuyển (AssignmentEvent)
+      await tx.$executeRawUnsafe(`
+        DELETE FROM AssignmentEvent WHERE assignmentId IN (SELECT id FROM TempImportAssignments)
+      `);
 
-      // Xóa công nhân không còn đợt tuyển nào
-      const workersWithoutAssignments = await tx.worker.findMany({
-        where: { assignments: { none: {} } },
-        select: { id: true }
-      });
-      const deletedWorkers = await tx.worker.deleteMany({
-        where: { id: { in: workersWithoutAssignments.map(w => w.id) } }
-      });
+      // 5. Xóa đợt tuyển (WorkAssignment)
+      const deletedAssignments = await tx.$executeRawUnsafe(`
+        DELETE FROM WorkAssignment WHERE id IN (SELECT id FROM TempImportAssignments)
+      `);
+
+      // 6. Tìm và xóa tài khoản ngân hàng của những worker không còn đợt tuyển nào
+      await tx.$executeRawUnsafe(`CREATE TEMP TABLE TempOrphanWorkers (id TEXT PRIMARY KEY)`);
+      await tx.$executeRawUnsafe(`
+        INSERT OR IGNORE INTO TempOrphanWorkers (id)
+        SELECT id FROM Worker WHERE id NOT IN (SELECT DISTINCT workerId FROM WorkAssignment WHERE workerId IS NOT NULL)
+      `);
+      const deletedBanks = await tx.$executeRawUnsafe(`
+        DELETE FROM BankAccount WHERE workerId IN (SELECT id FROM TempOrphanWorkers)
+           OR checkResult LIKE '%Tự động tạo từ danh sách thưởng%' 
+           OR checkResult LIKE '%Đối soát%'
+      `);
+
+      // 7. Xóa worker không còn đợt tuyển
+      const deletedWorkers = await tx.$executeRawUnsafe(`
+        DELETE FROM Worker WHERE id IN (SELECT id FROM TempOrphanWorkers)
+      `);
+
+      // Dọn dẹp bảng tạm
+      await tx.$executeRawUnsafe(`DROP TABLE IF EXISTS TempImportAssignments`);
+      await tx.$executeRawUnsafe(`DROP TABLE IF EXISTS TempOrphanWorkers`);
 
       // Ghi audit log
       await tx.auditLog.create({
@@ -108,17 +127,17 @@ export async function POST(request: NextRequest) {
           module: 'EXCEL',
           action: 'CLEAR_DATA',
           operator: actor.username,
-          details: `Dọn dẹp dữ liệu import: xóa ${deletedWorkers.count} công nhân, ${deletedAssignments.count} lượt tuyển, ${deletedBonuses.count} bản thưởng, ${deletedBanks.count} STK. Sao lưu tại: ${path.basename(backupFile)}`
+          details: `Dọn dẹp dữ liệu import: xóa ${deletedWorkers} công nhân, ${deletedAssignments} lượt tuyển, ${deletedBonuses} bản thưởng, ${deletedBanks} STK. Sao lưu tại: ${path.basename(backupFile)}`
         }
       });
 
       return {
-        workers: deletedWorkers.count,
-        assignments: deletedAssignments.count,
-        bonuses: deletedBonuses.count,
-        bankAccounts: deletedBanks.count
+        workers: deletedWorkers,
+        assignments: deletedAssignments,
+        bonuses: deletedBonuses,
+        bankAccounts: deletedBanks
       };
-    });
+    }, { timeout: 60000 });
 
     // 3. Xóa các file lưu nguồn review trong .local/source-imports/
     await deleteImportSource();
