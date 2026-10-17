@@ -94,8 +94,7 @@ export default function BonusesPage() {
             ]),
           ),
         );
-      }
-      else message.error(json.message || "Lỗi tải danh sách thưởng");
+      } else message.error(json.message || "Lỗi tải danh sách thưởng");
     } catch (err) {
       message.error("Lỗi tải danh sách thưởng");
     } finally {
@@ -259,16 +258,13 @@ export default function BonusesPage() {
     );
   });
   const companyOptions = Array.from(
-    new Set([
-      ...companyChoices,
-      ...selectedCompany,
-    ]),
+    new Set([...companyChoices, ...selectedCompany]),
   );
   const hasActiveFilters = Boolean(
     selectedMonth.length > 0 ||
-      selectedCompany.length > 0 ||
-      idCardFilter ||
-      workerCodeFilter,
+    selectedCompany.length > 0 ||
+    idCardFilter ||
+    workerCodeFilter,
   );
   const handleResetFilters = () => {
     setSelectedMonth([]);
@@ -560,9 +556,7 @@ export default function BonusesPage() {
               addForm.resetFields();
               addForm.setFieldsValue({
                 month:
-                  selectedMonth.length === 1
-                    ? selectedMonth[0]
-                    : DEFAULT_MONTH,
+                  selectedMonth.length === 1 ? selectedMonth[0] : DEFAULT_MONTH,
                 bonus1: 0,
                 bonus2: 0,
                 bonus3: 0,
@@ -664,7 +658,8 @@ export default function BonusesPage() {
             <Coins className="w-5 h-5 text-amber-600" />
             <div>
               <div className="text-[11px] text-amber-700 font-semibold uppercase">
-                Tổng số tiền trong danh sách {selectedMonth.length
+                Tổng số tiền trong danh sách{" "}
+                {selectedMonth.length
                   ? selectedMonth.join(", ")
                   : "tất cả tháng"}
               </div>
@@ -718,9 +713,7 @@ export default function BonusesPage() {
           onFinish={handleAddBonus}
           initialValues={{
             month:
-              selectedMonth.length === 1
-                ? selectedMonth[0]
-                : DEFAULT_MONTH,
+              selectedMonth.length === 1 ? selectedMonth[0] : DEFAULT_MONTH,
             bonus1: 0,
             bonus2: 0,
             bonus3: 0,
@@ -773,10 +766,7 @@ export default function BonusesPage() {
             <Form.Item name="idCard" label="Số CCCD">
               <Input disabled />
             </Form.Item>
-            <Form.Item
-              name="assignmentId"
-              label="Đợt tuyển dụng"
-            >
+            <Form.Item name="assignmentId" label="Đợt tuyển dụng">
               <Select
                 disabled={!!editing}
                 allowClear

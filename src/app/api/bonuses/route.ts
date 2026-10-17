@@ -82,8 +82,19 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const workerId = body?.workerId;
     const assignmentId = body?.assignmentId;
-    const { company, month, interviewDate, policy, workerCode, accountNumber, bankName } = body || {};
-    const amounts = Array.from({ length: 7 }, (_, index) => body?.[`bonus${index + 1}`] ?? 0);
+    const {
+      company,
+      month,
+      interviewDate,
+      policy,
+      workerCode,
+      accountNumber,
+      bankName,
+    } = body || {};
+    const amounts = Array.from(
+      { length: 7 },
+      (_, index) => body?.[`bonus${index + 1}`] ?? 0,
+    );
     if (
       !body ||
       typeof workerId !== "string" ||
@@ -92,13 +103,25 @@ export async function POST(request: NextRequest) {
       typeof company !== "string" ||
       !company.trim() ||
       company.trim().length > 200 ||
-      (assignmentId !== undefined && assignmentId !== null && typeof assignmentId !== "string") ||
-      (interviewDate !== undefined && interviewDate !== null && (typeof interviewDate !== "string" || interviewDate.length > 100)) ||
+      (assignmentId !== undefined &&
+        assignmentId !== null &&
+        typeof assignmentId !== "string") ||
+      (interviewDate !== undefined &&
+        interviewDate !== null &&
+        (typeof interviewDate !== "string" || interviewDate.length > 100)) ||
       (interviewDate && !dateKey(interviewDate)) ||
-      (policy !== undefined && policy !== null && (typeof policy !== "string" || policy.length > 1000)) ||
-      (workerCode !== undefined && workerCode !== null && (typeof workerCode !== "string" || workerCode.length > 100)) ||
-      (accountNumber !== undefined && accountNumber !== null && (typeof accountNumber !== "string" || accountNumber.length > 100)) ||
-      (bankName !== undefined && bankName !== null && (typeof bankName !== "string" || bankName.length > 200)) ||
+      (policy !== undefined &&
+        policy !== null &&
+        (typeof policy !== "string" || policy.length > 1000)) ||
+      (workerCode !== undefined &&
+        workerCode !== null &&
+        (typeof workerCode !== "string" || workerCode.length > 100)) ||
+      (accountNumber !== undefined &&
+        accountNumber !== null &&
+        (typeof accountNumber !== "string" || accountNumber.length > 100)) ||
+      (bankName !== undefined &&
+        bankName !== null &&
+        (typeof bankName !== "string" || bankName.length > 200)) ||
       !amounts.every(validAmount)
     ) {
       return NextResponse.json(
@@ -134,9 +157,20 @@ export async function POST(request: NextRequest) {
       if (assignmentId && !assignment)
         throw new Error("BONUS_ASSIGNMENT_CHANGED");
       const fallbackBank = worker.bankAccounts[0];
-      const resolvedCompany = company.trim() || assignment?.workingFactory || assignment?.interviewFactory || "";
-      const resolvedInterviewDate = (interviewDate || assignment?.interviewDate || "").trim();
-      if (!resolvedCompany || (resolvedInterviewDate && !dateKey(resolvedInterviewDate)))
+      const resolvedCompany =
+        company.trim() ||
+        assignment?.workingFactory ||
+        assignment?.interviewFactory ||
+        "";
+      const resolvedInterviewDate = (
+        interviewDate ||
+        assignment?.interviewDate ||
+        ""
+      ).trim();
+      if (
+        !resolvedCompany ||
+        (resolvedInterviewDate && !dateKey(resolvedInterviewDate))
+      )
         throw new Error("BONUS_FIELDS_INVALID");
       if (
         await tx.bonusRecord.findFirst({
@@ -145,7 +179,9 @@ export async function POST(request: NextRequest) {
             month,
             company: resolvedCompany,
             ...(assignment
-              ? { OR: [{ assignmentId: assignment.id }, { assignmentId: null }] }
+              ? {
+                  OR: [{ assignmentId: assignment.id }, { assignmentId: null }],
+                }
               : { assignmentId: null }),
           },
         })
@@ -158,17 +194,23 @@ export async function POST(request: NextRequest) {
           company: resolvedCompany,
           month,
           interviewDate: resolvedInterviewDate || null,
-          policy: typeof policy === "string" && policy.trim() ? policy.trim() : null,
-          workerCode: typeof workerCode === "string" && workerCode.trim()
-            ? workerCode.trim()
-            : assignment?.employeeCode || worker.code || null,
-          accountNumber: typeof accountNumber === "string" && accountNumber.trim()
-            ? accountNumber.trim()
-            : fallbackBank?.accountNumber || null,
-          bankName: typeof bankName === "string" && bankName.trim()
-            ? bankName.trim()
-            : fallbackBank?.bankName || null,
-          ...Object.fromEntries(amounts.map((amount, index) => [`bonus${index + 1}`, amount])),
+          policy:
+            typeof policy === "string" && policy.trim() ? policy.trim() : null,
+          workerCode:
+            typeof workerCode === "string" && workerCode.trim()
+              ? workerCode.trim()
+              : assignment?.employeeCode || worker.code || null,
+          accountNumber:
+            typeof accountNumber === "string" && accountNumber.trim()
+              ? accountNumber.trim()
+              : fallbackBank?.accountNumber || null,
+          bankName:
+            typeof bankName === "string" && bankName.trim()
+              ? bankName.trim()
+              : fallbackBank?.bankName || null,
+          ...Object.fromEntries(
+            amounts.map((amount, index) => [`bonus${index + 1}`, amount]),
+          ),
           totalBonus,
           status: "DRAFT",
         },
@@ -217,7 +259,10 @@ export async function POST(request: NextRequest) {
       );
     if (error.message === "BONUS_FIELDS_INVALID")
       return NextResponse.json(
-        { success: false, message: "Thông tin công ty hoặc ngày PV không hợp lệ" },
+        {
+          success: false,
+          message: "Thông tin công ty hoặc ngày PV không hợp lệ",
+        },
         { status: 400 },
       );
     return NextResponse.json(
@@ -351,10 +396,11 @@ export async function PATCH(request: NextRequest) {
     typeof body?.id !== "string" ||
     !amounts.every(validAmount) ||
     !validAmount(amounts.reduce((sum, n) => sum + n, 0)) ||
-    Object.entries(limits).some(([field, limit]) =>
-      body[field] !== undefined &&
-      body[field] !== null &&
-      (typeof body[field] !== "string" || body[field].length > limit),
+    Object.entries(limits).some(
+      ([field, limit]) =>
+        body[field] !== undefined &&
+        body[field] !== null &&
+        (typeof body[field] !== "string" || body[field].length > limit),
     ) ||
     (body.interviewDate && !dateKey(body.interviewDate))
   )
@@ -378,12 +424,24 @@ export async function PATCH(request: NextRequest) {
         data: {
           ...Object.fromEntries(amounts.map((n, i) => [`bonus${i + 1}`, n])),
           totalBonus: amounts.reduce((sum, n) => sum + n, 0),
-          ...(body.company !== undefined ? { company: body.company.trim() || null } : {}),
-          ...(body.interviewDate !== undefined ? { interviewDate: body.interviewDate.trim() || null } : {}),
-          ...(body.policy !== undefined ? { policy: body.policy.trim() || null } : {}),
-          ...(body.workerCode !== undefined ? { workerCode: body.workerCode.trim() || null } : {}),
-          ...(body.accountNumber !== undefined ? { accountNumber: body.accountNumber.trim() || null } : {}),
-          ...(body.bankName !== undefined ? { bankName: body.bankName.trim() || null } : {}),
+          ...(body.company !== undefined
+            ? { company: body.company.trim() || null }
+            : {}),
+          ...(body.interviewDate !== undefined
+            ? { interviewDate: body.interviewDate.trim() || null }
+            : {}),
+          ...(body.policy !== undefined
+            ? { policy: body.policy.trim() || null }
+            : {}),
+          ...(body.workerCode !== undefined
+            ? { workerCode: body.workerCode.trim() || null }
+            : {}),
+          ...(body.accountNumber !== undefined
+            ? { accountNumber: body.accountNumber.trim() || null }
+            : {}),
+          ...(body.bankName !== undefined
+            ? { bankName: body.bankName.trim() || null }
+            : {}),
         },
       });
       await tx.auditLog.create({
@@ -417,14 +475,22 @@ export async function DELETE(request: NextRequest) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ success: false, message: "JSON không hợp lệ" }, { status: 400 });
+    return NextResponse.json(
+      { success: false, message: "JSON không hợp lệ" },
+      { status: 400 },
+    );
   }
   const actor = (await identity(request))!;
   try {
     if (typeof body?.id === "string" && body.id.trim()) {
-      const record = await prisma.bonusRecord.findUnique({ where: { id: body.id } });
+      const record = await prisma.bonusRecord.findUnique({
+        where: { id: body.id },
+      });
       if (!record)
-        return NextResponse.json({ success: false, message: "Không tìm thấy bản thưởng" }, { status: 404 });
+        return NextResponse.json(
+          { success: false, message: "Không tìm thấy bản thưởng" },
+          { status: 404 },
+        );
       await prisma.$transaction(async (tx) => {
         await tx.bonusRecord.delete({ where: { id: record.id } });
         await tx.auditLog.create({
@@ -439,7 +505,10 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ success: true, deletedCount: 1 });
     }
     if (body?.all !== true || body?.confirmAll !== true)
-      return NextResponse.json({ success: false, message: "Cần xác nhận xóa toàn bộ bản thưởng" }, { status: 400 });
+      return NextResponse.json(
+        { success: false, message: "Cần xác nhận xóa toàn bộ bản thưởng" },
+        { status: 400 },
+      );
     const deletedCount = await prisma.$transaction(async (tx) => {
       const count = await tx.bonusRecord.count();
       await tx.bonusRecord.deleteMany();
@@ -455,6 +524,9 @@ export async function DELETE(request: NextRequest) {
     });
     return NextResponse.json({ success: true, deletedCount });
   } catch {
-    return NextResponse.json({ success: false, message: "Không thể xóa bản thưởng" }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Không thể xóa bản thưởng" },
+      { status: 500 },
+    );
   }
 }
