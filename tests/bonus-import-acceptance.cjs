@@ -231,8 +231,8 @@ const makeRequest = (confirm) => ({
   assert.equal(saved.interviewDate, "04/05/2026");
   assert.equal(saved.policy, "Chính sách QA");
   assert.equal(saved.workerCode, "CODE-FROM-FILE");
-  assert.equal(saved.accountNumber, "000123456789");
-  assert.equal(saved.bankName, "QA Bank");
+  assert.equal(writtenBanks[0].accountNumber, "000123456789");
+  assert.equal(writtenBanks[0].bankName, "QA Bank");
   assert.deepEqual(
     [
       saved.bonus1,
@@ -318,7 +318,7 @@ const makeRequest = (confirm) => ({
   });
   assert.equal(listed.body.data.length, 4);
   assert.ok(listed.body.data.some((record) => record.assignmentId === null));
-  assert.equal(writtenBanks.length, 0);
+  assert.equal(writtenBanks.length, 4);
   console.log(
     "PASS DS_THUONG preview/commit, all 17 columns, numeric/dash/text reward cells retained, leading-zero identifiers, and assignment resolved by company/date without matching source code",
   );

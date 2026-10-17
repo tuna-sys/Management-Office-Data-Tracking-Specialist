@@ -89,8 +89,6 @@ model BonusRecord {
   interviewDate String?         // Ngày PV
   policy        String?         // Chính sách
   workerCode    String?         // Mã nhân viên
-  accountNumber String?
-  bankName      String?
   bonus1        Float?          @default(0)
   bonus2        Float?          @default(0)
   bonus3        Float?          @default(0)

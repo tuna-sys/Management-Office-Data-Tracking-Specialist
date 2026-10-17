@@ -395,8 +395,6 @@ export async function POST(request: NextRequest) {
           totalBonus: true,
           policy: true,
           workerCode: true,
-          accountNumber: true,
-          bankName: true,
           interviewDate: true,
         },
       });
@@ -554,8 +552,6 @@ export async function POST(request: NextRequest) {
               policy,
               workerCode,
               interviewDate,
-              accountNumber,
-              bankName,
             })) {
               if (value && !(existingBonus as any)[key])
                 metadataUpdates[key] = value;
@@ -579,6 +575,33 @@ export async function POST(request: NextRequest) {
                       totalBonus: (existingBonus.totalBonus || 0) + addedAmount,
                     },
                   });
+                  if (accountNumber && existingBonus.workerId) {
+                    const existingBank = await tx.bankAccount.findFirst({
+                      where: {
+                        workerId: existingBonus.workerId,
+                        accountNumber: String(accountNumber).trim(),
+                      },
+                    });
+                    if (existingBank) {
+                      if (bankName && !existingBank.bankName) {
+                        await tx.bankAccount.update({
+                          where: { id: existingBank.id },
+                          data: { bankName: String(bankName).trim() },
+                        });
+                      }
+                    } else {
+                      await tx.bankAccount.create({
+                        data: {
+                          workerId: existingBonus.workerId,
+                          accountNumber: String(accountNumber).trim(),
+                          bankName: String(bankName || "").trim() || "Chưa xác định",
+                          accountHolderName: fullName,
+                          isNameVerified: true,
+                          verificationStatus: "VERIFIED",
+                        },
+                      });
+                    }
+                  }
                   await tx.auditLog.create({
                     data: {
                       module: "BONUS",
@@ -667,8 +690,6 @@ export async function POST(request: NextRequest) {
                   interviewDate,
                   policy,
                   workerCode,
-                  accountNumber: accountNumber || null,
-                  bankName: bankName || null,
                   bonus1,
                   bonus2,
                   bonus3,
@@ -681,6 +702,33 @@ export async function POST(request: NextRequest) {
                   note: sourceNote,
                 },
               });
+              if (accountNumber) {
+                const existingBank = await tx.bankAccount.findFirst({
+                  where: {
+                    workerId,
+                    accountNumber: String(accountNumber).trim(),
+                  },
+                });
+                if (existingBank) {
+                  if (bankName && !existingBank.bankName) {
+                    await tx.bankAccount.update({
+                      where: { id: existingBank.id },
+                      data: { bankName: String(bankName).trim() },
+                    });
+                  }
+                } else {
+                  await tx.bankAccount.create({
+                    data: {
+                      workerId,
+                      accountNumber: String(accountNumber).trim(),
+                      bankName: String(bankName || "").trim() || "Chưa xác định",
+                      accountHolderName: fullName,
+                      isNameVerified: true,
+                      verificationStatus: "VERIFIED",
+                    },
+                  });
+                }
+              }
               await tx.auditLog.create({
                 data: {
                   module: "BONUS",

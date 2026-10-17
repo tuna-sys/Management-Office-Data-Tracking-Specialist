@@ -188,6 +188,38 @@ export async function POST(request: NextRequest) {
         })
       )
         throw new Error("BONUS_ALREADY_EXISTS");
+      const inputAccount =
+        typeof accountNumber === "string" && accountNumber.trim()
+          ? accountNumber.trim()
+          : null;
+      const inputBankName =
+        typeof bankName === "string" && bankName.trim()
+          ? bankName.trim()
+          : null;
+      if (tx.bankAccount && inputAccount) {
+        const existingBank = await tx.bankAccount.findFirst({
+          where: { workerId, accountNumber: inputAccount },
+        });
+        if (existingBank) {
+          if (inputBankName && !existingBank.bankName) {
+            await tx.bankAccount.update({
+              where: { id: existingBank.id },
+              data: { bankName: inputBankName },
+            });
+          }
+        } else {
+          await tx.bankAccount.create({
+            data: {
+              workerId,
+              accountNumber: inputAccount,
+              bankName: inputBankName || "Chưa xác định",
+              accountHolderName: worker.fullName,
+              isNameVerified: true,
+              verificationStatus: "VERIFIED",
+            },
+          });
+        }
+      }
       const created = await tx.bonusRecord.create({
         data: {
           workerId,
@@ -201,14 +233,6 @@ export async function POST(request: NextRequest) {
             typeof workerCode === "string" && workerCode.trim()
               ? workerCode.trim()
               : assignment?.employeeCode || worker.code || null,
-          accountNumber:
-            typeof accountNumber === "string" && accountNumber.trim()
-              ? accountNumber.trim()
-              : fallbackBank?.accountNumber || null,
-          bankName:
-            typeof bankName === "string" && bankName.trim()
-              ? bankName.trim()
-              : fallbackBank?.bankName || null,
           ...Object.fromEntries(
             amounts.map((amount, index) => [`bonus${index + 1}`, amount]),
           ),
@@ -224,7 +248,11 @@ export async function POST(request: NextRequest) {
           details: `Tạo dự thảo thưởng kỳ ${month} cho công nhân - Tổng tiền: ${totalBonus.toLocaleString("vi-VN")} đ`,
         },
       });
-      return created;
+      return {
+        ...created,
+        accountNumber: inputAccount || fallbackBank?.accountNumber || null,
+        bankName: inputBankName || fallbackBank?.bankName || null,
+      };
     });
     return NextResponse.json({ success: true, data: record }, { status: 201 });
   } catch (error: any) {
@@ -420,6 +448,36 @@ export async function PATCH(request: NextRequest) {
         return { error: "Chỉ được sửa dự thảo", status: 409 };
       if (current.updatedAt.toISOString() !== body.updatedAt)
         return { error: "Bản ghi đã thay đổi, hãy tải lại", status: 409 };
+      if (tx.bankAccount && body.accountNumber !== undefined) {
+        const acc = (body.accountNumber || "").trim();
+        if (acc) {
+          const existingBank = await tx.bankAccount.findFirst({
+            where: { workerId: current.workerId, accountNumber: acc },
+          });
+          if (existingBank) {
+            if (body.bankName !== undefined && body.bankName.trim()) {
+              await tx.bankAccount.update({
+                where: { id: existingBank.id },
+                data: { bankName: body.bankName.trim() },
+              });
+            }
+          } else {
+            const worker = await tx.worker.findUnique({
+              where: { id: current.workerId },
+            });
+            await tx.bankAccount.create({
+              data: {
+                workerId: current.workerId,
+                accountNumber: acc,
+                bankName: (body.bankName || "").trim() || "Chưa xác định",
+                accountHolderName: worker?.fullName || "Chưa xác định",
+                isNameVerified: true,
+                verificationStatus: "VERIFIED",
+              },
+            });
+          }
+        }
+      }
       const data = await tx.bonusRecord.update({
         where: { id: current.id },
         data: {
@@ -437,12 +495,6 @@ export async function PATCH(request: NextRequest) {
           ...(body.workerCode !== undefined
             ? { workerCode: body.workerCode.trim() || null }
             : {}),
-          ...(body.accountNumber !== undefined
-            ? { accountNumber: body.accountNumber.trim() || null }
-            : {}),
-          ...(body.bankName !== undefined
-            ? { bankName: body.bankName.trim() || null }
-            : {}),
         },
       });
       await tx.auditLog.create({
@@ -453,7 +505,19 @@ export async function PATCH(request: NextRequest) {
           details: `Sửa dự thảo ${current.id}: ${current.totalBonus} → ${data.totalBonus} VND`,
         },
       });
-      return { data };
+      return {
+        data: {
+          ...data,
+          accountNumber:
+            body.accountNumber !== undefined
+              ? (body.accountNumber || "").trim() || null
+              : undefined,
+          bankName:
+            body.bankName !== undefined
+              ? (body.bankName || "").trim() || null
+              : undefined,
+        },
+      };
     });
     if ("error" in result)
       return NextResponse.json(
