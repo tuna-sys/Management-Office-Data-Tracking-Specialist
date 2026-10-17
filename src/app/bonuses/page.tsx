@@ -16,6 +16,7 @@ import {
   Popconfirm,
   Space,
 } from "antd";
+import Link from "next/link";
 import {
   Coins,
   Download,
@@ -25,6 +26,9 @@ import {
   FileCheck,
   Building,
   CreditCard,
+  LayoutDashboard,
+  ArrowLeft,
+  Award,
 } from "lucide-react";
 const MONTHS = [
   "T01.2026",
@@ -350,6 +354,37 @@ export default function BonusesPage() {
   );
   return (
     <div className="space-y-6">
+      {/* Breadcrumb & Quick links */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <Link
+            href="/"
+            className="flex items-center gap-1 hover:text-blue-600 font-medium transition"
+          >
+            <LayoutDashboard className="w-3.5 h-3.5" />
+            <span>Tổng quan Dashboard</span>
+          </Link>
+          <span>/</span>
+          <span className="font-semibold text-slate-800">Quản lý Thưởng (DS_THUONG)</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1 text-xs text-slate-600 hover:text-blue-600 bg-white hover:bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200 shadow-xs transition"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Về Dashboard</span>
+          </Link>
+          <Link
+            href="/rewards"
+            className="inline-flex items-center gap-1 text-xs text-purple-700 hover:text-purple-800 bg-purple-50 hover:bg-purple-100 px-2.5 py-1.5 rounded-lg border border-purple-200 shadow-xs transition font-medium"
+          >
+            <Award className="w-3.5 h-3.5 text-purple-600" />
+            <span>Mốc thưởng / Đã trả</span>
+          </Link>
+        </div>
+      </div>
+
       {/* Title & Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
         <div>

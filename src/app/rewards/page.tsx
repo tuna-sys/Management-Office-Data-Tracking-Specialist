@@ -19,6 +19,8 @@ import {
 import { useIdentity } from "@/components/AuthGate";
 import DateField from "@/components/DateField";
 import { formatDate } from "@/lib/date-format";
+import Link from "next/link";
+import { LayoutDashboard, Coins, ArrowLeft } from "lucide-react";
 export default function RewardsPage() {
   const user = useIdentity(),
     canWrite = user?.permissions.includes("bonus:write"),
@@ -131,6 +133,37 @@ export default function RewardsPage() {
   }
   return (
     <div className="space-y-4">
+      {/* Breadcrumb & Quick links */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <Link
+            href="/"
+            className="flex items-center gap-1 hover:text-blue-600 font-medium transition"
+          >
+            <LayoutDashboard className="w-3.5 h-3.5" />
+            <span>Tổng quan Dashboard</span>
+          </Link>
+          <span>/</span>
+          <span className="font-semibold text-slate-800">Mốc thưởng & Đã trả</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1 text-xs text-slate-600 hover:text-blue-600 bg-white hover:bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200 shadow-xs transition"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Về Dashboard</span>
+          </Link>
+          <Link
+            href="/bonuses"
+            className="inline-flex items-center gap-1 text-xs text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-2.5 py-1.5 rounded-lg border border-amber-200 shadow-xs transition font-medium"
+          >
+            <Coins className="w-3.5 h-3.5 text-amber-600" />
+            <span>Quản lý Thưởng (DS_THUONG)</span>
+          </Link>
+        </div>
+      </div>
+
       <Card title="Theo dõi mốc thưởng và các lần chi trả">
         <Alert
           type="info"
