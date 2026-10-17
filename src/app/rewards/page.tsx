@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 
 import {
   Card,
@@ -445,7 +445,14 @@ export default function RewardsPage() {
                 className="w-36"
                 options={[
                   { label: "Tất cả tháng", value: "" },
-                  ...MONTHS.map((m) => ({ label: m, value: m })),
+                  ...Array.from(
+                    new Set([
+                      ...MONTHS,
+                      ...rows.map((r) => r.assignment?.onboardingMonth).filter(Boolean),
+                    ]),
+                  )
+                    .sort()
+                    .map((m) => ({ label: m, value: m })),
                 ]}
               />
             </div>
@@ -458,8 +465,18 @@ export default function RewardsPage() {
                 setSelectedFactory(v || "");
                 setCurrentPage(1);
               }}
-              className="w-44"
-              options={FACTORIES.map((f) => ({ label: f, value: f }))}
+              className="w-48"
+              options={[
+                ...Array.from(
+                  new Set([
+                    ...FACTORIES,
+                    ...rows.map((r) => r.factory).filter(Boolean),
+                    ...rows.map((r) => r.assignment?.interviewFactory).filter(Boolean),
+                  ]),
+                )
+                  .sort()
+                  .map((f) => ({ label: f, value: f })),
+              ]}
             />
 
             {/* Bộ lọc theo Căn cước (CCCD) */}
@@ -601,31 +618,39 @@ export default function RewardsPage() {
                       width: 200,
                       render: (_, s) => (
                         <Space>
-                          <Button
-                            size="small"
-                            disabled={!canWrite}
-                            onClick={() => {
-                              setStage(s);
-                              stageForm.resetFields();
-                              stageForm.setFieldsValue({
-                                ...s,
-                                note: s.confirmationNote,
-                              });
-                            }}
-                          >
-                            Xác nhận mốc
-                          </Button>
-                          <Button
-                            size="small"
-                            type="primary"
-                            disabled={!canPay || !s.achieved}
-                            onClick={() => {
-                              setPayment(s);
-                              payForm.resetFields();
-                            }}
-                          >
-                            Ghi đã trả
-                          </Button>
+                          {e.isSourceExcel ? (
+                            <Tag color={s.achieved ? "blue" : "default"}>
+                              {s.achieved ? "Đã chi trả theo Excel" : "Không có thưởng"}
+                            </Tag>
+                          ) : (
+                            <>
+                              <Button
+                                size="small"
+                                disabled={!canWrite}
+                                onClick={() => {
+                                  setStage(s);
+                                  stageForm.resetFields();
+                                  stageForm.setFieldsValue({
+                                    ...s,
+                                    note: s.confirmationNote,
+                                  });
+                                }}
+                              >
+                                Xác nhận mốc
+                              </Button>
+                              <Button
+                                size="small"
+                                type="primary"
+                                disabled={!canPay || !s.achieved}
+                                onClick={() => {
+                                  setPayment(s);
+                                  payForm.resetFields();
+                                }}
+                              >
+                                Ghi đã trả
+                              </Button>
+                            </>
+                          )}
                         </Space>
                       ),
                     },

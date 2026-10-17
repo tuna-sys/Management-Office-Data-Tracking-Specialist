@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
         { worker: { is: { fullName: { contains: search } } } },
       ];
     }
+    const orderDirection = searchParams.get("order") === "desc" ? "desc" : "asc";
     const bonuses = await prisma.bonusRecord.findMany({
       where: whereClause,
       include: {
@@ -44,7 +45,7 @@ export async function GET(request: NextRequest) {
           },
         },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: { createdAt: orderDirection },
     });
     return NextResponse.json({ success: true, data: bonuses });
   } catch (error: any) {
