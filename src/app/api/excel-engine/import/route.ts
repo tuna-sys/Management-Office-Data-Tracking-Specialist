@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import * as XLSX from 'xlsx';
 import { guard, identity } from '@/lib/auth';
-import { phoneKey } from '@/lib/worker-validation';
+import { phoneKey, normalizeCccd, formatExcelDate } from '@/lib/worker-validation';
 import { parseImportRow } from '@/lib/worker-import';
 import { assignmentRelations, today, day } from '@/lib/domain';
 
@@ -258,11 +258,12 @@ export async function POST(request: NextRequest) {
           const raw = e.raw;
           const cccdRaw = raw['Số CCCD'] || raw['số CCCD'] || raw['CCCD'] || raw['CMT/CCCD'];
           if (!cccdRaw) throw new Error('Thiếu số CCCD');
-          const idCard = String(cccdRaw).trim();
+          const idCard = normalizeCccd(cccdRaw);
           const fullName = String(raw['Họ tên'] || raw['Họ và tên'] || '').trim();
           const company = String(raw['Công ty'] || raw['Nhà máy'] || '').trim();
-          const month = sourceMonth(raw['Tháng'],String(raw['Ngày PV']||''));if(!month)throw new Error('Thiếu tháng thưởng');
-          const interviewDate = String(raw['Ngày PV'] || '').trim();
+          const interviewDate = formatExcelDate(raw['Ngày PV'] || '');
+          const month = sourceMonth(raw['Tháng'], interviewDate);
+          if (!month) throw new Error('Thiếu tháng thưởng');
           const policy = String(raw['Chính sách'] || '').trim();
           const workerCode = String(raw['Mã nhân viên'] || raw['Mã NV'] || '').trim();
           const stk = raw['STK'] ? String(raw['STK']).trim() : '';
@@ -289,27 +290,50 @@ export async function POST(request: NextRequest) {
           const totalBonus = parseBonus(raw['Tổng thưởng']) || totalBonusCalculated;
 
           let worker = workerMap.get(idCard);
+          let selectedAssignment: any = null;
 
-          if (!worker) throw new Error('CCCD chưa có hồ sơ; nhập DS_TONG trước');
-          if(typeof cccdRaw==='number')throw new Error('CCCD phải là Text');
-          const candidates = worker.assignments.filter(a =>
-            (matchFactory(a.interviewFactory, company) || matchFactory(a.workingFactory, company)) &&
-            (!workerCode || a.employeeCode === workerCode || worker!.code === workerCode)
-          );
-          let selectedAssignment = null;
-          if (candidates.length === 1) {
-            selectedAssignment = candidates[0];
-          } else if (candidates.length > 1) {
-            const exactDate = candidates.find(a => !!dateKey(interviewDate) && dateKey(a.interviewDate || '') === dateKey(interviewDate));
-            selectedAssignment = exactDate || candidates[0];
+          if (!worker) {
+            worker = {
+              id: 'temp-worker-' + idCard,
+              idCard,
+              fullName: fullName || 'Người lao động',
+              code: workerCode || null,
+              assignments: []
+            } as any;
+            workerMap.set(idCard, worker);
+          } else {
+            const candidates = worker.assignments.filter(a =>
+              (matchFactory(a.interviewFactory, company) || matchFactory(a.workingFactory, company)) &&
+              (!workerCode || a.employeeCode === workerCode || worker!.code === workerCode)
+            );
+            if (candidates.length === 1) {
+              selectedAssignment = candidates[0];
+            } else if (candidates.length > 1) {
+              const exactDate = candidates.find(a => !!dateKey(interviewDate) && dateKey(a.interviewDate || '') === dateKey(interviewDate));
+              selectedAssignment = exactDate || candidates[0];
+            }
           }
-          if (!selectedAssignment) throw new Error('Không xác định duy nhất đợt theo CCCD, công ty, ngày PV và mã NV');
+
+          if (!selectedAssignment) {
+            selectedAssignment = {
+              id: 'temp-assignment-' + idCard + '-' + (company || 'ALL'),
+              workerId: worker.id,
+              interviewFactory: company,
+              workingFactory: company,
+              employeeCode: workerCode || null,
+              interviewDate: interviewDate || null,
+              interviewResult: 'PASS',
+              status: 'Đang làm việc',
+              onboardingMonth: month || null,
+            };
+            worker.assignments.push(selectedAssignment);
+          }
 
           // 2. Kiểm tra bản thưởng đã có trong CSDL (Smart Merge hoặc Tách trùng an toàn)
           const bonusKey = `${worker.id}|${month}|${company}|${selectedAssignment.id}`;
           const existingBonus = bonusMap.get(bonusKey) || bonusMap.get(`${worker.id}|${month}|${company}|`);
 
-          if (existingBonus) {
+          if (existingBonus && !existingBonus.id.startsWith('temp')) {
             // Kiểm tra xem có lần thưởng nào mới để bổ sung (Smart Merge) hay không
             const bonusKeys: Array<'bonus1' | 'bonus2' | 'bonus3' | 'bonus4' | 'bonus5' | 'bonus6' | 'bonus7'> = [
               'bonus1', 'bonus2', 'bonus3', 'bonus4', 'bonus5', 'bonus6', 'bonus7'
@@ -364,44 +388,117 @@ export async function POST(request: NextRequest) {
           }
 
           // 3. Nếu là bản ghi mới hợp lệ:
-          bonusMap.set(bonusKey, { id: 'temp', workerId: worker.id, month, company, assignmentId: selectedAssignment.id } as any);
+          bonusMap.set(bonusKey, { id: 'temp-' + e.row, workerId: worker.id, month, company, assignmentId: selectedAssignment.id } as any);
           const sourceNote=JSON.stringify({source:'SOURCE_EXCEL_ACTUAL_PAID',monthOriginal:raw['Tháng'],sourceValues:raw,rewards:Array.from({length:7},(_,i)=>String(raw['Thưởng lần '+(i+1)]||'')),paymentDate:null,reference:null});
 
           if (commit) {
             commitTasks.push(async (tx) => {
-              const assignmentId = selectedAssignment!.id;
-              await tx.bonusRecord.create({
-                data: {
-                  workerId: worker!.id,
-                  assignmentId,
-                  company,
+              let person = await tx.worker.findUnique({ where: { idCard } });
+              if (!person) {
+                person = await tx.worker.create({
+                  data: {
+                    idCard,
+                    fullName: fullName || 'Người lao động',
+                    code: workerCode || null,
+                  }
+                });
+              }
+
+              let assignment = await tx.workAssignment.findFirst({
+                where: {
+                  workerId: person.id,
+                  OR: [
+                    { interviewFactory: company },
+                    { workingFactory: company }
+                  ]
+                }
+              });
+              if (!assignment) {
+                assignment = await tx.workAssignment.create({
+                  data: {
+                    workerId: person.id,
+                    interviewFactory: company,
+                    workingFactory: company,
+                    employeeCode: workerCode || null,
+                    interviewDate: interviewDate || null,
+                    interviewResult: 'PASS',
+                    status: 'Đang làm việc',
+                    onboardingMonth: month || null,
+                  }
+                });
+                await tx.assignmentEvent.create({
+                  data: {
+                    assignmentId: assignment.id,
+                    occurredOn: today(),
+                    toStatus: 'Đang làm việc',
+                    interviewResult: 'PASS',
+                    operator: actor.username,
+                    note: `Import Excel (Bảng thưởng) — ${fileName}`
+                  }
+                });
+              }
+
+              const existingRecord = await tx.bonusRecord.findFirst({
+                where: {
+                  workerId: person.id,
                   month,
-                  interviewDate,
-                  policy,
-                  workerCode,
-                  bonus1,
-                  bonus2,
-                  bonus3,
-                  bonus4,
-                  bonus5,
-                  bonus6,
-                  bonus7,
-                  totalBonus,
-                  status: 'DRAFT',
-                  note: sourceNote
+                  company,
                 }
               });
 
+              if (existingRecord) {
+                if (smartMerge) {
+                  await tx.bonusRecord.update({
+                    where: { id: existingRecord.id },
+                    data: {
+                      bonus1: bonus1 || existingRecord.bonus1,
+                      bonus2: bonus2 || existingRecord.bonus2,
+                      bonus3: bonus3 || existingRecord.bonus3,
+                      bonus4: bonus4 || existingRecord.bonus4,
+                      bonus5: bonus5 || existingRecord.bonus5,
+                      bonus6: bonus6 || existingRecord.bonus6,
+                      bonus7: bonus7 || existingRecord.bonus7,
+                      totalBonus: totalBonus || existingRecord.totalBonus,
+                      policy: policy || existingRecord.policy,
+                      workerCode: workerCode || existingRecord.workerCode,
+                      interviewDate: interviewDate || existingRecord.interviewDate,
+                    }
+                  });
+                }
+              } else {
+                await tx.bonusRecord.create({
+                  data: {
+                    workerId: person.id,
+                    assignmentId: assignment.id,
+                    company,
+                    month,
+                    interviewDate,
+                    policy,
+                    workerCode,
+                    bonus1,
+                    bonus2,
+                    bonus3,
+                    bonus4,
+                    bonus5,
+                    bonus6,
+                    bonus7,
+                    totalBonus,
+                    status: 'DRAFT',
+                    note: sourceNote
+                  }
+                });
+              }
+
               if (stk) {
                 const existingBank = await tx.bankAccount.findFirst({
-                  where: { workerId: worker!.id }
+                  where: { workerId: person.id, accountNumber: stk }
                 });
                 if (!existingBank) {
                   await tx.bankAccount.create({
                     data: {
-                      workerId: worker!.id,
+                      workerId: person.id,
                       accountNumber: stk,
-                      accountHolderName: fullName || worker!.fullName,
+                      accountHolderName: fullName || person.fullName,
                       bankName: bankName || 'Ngân hàng đối soát',
                       verificationStatus: 'UNVERIFIED',
                       isNameVerified: false,
@@ -433,12 +530,26 @@ export async function POST(request: NextRequest) {
         const BATCH_SIZE = 100;
         for (let i = 0; i < commitTasks.length; i += BATCH_SIZE) {
           const chunk = commitTasks.slice(i, i + BATCH_SIZE);
-          await prisma.$transaction(async (tx) => {
+          try {
+            await prisma.$transaction(async (tx) => {
+              for (const task of chunk) {
+                await task(tx);
+              }
+            }, { timeout: 60000 });
+            successCount += chunk.length;
+          } catch (chunkErr) {
             for (const task of chunk) {
-              await task(tx);
+              try {
+                await prisma.$transaction(async (tx) => {
+                  await task(tx);
+                }, { timeout: 15000 });
+                successCount++;
+              } catch (singleErr: any) {
+                errorCount++;
+                errors.push(`Lỗi ghi dòng: ${singleErr?.message || 'Không xác định'}`);
+              }
             }
-          }, { timeout: 60000 });
-          successCount += chunk.length;
+          }
         }
       }
 
@@ -471,7 +582,7 @@ export async function POST(request: NextRequest) {
           const raw = e.raw;
           const cccdRaw = raw['CMT/CCCD'] || raw['Số CCCD'] || raw['số CCCD'] || raw['CCCD'];
           if (!cccdRaw) throw new Error('Thiếu số CMT/CCCD');
-          const idCard = String(cccdRaw).trim();
+          const idCard = normalizeCccd(cccdRaw);
           const fullName = String(raw['Họ và tên'] || raw['Họ tên'] || raw['Tên chủ tài khoản'] || '').trim();
           const stkRaw = raw['STK'] || raw['Số tài khoản'];
           if (!stkRaw) throw new Error('Thiếu số tài khoản (STK)');
@@ -567,12 +678,26 @@ export async function POST(request: NextRequest) {
         const BATCH_SIZE = 100;
         for (let i = 0; i < commitTasks.length; i += BATCH_SIZE) {
           const chunk = commitTasks.slice(i, i + BATCH_SIZE);
-          await prisma.$transaction(async (tx) => {
+          try {
+            await prisma.$transaction(async (tx) => {
+              for (const task of chunk) {
+                await task(tx);
+              }
+            }, { timeout: 60000 });
+            successCount += chunk.length;
+          } catch (chunkErr) {
             for (const task of chunk) {
-              await task(tx);
+              try {
+                await prisma.$transaction(async (tx) => {
+                  await task(tx);
+                }, { timeout: 15000 });
+                successCount++;
+              } catch (singleErr: any) {
+                errorCount++;
+                errors.push(`Lỗi ghi dòng: ${singleErr?.message || 'Không xác định'}`);
+              }
             }
-          }, { timeout: 60000 });
-          successCount += chunk.length;
+          }
         }
       }
 
@@ -877,12 +1002,26 @@ export async function POST(request: NextRequest) {
       const BATCH_SIZE = 100;
       for (let i = 0; i < commitTasks.length; i += BATCH_SIZE) {
         const chunk = commitTasks.slice(i, i + BATCH_SIZE);
-        await prisma.$transaction(async (tx) => {
+        try {
+          await prisma.$transaction(async (tx) => {
+            for (const task of chunk) {
+              await task(tx);
+            }
+          }, { timeout: 60000 });
+          successCount += chunk.length;
+        } catch (chunkErr) {
           for (const task of chunk) {
-            await task(tx);
+            try {
+              await prisma.$transaction(async (tx) => {
+                await task(tx);
+              }, { timeout: 15000 });
+              successCount++;
+            } catch (singleErr: any) {
+              errorCount++;
+              errors.push(`Lỗi ghi dòng: ${singleErr?.message || 'Không xác định'}`);
+            }
           }
-        }, { timeout: 60000 });
-        successCount += chunk.length;
+        }
       }
     }
 

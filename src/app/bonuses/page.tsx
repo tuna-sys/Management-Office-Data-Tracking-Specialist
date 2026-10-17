@@ -228,10 +228,20 @@ export default function BonusesPage() {
     {
       title: "STT",
       key: "stt",
-      width: 65,
-      render: (_: any, r: any, i: number) =>
-        sourceInfo(r)?.sourceValues?.STT ||
-        (currentPage - 1) * pageSize + i + 1,
+      width: 70,
+      align: "center" as const,
+      render: (_: any, r: any, i: number) => {
+        const sequentialIndex = (currentPage - 1) * pageSize + i + 1;
+        const originalStt = sourceInfo(r)?.sourceValues?.STT;
+        return (
+          <span
+            className="font-semibold text-slate-700"
+            title={originalStt ? `STT file gốc: ${originalStt}` : undefined}
+          >
+            {sequentialIndex}
+          </span>
+        );
+      },
     },
     { title: "Công ty", dataIndex: "company", width: 160 },
     {

@@ -111,12 +111,6 @@ export default function ExcelToolsPage() {
     const commitImport = async () => {
         if (!pendingFile && !googleSheetUrl) return;
 
-        const confirmText = smartMerge
-            ? 'Xác nhận nhập dữ liệu? Dòng mới và các thông tin bổ sung sẽ được ghi vào hồ sơ nghiệp vụ. Dòng trùng hoàn toàn sẽ được tách riêng an toàn.'
-            : 'Ghi dòng cảnh báo vào danh sách chính và đưa dòng trùng vào danh sách chờ kiểm tra riêng? Toàn bộ nguồn vẫn được giữ, không ghi đè lượt đã có.';
-
-        if (!window.confirm(confirmText)) return;
-
         setUploading(true);
         try {
             const data = new FormData();
@@ -136,9 +130,9 @@ export default function ExcelToolsPage() {
             if (j.success) {
                 setResult(j);
                 setPendingFile(null);
-                message.success(`Đã giữ ${j.sourceRowsSaved} dòng nguồn; ${j.normalizedSaved} dòng được ghi vào hồ sơ nghiệp vụ.`);
+                message.success(`Đã ghi nhận ${j.sourceRowsSaved} dòng nguồn; ${j.normalizedSaved} dòng được cập nhật vào hồ sơ nghiệp vụ.`);
             } else {
-                message.error(j.message);
+                message.error(j.message || 'Lỗi khi nhập dữ liệu');
             }
         } catch {
             message.error('Không thể nhập file');
@@ -364,16 +358,28 @@ export default function ExcelToolsPage() {
 
                             <p className="text-xs text-slate-600">Đếm theo số dòng. {result.mainSourceRows??0} dòng vào danh sách chính (trong đó có {result.summary?.mergedCount??0} dòng bổ sung thông tin); {result.pendingDuplicateCount??0} dòng trùng hoàn toàn vào danh sách chờ kiểm tra riêng. Dòng vừa cảnh báo vừa trùng đi theo luồng trùng.</p>
                             {result.preview && (pendingFile || (sourceMethod === 'GOOGLE_SHEET' && googleSheetUrl)) && (
-                                <Button
-                                    type="primary"
-                                    size="large"
-                                    block
-                                    loading={uploading}
-                                    onClick={commitImport}
-                                    className="bg-emerald-600 hover:bg-emerald-500 font-bold shadow-md"
+                                <Popconfirm
+                                    title="Xác nhận nạp dữ liệu vào hệ thống"
+                                    description={
+                                        smartMerge
+                                            ? 'Dữ liệu mới và các thông tin bổ sung sẽ được cập nhật vào hệ thống. Các dòng trùng lặp sẽ được bảo vệ an toàn.'
+                                            : 'Ghi nhận dòng dữ liệu vào danh sách chính và đưa dòng trùng vào luồng kiểm tra riêng.'
+                                    }
+                                    okText="Ghi vào CSDL ngay"
+                                    cancelText="Hủy"
+                                    okButtonProps={{ className: 'bg-emerald-600 hover:bg-emerald-500 font-semibold' }}
+                                    onConfirm={commitImport}
                                 >
-                                    Xác nhận ghi dữ liệu và tách {result.summary?.duplicateCount||0} dòng trùng
-                                </Button>
+                                    <Button
+                                        type="primary"
+                                        size="large"
+                                        block
+                                        loading={uploading}
+                                        className="bg-emerald-600 hover:bg-emerald-500 font-bold shadow-md text-white"
+                                    >
+                                        Xác nhận ghi dữ liệu và tách {result.summary?.duplicateCount||0} dòng trùng
+                                    </Button>
+                                </Popconfirm>
                             )}
 
                             <Tabs items={[

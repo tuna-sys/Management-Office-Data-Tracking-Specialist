@@ -24,21 +24,40 @@ export async function GET(r: NextRequest) {
       include,
       orderBy: { createdAt: "desc" },
     });
+    const month = p.get("month") || "";
+    const factory = p.get("factory") || p.get("company") || "";
+    const idCard = p.get("idCard")?.trim() || "";
+    const workerCode = p.get("workerCode")?.trim() || "";
+    const search = p.get("search")?.trim() || "";
+    const assignmentId = p.get("assignmentId") || "";
+
     rows = rows.filter(
       (e) =>
-        (!p.get("month") ||
-          monthOf(e.assignment.interviewDate) === p.get("month")) &&
-        (!p.get("factory") || e.factory === p.get("factory")) &&
+        (!month ||
+          monthOf(e.assignment.interviewDate) === month ||
+          e.assignment.onboardingMonth === month) &&
+        (!factory ||
+          e.factory === factory ||
+          e.assignment.interviewFactory === factory ||
+          e.assignment.workingFactory === factory) &&
         (!p.get("orderId") || e.assignment.orderId === p.get("orderId")) &&
-        (!p.get("assignmentId") || e.assignmentId === p.get("assignmentId")) &&
-        (!p.get("search") ||
+        (!assignmentId || e.assignmentId === assignmentId) &&
+        (!idCard ||
+          e.assignment.worker.idCard
+            ?.toLowerCase()
+            .includes(idCard.toLowerCase())) &&
+        (!workerCode ||
+          (e.assignment.employeeCode || e.assignment.worker.code)
+            ?.toLowerCase()
+            .includes(workerCode.toLowerCase())) &&
+        (!search ||
           [
             e.assignment.worker.fullName,
             e.assignment.worker.idCard,
             e.assignment.employeeCode,
             e.assignment.worker.code,
           ].some((v) =>
-            v?.toLowerCase().includes(p.get("search")!.toLowerCase()),
+            v?.toLowerCase().includes(search.toLowerCase()),
           )),
     );
     return NextResponse.json({ success: true, data: rows });

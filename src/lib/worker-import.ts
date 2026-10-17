@@ -6,6 +6,8 @@ import {
   ASSIGNMENT_FIELDS,
   validateWorker,
   validateInterview,
+  normalizeCccd,
+  formatExcelDate,
 } from "@/lib/worker-validation";
 const mappings: Record<string, string[]> = {
   fullName: ["Họ và tên", "Họ tên"],
@@ -80,14 +82,18 @@ export function parseImportRow(
       .map((h) => row.get(normalizeImportHeader(h)))
       .find((v) => v !== undefined && v !== null && v !== "");
     if (v === undefined) continue;
-    if (["idCard", "phone"].includes(field) && typeof v === "number")
+    if (!sourceImport && ["idCard", "phone"].includes(field) && typeof v === "number")
       throw new Error(
         `${field === "idCard" ? "CCCD" : "SĐT"} phải lưu dạng Text để bảo toàn số 0 đầu; không tự khôi phục số thiếu`,
       );
-    if (dates.includes(field) && typeof v === "number") {
-      const d = XLSX.SSF.parse_date_code(v);
-      if (!d) throw new Error(`Ngày ${field} không hợp lệ`);
-      v = `${String(d.d).padStart(2, "0")}/${String(d.m).padStart(2, "0")}/${d.y}`;
+    if (field === "idCard") {
+      v = normalizeCccd(v);
+    } else if (field === "phone") {
+      let p = String(v).trim().replace(/[\s().-]/g, "");
+      if (typeof v === "number" && p.length === 9) p = "0" + p;
+      v = p;
+    } else if (dates.includes(field)) {
+      v = formatExcelDate(v);
     }
     body[field] = String(v).trim();
   }
