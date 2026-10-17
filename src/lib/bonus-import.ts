@@ -80,7 +80,10 @@ function parseBonusAmount(value: unknown, label: string) {
     amount = sourceRewardAmount(value);
   } catch (error: any) {
     if (error?.message === "Tiền thưởng không hợp lệ") throw error;
-    const match = /([0-9]+(?:[.,][0-9]+)?)\s*(triệu|tr|million|m|nghìn|ngàn|k)(?=\s|$|[^\p{L}])/iu.exec(source);
+    const match =
+      /([0-9]+(?:[.,][0-9]+)?)\s*(triệu|tr|million|m|nghìn|ngàn|k)(?=\s|$|[^\p{L}])/iu.exec(
+        source,
+      );
     if (!match)
       return {
         amount: 0,

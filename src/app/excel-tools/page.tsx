@@ -536,8 +536,8 @@ export default function ExcelToolsPage() {
                       loading={uploading}
                       className="bg-emerald-600 hover:bg-emerald-500 font-bold shadow-md text-white"
                     >
-                      Xác nhận nạp {result.summary?.readyCount || 0} dòng và tách{" "}
-                      {result.summary?.duplicateCount || 0} dòng trùng
+                      Xác nhận nạp {result.summary?.readyCount || 0} dòng và
+                      tách {result.summary?.duplicateCount || 0} dòng trùng
                     </Button>
                   </Popconfirm>
                 )}
