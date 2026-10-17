@@ -70,6 +70,52 @@ const conflict = {
 r = report([conflict], [], [], new URLSearchParams());
 assert.equal(r.pending, 1);
 assert.equal(r.total, 0);
+
+// Regression test: numeric CCCD (missing leading zero) & Excel serial date in source.rows
+// must match normalized imported BonusRecord and NOT be double-counted.
+const numericExcelSource = {
+  id: "excel-serial",
+  type: "DS_THUONG",
+  file: "DS_THUONG.xlsx",
+  rows: [
+    {
+      row: 2,
+      values: {
+        "Công ty": "Fushan TV",
+        "Số CCCD": 4082003651,
+        "Họ tên": "Bế Văn Dũng",
+        "Ngày PV": 46086,
+        Tháng: "Tháng 05",
+        "Mã nhân viên": "V3910413",
+        "Thưởng lần 1": "500,000",
+      },
+    },
+  ],
+};
+const importedBonus = [
+  {
+    id: "bonus-db-1",
+    company: "Fushan TV",
+    month: "T05.2026",
+    interviewDate: "05/03/2026",
+    workerCode: "V3910413",
+    totalBonus: 500000,
+    note: JSON.stringify({
+      source: "SOURCE_EXCEL_ACTUAL_PAID",
+      rewards: ["500,000", "", "", "", "", "", ""],
+    }),
+    worker: { idCard: "004082003651", fullName: "Bế Văn Dũng" },
+  },
+];
+const deduped = report(
+  [numericExcelSource],
+  [{ idCard: "004082003651", fullName: "Bế Văn Dũng", assignments: [] }],
+  importedBonus,
+  new URLSearchParams(),
+);
+assert.equal(deduped.rows.length, 1);
+assert.equal(deduped.total, 500000);
+
 console.log(
   "PASS company/date filters with no assignment, repeated import not double counted, conflicting amounts excluded from total",
 );

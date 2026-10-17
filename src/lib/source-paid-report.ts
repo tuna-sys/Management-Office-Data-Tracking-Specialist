@@ -1,4 +1,8 @@
-import { dateKey } from "@/lib/worker-validation";
+import {
+  dateKey,
+  normalizeCccd,
+  formatExcelDate,
+} from "@/lib/worker-validation";
 import { sourceHeader, sourceRewardAmount } from "@/lib/source-format";
 import { splitImportReview } from "@/lib/import-review";
 const norm = (v: unknown) =>
@@ -13,7 +17,7 @@ export function sourcePaidReport(
   imported: any[],
   p: URLSearchParams,
 ) {
-  const people = new Map(workers.map((w) => [String(w.idCard), w]));
+  const people = new Map(workers.map((w) => [normalizeCccd(w.idCard), w]));
   const unique = new Map<string, any>();
   let skippedDuplicates = 0;
   for (const source of sources.filter((s) => s.type === "DS_THUONG"))
@@ -37,15 +41,15 @@ export function sourcePaidReport(
         skippedDuplicates++;
         continue;
       }
-      const card = String(v["Số CCCD"] || v["số CCCD"] || v.CCCD || "").trim(),
+      const card = normalizeCccd(v["Số CCCD"] || v["số CCCD"] || v.CCCD || ""),
         company = String(v["Công ty"] || "").trim(),
-        pv = String(v["Ngày PV"] || "").trim(),
+        pv = formatExcelDate(v["Ngày PV"]),
         code = String(v["Mã nhân viên"] || v["Mã NV"] || "").trim();
       const rewards = Array.from({ length: 7 }, (_, i) =>
         String(v[`Thưởng lần ${i + 1}`] ?? "").trim(),
       );
       const key =
-        card && company && dateKey(pv)
+        card && company
           ? JSON.stringify([card, norm(company), dateKey(pv), code])
           : `unlinked-${source.id}-${r.row}`;
       const signature = JSON.stringify(rewards.map(norm));
@@ -103,12 +107,18 @@ export function sourcePaidReport(
       continue;
     }
     if (note.source !== "SOURCE_EXCEL_ACTUAL_PAID") continue;
-    const card = String(b.worker?.idCard || ""),
-      company = b.company || "",
-      pv = b.interviewDate || b.assignment?.interviewDate || "",
-      code = b.workerCode || "";
+    const card = normalizeCccd(b.worker?.idCard || ""),
+      company = String(b.company || "").trim(),
+      pv = formatExcelDate(b.interviewDate || b.assignment?.interviewDate || ""),
+      code = String(b.workerCode || "").trim();
     const key = JSON.stringify([card, norm(company), dateKey(pv), code]);
-    if (unique.has(key)) continue;
+    const rawKey = JSON.stringify([
+      card,
+      norm(company),
+      dateKey(formatExcelDate(b.interviewDate || "")),
+      code,
+    ]);
+    if (unique.has(key) || unique.has(rawKey)) continue;
     unique.set(key, {
       id: b.id,
       key,
