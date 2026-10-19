@@ -70,6 +70,7 @@ export async function resolveImportSourceRow(sourceId:string,rowNum:number,mode:
  }else{
   targetRow.warnings=[];
   targetRow.duplicates=[];
+  targetRow.isApproved=true;
  }
  await writeFile(filePath+'.tmp',JSON.stringify(data),'utf8');
  await rename(filePath+'.tmp',filePath);

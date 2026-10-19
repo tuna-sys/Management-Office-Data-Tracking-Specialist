@@ -630,49 +630,34 @@ export async function POST(request: NextRequest) {
             continue;
           }
 
-          // Kiểm tra trường hợp công nhân đang làm việc tại công ty khác (CHƯA BÁO NGHỈ)
+          // Kiểm tra trường hợp công nhân đang phỏng vấn / làm việc ở công ty khác mà nhảy sang công ty này
           if (old) {
-            const activeAssign = (old.assignments || []).find((a: any) => {
-              if (a.leaveDate) return false;
-              if (a.leaveReason) return false;
-              const s = (a.status || "").toLowerCase().trim();
-              const isInactive =
-                !s ||
-                s === "đã nghỉ việc" ||
-                s === "nghỉ việc" ||
-                s === "nghỉ hẳn" ||
-                s === "nh" ||
-                s === "bỏ xx" ||
-                s === "bỏ xưởng" ||
-                s === "hết hạn hợp đồng" ||
-                s === "hết hợp đồng" ||
-                s === "hhđ" ||
-                s === "tự ý nghỉ việc" ||
-                s.includes("nghỉ") ||
-                s.includes("hết phí") ||
-                s.includes("bỏ xx") ||
-                s.includes("bỏ xưởng") ||
-                s.includes("bỏ việc") ||
-                s.includes("ko theo dõi") ||
-                s.includes("không theo dõi") ||
-                s.includes("hết hợp đồng") ||
-                s.includes("hết hạn") ||
-                s.includes("hhđ") ||
-                s.includes("kết thúc") ||
-                s.includes("(nh)") ||
-                s.includes("(bỏ xx)");
-              if (isInactive) return false;
+            const crossCompanyAssign = (old.assignments || []).find((a: any) => {
               const curFactory = a.workingFactory || a.interviewFactory || "";
               const nxtFactory = assignment.workingFactory || assignment.interviewFactory || "";
-              return curFactory && nxtFactory && !matchFactory(curFactory, nxtFactory);
+              if (!curFactory || !nxtFactory || matchFactory(curFactory, nxtFactory)) return false;
+
+              // 1. Đợt cũ chưa có ngày nghỉ (chưa chính thức thanh lý đợt)
+              if (!a.leaveDate) return true;
+
+              // 2. Đợt cũ đang trong trạng thái làm việc hoặc chờ
+              const s = (a.status || "").toLowerCase().trim();
+              if (s === "đang làm việc" || s === "lv" || s === "chờ kết quả" || s.includes("đang")) return true;
+
+              // 3. Cả 2 đợt cùng diễn ra trong cùng tháng (nhảy xưởng trong tháng)
+              if (a.onboardingMonth && assignment.onboardingMonth && a.onboardingMonth === assignment.onboardingMonth) {
+                return true;
+              }
+
+              return false;
             });
 
-            if (activeAssign) {
-              const currentFac = activeAssign.workingFactory || activeAssign.interviewFactory;
+            if (crossCompanyAssign) {
+              const currentFac = crossCompanyAssign.workingFactory || crossCompanyAssign.interviewFactory;
               const newFac = assignment.interviewFactory || assignment.workingFactory;
               duplicateCount++;
               errors.push(
-                `Dòng ${e.row}: Đang làm việc tại "${currentFac}" (CHƯA BÁO NGHỈ) nhưng phát sinh đợt phỏng vấn/tuyển dụng mới tại "${newFac}".`,
+                `Dòng ${e.row}: Đang có hồ sơ/phỏng vấn tại "${currentFac}" (${crossCompanyAssign.status || "Chưa rõ"}) nhưng nhảy sang "${newFac}" (CẦN QUẢN LÝ XÁC NHẬN).`,
               );
               continue;
             }
