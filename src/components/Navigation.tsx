@@ -68,7 +68,6 @@ const navGroups: NavGroup[] = [
     group: 'HỆ THỐNG & CÔNG CỤ',
     items: [
       { href: '/excel-tools', label: 'Bộ máy Excel Engine', icon: FileSpreadsheet },
-      { href: '/import-review', label: 'Cảnh báo / Trùng import', icon: ShieldAlert },
       { href: '/catalogs', label: 'Danh mục cấu hình', icon: Layers },
       { href: '/audit', label: 'Lịch sử thay đổi', icon: History },
       { href: '/permissions', label: 'Phân quyền & Tài khoản', icon: Shield },

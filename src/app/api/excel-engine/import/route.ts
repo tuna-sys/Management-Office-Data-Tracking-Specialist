@@ -374,7 +374,7 @@ export async function POST(request: NextRequest) {
     // =========================================================================
     if (detectedType === "DS_THUONG") {
       const workers = await prisma.worker.findMany({
-        include: { assignments: true },
+        include: { assignments: true, bankAccounts: true },
       });
       const workerMap = new Map(workers.map((w) => [w.idCard, w]));
 
@@ -396,6 +396,7 @@ export async function POST(request: NextRequest) {
           policy: true,
           workerCode: true,
           interviewDate: true,
+          note: true,
         },
       });
       const bonusMap = new Map<string, (typeof existingBonuses)[0]>();
@@ -537,16 +538,19 @@ export async function POST(request: NextRequest) {
               "bonus7",
             ];
             const bonusUpdates: Record<string, number> = {};
+            let hasConflictAmount = false;
 
             bonusKeys.forEach((key, idx) => {
               const oldVal = (existingBonus as any)[key] || 0;
               const newVal = bonuses[idx] || 0;
               if (oldVal === 0 && newVal > 0) {
                 bonusUpdates[key] = newVal;
+              } else if (oldVal > 0 && newVal > 0 && oldVal !== newVal) {
+                hasConflictAmount = true;
               }
             });
 
-            const metadataUpdates: Record<string, string> = {};
+            const metadataUpdates: Record<string, any> = {};
             for (const [key, value] of Object.entries({
               company,
               policy,
@@ -556,9 +560,28 @@ export async function POST(request: NextRequest) {
               if (value && !(existingBonus as any)[key])
                 metadataUpdates[key] = value;
             }
+            if (selectedAssignment && !existingBonus.assignmentId) {
+              metadataUpdates.assignmentId = selectedAssignment.id;
+            }
+
+            const cleanAcc = accountNumber ? String(accountNumber).trim() : "";
+            const cleanBank = bankName ? String(bankName).trim() : "";
+            const existingWorkerBank = cleanAcc
+              ? worker?.bankAccounts?.find((b) => b.accountNumber === cleanAcc)
+              : null;
+            const needBankUpdate = Boolean(
+              cleanAcc &&
+                (!existingWorkerBank ||
+                  (cleanBank &&
+                    (!existingWorkerBank.bankName ||
+                      existingWorkerBank.bankName === "Chưa xác định"))),
+            );
+
             const hasNewBonus =
-              Object.keys(bonusUpdates).length > 0 ||
-              Object.keys(metadataUpdates).length > 0;
+              !hasConflictAmount &&
+              (Object.keys(bonusUpdates).length > 0 ||
+                Object.keys(metadataUpdates).length > 0 ||
+                needBankUpdate);
 
             if (smartMerge && hasNewBonus) {
               if (commit) {
@@ -575,26 +598,30 @@ export async function POST(request: NextRequest) {
                       totalBonus: (existingBonus.totalBonus || 0) + addedAmount,
                     },
                   });
-                  if (accountNumber && existingBonus.workerId) {
+                  if (cleanAcc && existingBonus.workerId) {
                     const existingBank = await tx.bankAccount.findFirst({
                       where: {
                         workerId: existingBonus.workerId,
-                        accountNumber: String(accountNumber).trim(),
+                        accountNumber: cleanAcc,
                       },
                     });
                     if (existingBank) {
-                      if (bankName && !existingBank.bankName) {
+                      if (
+                        cleanBank &&
+                        (!existingBank.bankName ||
+                          existingBank.bankName === "Chưa xác định")
+                      ) {
                         await tx.bankAccount.update({
                           where: { id: existingBank.id },
-                          data: { bankName: String(bankName).trim() },
+                          data: { bankName: cleanBank },
                         });
                       }
                     } else {
                       await tx.bankAccount.create({
                         data: {
                           workerId: existingBonus.workerId,
-                          accountNumber: String(accountNumber).trim(),
-                          bankName: String(bankName || "").trim() || "Chưa xác định",
+                          accountNumber: cleanAcc,
+                          bankName: cleanBank || "Chưa xác định",
                           accountHolderName: fullName,
                           isNameVerified: true,
                           verificationStatus: "VERIFIED",
@@ -607,7 +634,7 @@ export async function POST(request: NextRequest) {
                       module: "BONUS",
                       action: "UPDATE",
                       operator: actor.username,
-                      details: `Dòng ${e.row}: Bổ sung thưởng đợt ${month} cho CCCD ${idCard} (${company})`,
+                      details: `Dòng ${e.row}: Bổ sung thông tin còn thiếu đợt thưởng ${month} cho CCCD ${idCard} (${company})`,
                     },
                   });
                 });
@@ -618,7 +645,7 @@ export async function POST(request: NextRequest) {
               continue;
             }
 
-            // Nếu không có thông tin mới để bổ sung: Tách riêng vào luồng trùng, KHÔNG throw làm hỏng các dòng khác
+            // Nếu trùng lặp hoặc lệch số tiền: Đưa vào danh sách trùng để kiểm tra / duyệt ghi đè
             duplicateCount++;
             errors.push(
               `Dòng ${e.row}: Bản thưởng của đợt đã có; không tự ghi đè`,
@@ -1274,20 +1301,25 @@ export async function POST(request: NextRequest) {
             assignmentUpdates.interviewResult = assignment.interviewResult;
           }
           if (
-            (!matchAssignment.status ||
+            ((!matchAssignment.status ||
               matchAssignment.status === "Đang chờ phỏng vấn") &&
-            assignment.status &&
-            assignment.status !== "Đang chờ phỏng vấn"
+              assignment.status &&
+              assignment.status !== "Đang chờ phỏng vấn") ||
+            (!matchAssignment.leaveDate &&
+              assignment.leaveDate &&
+              assignment.status)
           ) {
             assignmentUpdates.status = assignment.status;
           }
 
           const rawStk = raw["STK"] || raw["Số tài khoản"];
           const rawBankName = raw["Ngân hàng"];
+          const cleanRawStk = rawStk ? String(rawStk).trim() : "";
           const needBankAdd = Boolean(
-            rawStk &&
-            String(rawStk).trim() &&
-            (!old?.bankAccounts || old.bankAccounts.length === 0),
+            cleanRawStk &&
+              !old?.bankAccounts?.some(
+                (b: any) => b.accountNumber === cleanRawStk,
+              ),
           );
 
           const updatedFieldKeys = [
@@ -1317,14 +1349,14 @@ export async function POST(request: NextRequest) {
                   const hasBank = await tx.bankAccount.findFirst({
                     where: {
                       workerId: old!.id,
-                      accountNumber: String(rawStk).trim(),
+                      accountNumber: cleanRawStk,
                     },
                   });
                   if (!hasBank) {
                     await tx.bankAccount.create({
                       data: {
                         workerId: old!.id,
-                        accountNumber: String(rawStk).trim(),
+                        accountNumber: cleanRawStk,
                         accountHolderName: worker.fullName || old!.fullName,
                         bankName: rawBankName
                           ? String(rawBankName).trim()
@@ -1338,7 +1370,7 @@ export async function POST(request: NextRequest) {
                       (old as any).bankAccounts =
                         (old as any).bankAccounts || [];
                       (old as any).bankAccounts.push({
-                        accountNumber: String(rawStk).trim(),
+                        accountNumber: cleanRawStk,
                       });
                     }
                   }
@@ -1443,7 +1475,7 @@ export async function POST(request: NextRequest) {
                 where: { idCard: worker.idCard },
                 include: { assignments: true },
               });
-              if (!person)
+              if (!person) {
                 person = await tx.worker.create({
                   data: {
                     ...worker,
@@ -1452,6 +1484,41 @@ export async function POST(request: NextRequest) {
                   },
                   include: { assignments: true },
                 });
+              } else {
+                const personFillable: Array<keyof typeof worker> = [
+                  "code",
+                  "dob",
+                  "gender",
+                  "phone",
+                  "address",
+                  "province",
+                  "recruiter",
+                  "team",
+                  "source",
+                  "idCardDate",
+                  "idCardPlace",
+                ];
+                const personUpdates: Record<string, any> = {};
+                for (const f of personFillable) {
+                  const cur = (person as any)[f];
+                  const nxt = worker[f];
+                  if (
+                    (!cur || String(cur).trim() === "") &&
+                    nxt &&
+                    String(nxt).trim() !== ""
+                  ) {
+                    personUpdates[f] = nxt;
+                  }
+                }
+                if (Object.keys(personUpdates).length > 0) {
+                  person = await tx.worker.update({
+                    where: { id: person.id },
+                    data: personUpdates,
+                    include: { assignments: true },
+                  });
+                  if (old) Object.assign(old, personUpdates);
+                }
+              }
               const a = await tx.workAssignment.create({
                 data: {
                   ...assignment,
@@ -1459,6 +1526,22 @@ export async function POST(request: NextRequest) {
                   workerId: person.id,
                 },
               });
+              const unlinkedBonuses = await tx.bonusRecord.findMany({
+                where: { workerId: person.id, assignmentId: null },
+              });
+              for (const ub of unlinkedBonuses) {
+                if (
+                  matchFactory(
+                    ub.company || "",
+                    a.workingFactory || a.interviewFactory || "",
+                  )
+                ) {
+                  await tx.bonusRecord.update({
+                    where: { id: ub.id },
+                    data: { assignmentId: a.id },
+                  });
+                }
+              }
               await tx.assignmentEvent.create({
                 data: {
                   assignmentId: a.id,
@@ -1482,7 +1565,7 @@ export async function POST(request: NextRequest) {
                   module: "WORKER",
                   action: "IMPORT",
                   operator: actor.username,
-                  details: `Dòng ${e.row}: hồ sơ ${person.id}, lượt ${a.id}${old ? " (thêm lịch sử vào hồ sơ cũ)" : ""}`,
+                  details: `Dòng ${e.row}: hồ sơ ${person.id}, lượt ${a.id}${old ? " (bổ sung thông tin & thêm đợt vào hồ sơ sẵn có)" : ""}`,
                 },
               });
             });

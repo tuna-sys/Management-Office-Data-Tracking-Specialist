@@ -14,6 +14,7 @@ import {
   Badge,
   message,
   Popconfirm,
+  Modal,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { formatDate } from "@/lib/date-format";
@@ -30,6 +31,9 @@ import {
   Building2,
   Calendar,
   Trash2,
+  Eye,
+  Check,
+  ArrowRightLeft,
 } from "lucide-react";
 
 interface Issue {
@@ -40,12 +44,14 @@ interface Issue {
 
 interface ReviewItem {
   id: string;
+  sourceId: string;
   file: string;
   sheet: string;
   importType: string;
   row: number;
   values: Record<string, any>;
   issues: Issue[];
+  existingRecord?: Record<string, any> | null;
 }
 
 interface IssueExplanation {
@@ -309,6 +315,8 @@ export default function ImportReviewPage() {
   const [tab, setTab] = useState<"warnings" | "duplicates">("warnings");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [inspectItem, setInspectItem] = useState<ReviewItem | null>(null);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
 
   async function load() {
     setBusy(true);
@@ -324,6 +332,35 @@ export default function ImportReviewPage() {
       message.error("Lỗi kết nối khi tải danh sách phân luồng");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleAction(item: ReviewItem, action: "APPROVE" | "DELETE") {
+    try {
+      setActionBusy(`${item.id}-${action}`);
+      const res = await fetch("/api/import-review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          sourceId: item.sourceId,
+          row: item.row,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        message.success(json.message);
+        if (inspectItem?.id === item.id) {
+          setInspectItem(null);
+        }
+        await load();
+      } else {
+        message.error(json.message || "Không thể thực hiện thao tác");
+      }
+    } catch {
+      message.error("Lỗi kết nối khi xử lý dòng dữ liệu");
+    } finally {
+      setActionBusy(null);
     }
   }
 
@@ -541,7 +578,7 @@ export default function ImportReviewPage() {
     {
       title: "Nguyên nhân chi tiết & Hướng xử lý",
       key: "issues",
-      width: 455,
+      width: 420,
       render: (_, r) => {
         return (
           <div className="space-y-1.5 py-0.5">
@@ -576,6 +613,60 @@ export default function ImportReviewPage() {
           </div>
         );
       },
+    },
+    {
+      title: "Thao tác",
+      key: "actions",
+      width: 215,
+      fixed: "right",
+      align: "center",
+      render: (_, r) => (
+        <div className="flex items-center justify-center gap-1.5 flex-wrap">
+          <Button
+            size="small"
+            icon={<Eye className="w-3.5 h-3.5" />}
+            onClick={() => setInspectItem(r)}
+            className="text-xs font-medium text-blue-600 border-blue-200 bg-blue-50/60 hover:bg-blue-100"
+          >
+            Kiểm tra
+          </Button>
+          <Popconfirm
+            title="Duyệt và ghi nhận dòng dữ liệu này?"
+            description="Hệ thống sẽ cập nhật/ghi đè dữ liệu từ dòng Excel này vào CSDL chính thức và đóng cảnh báo."
+            onConfirm={() => handleAction(r, "APPROVE")}
+            okText="Duyệt ghi nhận"
+            cancelText="Hủy"
+          >
+            <Button
+              size="small"
+              type="primary"
+              loading={actionBusy === `${r.id}-APPROVE`}
+              icon={<Check className="w-3.5 h-3.5" />}
+              className="text-xs font-medium bg-emerald-600 hover:bg-emerald-700"
+            >
+              Duyệt
+            </Button>
+          </Popconfirm>
+          <Popconfirm
+            title="Xóa dòng dữ liệu cảnh báo/trùng này?"
+            description={`Loại bỏ dòng #${r.row} (${r.file}) khỏi danh sách chờ kiểm tra?`}
+            onConfirm={() => handleAction(r, "DELETE")}
+            okText="Xóa dòng"
+            cancelText="Hủy"
+            okButtonProps={{ danger: true }}
+          >
+            <Button
+              size="small"
+              danger
+              loading={actionBusy === `${r.id}-DELETE`}
+              icon={<Trash2 className="w-3.5 h-3.5" />}
+              className="text-xs font-medium"
+            >
+              Xóa
+            </Button>
+          </Popconfirm>
+        </div>
+      ),
     },
   ];
 
@@ -837,7 +928,7 @@ export default function ImportReviewPage() {
                 rowKey="id"
                 size="middle"
                 loading={busy}
-                scroll={{ x: 1245 }}
+                scroll={{ x: 1440 }}
                 dataSource={filteredData}
                 columns={columns}
                 pagination={{
@@ -930,7 +1021,7 @@ export default function ImportReviewPage() {
                 rowKey="id"
                 size="middle"
                 loading={busy}
-                scroll={{ x: 1245 }}
+                scroll={{ x: 1440 }}
                 dataSource={filteredData}
                 columns={columns}
                 pagination={{
@@ -1002,6 +1093,263 @@ export default function ImportReviewPage() {
           },
         ]}
       />
+
+      {/* Modal Kiểm tra & Đối chiếu chi tiết 2 cột (CSDL vs File Excel) */}
+      <Modal
+        open={!!inspectItem}
+        onCancel={() => setInspectItem(null)}
+        width={840}
+        title={
+          <div className="flex items-center gap-2 text-slate-900">
+            <ArrowRightLeft className="w-5 h-5 text-indigo-600" />
+            <span>
+              Kiểm tra chi tiết dòng #{inspectItem?.row} ({inspectItem?.file})
+            </span>
+          </div>
+        }
+        footer={
+          inspectItem ? (
+            <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
+              <Button onClick={() => setInspectItem(null)}>Đóng</Button>
+              <div className="flex items-center gap-2">
+                <Popconfirm
+                  title="Xóa dòng dữ liệu này?"
+                  description={`Loại bỏ dòng #${inspectItem.row} (${inspectItem.file}) khỏi danh sách chờ kiểm tra?`}
+                  onConfirm={() => handleAction(inspectItem, "DELETE")}
+                  okText="Xóa dòng"
+                  cancelText="Hủy"
+                  okButtonProps={{ danger: true }}
+                >
+                  <Button
+                    danger
+                    loading={actionBusy === `${inspectItem.id}-DELETE`}
+                    icon={<Trash2 className="w-4 h-4" />}
+                  >
+                    Xóa dòng này
+                  </Button>
+                </Popconfirm>
+                <Popconfirm
+                  title="Duyệt và ghi nhận dòng dữ liệu này?"
+                  description="Hệ thống sẽ cập nhật/ghi đè dữ liệu từ dòng Excel này vào CSDL chính thức và đóng cảnh báo."
+                  onConfirm={() => handleAction(inspectItem, "APPROVE")}
+                  okText="Duyệt ghi nhận"
+                  cancelText="Hủy"
+                >
+                  <Button
+                    type="primary"
+                    loading={actionBusy === `${inspectItem.id}-APPROVE`}
+                    icon={<Check className="w-4 h-4" />}
+                    className="bg-emerald-600 hover:bg-emerald-700"
+                  >
+                    Duyệt & Ghi nhận vào CSDL
+                  </Button>
+                </Popconfirm>
+              </div>
+            </div>
+          ) : null
+        }
+      >
+        {inspectItem && (
+          <div className="space-y-4 mt-2">
+            {/* Lý do cảnh báo / trùng lặp */}
+            <div className="space-y-2">
+              {inspectItem.issues.map((issue, idx) => {
+                const exp = explainIssue(issue.message, inspectItem.values);
+                return (
+                  <div
+                    key={idx}
+                    className="p-3 rounded-xl border border-amber-200 bg-amber-50/80 text-xs space-y-1"
+                  >
+                    <div className="flex items-center gap-2 font-bold text-slate-900">
+                      <Tag color={exp.color} className="m-0 font-bold">
+                        {exp.badge}
+                      </Tag>
+                      <span>{exp.title}</span>
+                    </div>
+                    <div className="text-slate-700">{exp.detail}</div>
+                    <div className="text-emerald-800 font-semibold pt-0.5">
+                      👉 Khi bấm &ldquo;Duyệt&rdquo;: Hệ thống sẽ lấy dữ liệu ở
+                      cột bên phải (File Excel dòng #{inspectItem.row}) để cập
+                      nhật/ghi nhận vào CSDL chính thức.
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Bảng đối chiếu 2 cột: CSDL hiện có vs File Excel dòng #row */}
+            {(() => {
+              const v = inspectItem.values || {};
+              const ex = inspectItem.existingRecord || {};
+              const hasExisting = !!inspectItem.existingRecord;
+
+              const excelFields: {
+                label: string;
+                dbVal: string;
+                excelVal: string;
+              }[] = [
+                {
+                  label: "Họ và tên",
+                  dbVal: ex.fullName || "—",
+                  excelVal: String(v["Họ tên"] || v["Họ và tên"] || "—"),
+                },
+                {
+                  label: "Số CCCD",
+                  dbVal: ex.idCard || "—",
+                  excelVal: String(
+                    v["Số CCCD"] || v["số CCCD"] || v["CCCD"] || "—",
+                  ),
+                },
+                {
+                  label: "Số điện thoại",
+                  dbVal: ex.phone || "—",
+                  excelVal: String(v["SĐT"] || v["Số điện thoại"] || "—"),
+                },
+                {
+                  label: "Mã nhân viên",
+                  dbVal: ex.employeeCode || "—",
+                  excelVal: String(v["Mã NV"] || v["Mã nhân viên"] || "—"),
+                },
+                {
+                  label: "Nhà máy / Công ty",
+                  dbVal: ex.factory || "—",
+                  excelVal: String(
+                    v["Công ty"] ||
+                      v["Nhà máy PV"] ||
+                      v["Nhà máy làm việc"] ||
+                      "—",
+                  ),
+                },
+                {
+                  label: "Ngày phỏng vấn",
+                  dbVal:
+                    ex.interviewDate && ex.interviewDate !== "—"
+                      ? formatDate(ex.interviewDate)
+                      : "—",
+                  excelVal:
+                    v["Ngày PV"] || v["Ngày phỏng vấn"]
+                      ? formatDate(v["Ngày PV"] || v["Ngày phỏng vấn"])
+                      : "—",
+                },
+                {
+                  label: "Trạng thái làm việc",
+                  dbVal: ex.status || "—",
+                  excelVal: String(v["Tình trạng"] || "—"),
+                },
+                {
+                  label: "Tháng thưởng / Đợt",
+                  dbVal: ex.month || "—",
+                  excelVal: String(v["Tháng"] || v["Tháng nhận việc"] || "—"),
+                },
+                {
+                  label: "Tổng thưởng",
+                  dbVal: ex.totalBonus || "—",
+                  excelVal: String(v["Tổng thưởng"] || "—"),
+                },
+                {
+                  label: "Chi tiết các lần thưởng",
+                  dbVal: ex.bonusDetails || "—",
+                  excelVal:
+                    [1, 2, 3, 4, 5, 6, 7]
+                      .map((n) =>
+                        v[`Thưởng lần ${n}`]
+                          ? `L${n}: ${v[`Thưởng lần ${n}`]}`
+                          : null,
+                      )
+                      .filter(Boolean)
+                      .join(" | ") || "—",
+                },
+                {
+                  label: "Ngân hàng / Số TK",
+                  dbVal:
+                    ex.bankName || ex.bankAccount
+                      ? `${ex.bankName || ""} - ${ex.bankAccount || ""}`
+                      : "—",
+                  excelVal:
+                    v["Ngân hàng"] || v["STK"]
+                      ? `${v["Ngân hàng"] || ""} - ${v["STK"] || ""}`
+                      : "—",
+                },
+                {
+                  label: "Người tuyển dụng",
+                  dbVal: ex.recruiter || "—",
+                  excelVal: String(v["Người tuyển"] || "—"),
+                },
+              ];
+
+              return (
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <div className="grid grid-cols-12 bg-slate-100 border-b border-slate-200 text-xs font-bold text-slate-700">
+                    <div className="col-span-3 p-2.5 border-r border-slate-200">
+                      Trường đối chiếu
+                    </div>
+                    <div className="col-span-4 p-2.5 border-r border-slate-200 text-blue-800 bg-blue-50/60">
+                      1. Dữ liệu đang có trong CSDL{" "}
+                      {!hasExisting && "(Chưa có hồ sơ khớp CCCD)"}
+                    </div>
+                    <div className="col-span-5 p-2.5 text-indigo-800 bg-indigo-50/60">
+                      2. Dữ liệu từ Excel ({inspectItem.file} - Dòng #
+                      {inspectItem.row})
+                    </div>
+                  </div>
+                  <div className="divide-y divide-slate-200 text-xs">
+                    {excelFields.map((f, i) => {
+                      const isDiff =
+                        hasExisting &&
+                        f.dbVal !== "—" &&
+                        f.excelVal !== "—" &&
+                        f.dbVal !== f.excelVal;
+                      const isSameKey =
+                        hasExisting &&
+                        f.label === "Số CCCD" &&
+                        f.dbVal === f.excelVal &&
+                        f.dbVal !== "—";
+                      return (
+                        <div
+                          key={i}
+                          className={`grid grid-cols-12 items-center ${
+                            isDiff
+                              ? "bg-rose-50/70"
+                              : isSameKey
+                                ? "bg-amber-50/60"
+                                : "bg-white"
+                          }`}
+                        >
+                          <div className="col-span-3 p-2.5 font-semibold text-slate-600 border-r border-slate-200 flex items-center justify-between">
+                            <span>{f.label}</span>
+                            {isDiff && (
+                              <Tag
+                                color="red"
+                                className="m-0 text-[10px] px-1 leading-tight"
+                              >
+                                Khác biệt
+                              </Tag>
+                            )}
+                            {isSameKey && (
+                              <Tag
+                                color="orange"
+                                className="m-0 text-[10px] px-1 leading-tight"
+                              >
+                                Trùng mã
+                              </Tag>
+                            )}
+                          </div>
+                          <div className="col-span-4 p-2.5 border-r border-slate-200 font-medium text-slate-800 break-words">
+                            {f.dbVal}
+                          </div>
+                          <div className="col-span-5 p-2.5 font-semibold text-slate-900 break-words">
+                            {f.excelVal}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

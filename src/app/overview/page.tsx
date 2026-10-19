@@ -156,22 +156,48 @@ export default function OverviewPage() {
         label: "Đến ngày",
         value: formatDate(filters.to),
       });
-    if (filters.interviewFactory)
+    if (
+      Array.isArray(filters.interviewFactory)
+        ? filters.interviewFactory.length > 0
+        : Boolean(filters.interviewFactory)
+    )
       list.push({
         key: "interviewFactory",
         label: "Nhà máy",
-        value: filters.interviewFactory,
+        value: Array.isArray(filters.interviewFactory)
+          ? filters.interviewFactory.join(", ")
+          : String(filters.interviewFactory),
       });
-    if (filters.orderId) {
-      const o = orders.find((ord) => ord.id === filters.orderId);
+    if (
+      Array.isArray(filters.orderId)
+        ? filters.orderId.length > 0
+        : Boolean(filters.orderId)
+    ) {
+      const selectedOrderIds = Array.isArray(filters.orderId)
+        ? filters.orderId
+        : [filters.orderId];
+      const names = selectedOrderIds.map((id) => {
+        const o = orders.find((ord) => ord.id === id);
+        return o ? o.name : id;
+      });
       list.push({
         key: "orderId",
         label: "Đơn hàng",
-        value: o ? o.name : filters.orderId,
+        value: names.join(", "),
       });
     }
-    if (filters.batchId) {
-      list.push({ key: "batchId", label: "Đợt tuyển", value: filters.batchId });
+    if (
+      Array.isArray(filters.batchId)
+        ? filters.batchId.length > 0
+        : Boolean(filters.batchId)
+    ) {
+      list.push({
+        key: "batchId",
+        label: "Đợt tuyển",
+        value: Array.isArray(filters.batchId)
+          ? filters.batchId.join(", ")
+          : String(filters.batchId),
+      });
     }
     return list;
   }, [filters, orders]);
@@ -708,50 +734,91 @@ export default function OverviewPage() {
               placeholder="Tất cả đợt tuyển (T01 - T10)"
               value={Array.isArray(filters.batchId) ? filters.batchId : []}
               onChange={(selectedValues) => {
-                const availableBatches = orders
-                  .filter((o) => {
-                    const selectedOrders = Array.isArray(filters.orderId)
-                      ? filters.orderId
-                      : [];
-                    return (
-                      selectedOrders.length === 0 ||
-                      selectedOrders.includes(o.id)
-                    );
-                  })
-                  .flatMap((o) => o.batches.map((b: any) => b.id));
+                const selectedFactories = Array.isArray(
+                  filters.interviewFactory,
+                )
+                  ? filters.interviewFactory
+                  : [];
+                const selectedOrders = Array.isArray(filters.orderId)
+                  ? filters.orderId
+                  : [];
+                const availablePeriods = Array.from(
+                  new Set(
+                    orders
+                      .filter(
+                        (o) =>
+                          (selectedFactories.length === 0 ||
+                            selectedFactories.includes(o.factory)) &&
+                          (selectedOrders.length === 0 ||
+                            selectedOrders.includes(o.id)),
+                      )
+                      .flatMap((o) =>
+                        (o.batches || []).map(
+                          (b: any) => b.periodMonth || b.name,
+                        ),
+                      )
+                      .filter(Boolean),
+                  ),
+                );
 
                 if (selectedValues.includes("ALL")) {
                   const currentList = Array.isArray(filters.batchId)
                     ? filters.batchId
                     : [];
-                  if (currentList.length === availableBatches.length) {
+                  if (currentList.length === availablePeriods.length) {
                     set("batchId", []);
                   } else {
-                    set("batchId", availableBatches);
+                    set("batchId", availablePeriods);
                   }
                 } else {
                   set("batchId", selectedValues);
                 }
               }}
               options={(() => {
+                const selectedFactories = Array.isArray(
+                  filters.interviewFactory,
+                )
+                  ? filters.interviewFactory
+                  : [];
                 const selectedOrders = Array.isArray(filters.orderId)
                   ? filters.orderId
                   : [];
-                const batchOptions = orders
-                  .filter(
-                    (o) =>
-                      selectedOrders.length === 0 ||
-                      selectedOrders.includes(o.id),
+                const matchingOrders = orders.filter(
+                  (o) =>
+                    (selectedFactories.length === 0 ||
+                      selectedFactories.includes(o.factory)) &&
+                    (selectedOrders.length === 0 ||
+                      selectedOrders.includes(o.id)),
+                );
+                const periodMap = new Map<
+                  string,
+                  { period: string; target: number; count: number }
+                >();
+                for (const o of matchingOrders) {
+                  for (const b of o.batches || []) {
+                    const period = String(b.periodMonth || b.name || "").trim();
+                    if (!period) continue;
+                    const cur = periodMap.get(period) || {
+                      period,
+                      target: 0,
+                      count: 0,
+                    };
+                    if (b.target) cur.target += Number(b.target);
+                    cur.count += 1;
+                    periodMap.set(period, cur);
+                  }
+                }
+                const batchOptions = Array.from(periodMap.values())
+                  .sort((a, b) =>
+                    a.period.localeCompare(b.period, "vi", { numeric: true }),
                   )
-                  .flatMap((o) =>
-                    o.batches.map((b: any) => ({
-                      value: b.id,
-                      label:
-                        selectedOrders.length === 1
-                          ? `${b.periodMonth || b.name} (Chỉ tiêu: ${b.target ? b.target.toLocaleString("vi-VN") : "N/A"})`
-                          : `${o.factory} · ${b.periodMonth || b.name} (Chỉ tiêu: ${b.target ? b.target.toLocaleString("vi-VN") : "N/A"})`,
-                    })),
-                  );
+                  .map((item) => ({
+                    value: item.period,
+                    label:
+                      matchingOrders.length === 1 && item.target > 0
+                        ? `Đợt ${item.period} (Chỉ tiêu: ${item.target.toLocaleString("vi-VN")})`
+                        : `Đợt ${item.period}`,
+                  }));
                 return [
                   { value: "ALL", label: "--- Chọn tất cả ---" },
                   ...batchOptions,
