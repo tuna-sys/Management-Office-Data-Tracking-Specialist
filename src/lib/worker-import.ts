@@ -97,6 +97,20 @@ export function parseImportRow(
     }
     body[field] = String(v).trim();
   }
+  if (!body.province && body.address) {
+    const parts = body.address
+      .split(/[,-]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (parts.length > 0) {
+      const lastPart = parts[parts.length - 1]
+        .replace(/^(tỉnh|thành phố|tp\.?|t\.p)\s+/i, "")
+        .trim();
+      if (lastPart && lastPart.length >= 2 && !/^\d+$/.test(lastPart)) {
+        body.province = lastPart;
+      }
+    }
+  }
   if (body.onboardingMonth)
     body.onboardingMonth = sourceMonth(
       body.onboardingMonth,

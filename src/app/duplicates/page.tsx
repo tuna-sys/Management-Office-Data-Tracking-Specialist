@@ -239,35 +239,35 @@ export default function DuplicatesPage() {
     {
       title: "Trường hợp trùng lặp",
       key: "category",
-      width: 235,
+      width: 220,
       render: (_, r) => {
         if (r.category === "MERGE_INFO") {
           return (
-            <div className="space-y-1">
+            <div className="space-y-1 max-w-[205px]">
               <Tag
                 color="blue"
-                className="font-bold text-[11px] m-0 flex items-center gap-1 w-fit"
+                className="font-bold text-[11px] m-0 inline-flex items-center gap-1 px-2 py-0.5 rounded max-w-full"
               >
                 <FilePlus2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                <span>TH1: BỔ SUNG / GHI ĐÈ HỒ SƠ</span>
+                <span className="truncate">TH1: BỔ SUNG HỒ SƠ</span>
               </Tag>
-              <div className="text-[10px] text-blue-700 font-medium">
-                📝 Ghi đè lên thông tin còn thiếu / cập nhật mới
+              <div className="text-[10px] text-blue-700 font-medium leading-tight">
+                📝 Ghi đè thông tin còn thiếu / mới
               </div>
             </div>
           );
         }
         return (
-          <div className="space-y-1">
+          <div className="space-y-1 max-w-[205px]">
             <Tag
               color="red"
-              className="font-bold text-[11px] m-0 flex items-center gap-1 w-fit"
+              className="font-bold text-[11px] m-0 inline-flex items-center gap-1 px-2 py-0.5 rounded max-w-full"
             >
               <Building2 className="w-3.5 h-3.5 text-red-600 shrink-0" />
-              <span>TH2: ĐANG LÀM CTY NÀY - PV CTY KHÁC</span>
+              <span className="truncate">TH2: TRÙNG CHÉO CÔNG TY</span>
             </Tag>
-            <div className="text-[10px] text-red-600 font-medium">
-              🚨 Đang làm việc nhưng PV / đi làm công ty khác
+            <div className="text-[10px] text-red-600 font-medium leading-tight">
+              🚨 Đang làm việc nhưng PV cty khác
             </div>
           </div>
         );
@@ -278,8 +278,8 @@ export default function DuplicatesPage() {
       key: "currentFactory",
       width: 195,
       render: (_, r) => (
-        <div className="text-xs space-y-0.5">
-          <div className="font-semibold text-slate-800">{r.currentFactory}</div>
+        <div className="text-xs space-y-0.5 max-w-[185px]">
+          <div className="font-semibold text-slate-800 break-words">{r.currentFactory}</div>
           <div className="text-[11px] text-slate-500">
             Trạng thái:{" "}
             <strong className="text-slate-700">{r.currentStatus}</strong>
@@ -297,8 +297,8 @@ export default function DuplicatesPage() {
       key: "newFactory",
       width: 210,
       render: (_, r) => (
-        <div className="text-xs space-y-0.5">
-          <div className="font-semibold text-slate-800">{r.newFactory}</div>
+        <div className="text-xs space-y-0.5 max-w-[200px]">
+          <div className="font-semibold text-slate-800 break-words">{r.newFactory}</div>
           <div className="text-[11px] text-slate-500">
             {r.newInterviewDate && r.newInterviewDate !== "—"
               ? `Ngày PV: ${formatDate(r.newInterviewDate)} `
@@ -320,7 +320,7 @@ export default function DuplicatesPage() {
         const isCross = r.category === "CROSS_COMPANY";
         return (
           <div
-            className={`p-2 rounded-lg text-xs space-y-1 ${
+            className={`p-2.5 rounded-lg text-xs space-y-1.5 ${
               isCross
                 ? "bg-rose-50/80 border border-rose-200"
                 : "bg-blue-50/60 border border-blue-200"
@@ -348,7 +348,7 @@ export default function DuplicatesPage() {
     {
       title: "Thao tác",
       key: "actions",
-      width: 215,
+      width: 175,
       fixed: "right",
       align: "center",
       render: (_, r) => {
@@ -357,36 +357,38 @@ export default function DuplicatesPage() {
             ? "Hệ thống sẽ ghi đè và bổ sung toàn bộ thông tin mới đầy đủ hơn vào hồ sơ hiện có."
             : `Hệ thống sẽ tự động cập nhật đợt tại "${r.currentFactory}" sang "Đã nghỉ việc" và giữ lại đợt mới tại "${r.newFactory}".`;
         return (
-          <div className="flex items-center justify-center gap-1.5 flex-wrap">
-            <Button
-              size="small"
-              icon={<Eye className="w-3.5 h-3.5" />}
-              onClick={() => setInspectItem(r)}
-              className="text-xs font-medium text-blue-600 border-blue-200 bg-blue-50/60 hover:bg-blue-100"
-            >
-              Kiểm tra
-            </Button>
-            <Popconfirm
-              title={
-                r.category === "MERGE_INFO"
-                  ? "Duyệt bổ sung / ghi đè thông tin hồ sơ?"
-                  : "Duyệt chuyển công ty mới?"
-              }
-              description={approveDesc}
-              onConfirm={() => handleAction(r, "APPROVE")}
-              okText="Duyệt ngay"
-              cancelText="Hủy"
-            >
+          <div className="flex flex-col gap-1.5 max-w-[150px] mx-auto">
+            <div className="flex items-center gap-1.5">
               <Button
                 size="small"
-                type="primary"
-                loading={actionBusy === `${r.id}-APPROVE`}
-                icon={<Check className="w-3.5 h-3.5" />}
-                className="text-xs font-medium bg-emerald-600 hover:bg-emerald-700"
+                icon={<Eye className="w-3.5 h-3.5" />}
+                onClick={() => setInspectItem(r)}
+                className="flex-1 text-xs font-medium text-blue-600 border-blue-200 bg-blue-50/60 hover:bg-blue-100"
               >
-                Duyệt
+                Kiểm tra
               </Button>
-            </Popconfirm>
+              <Popconfirm
+                title={
+                  r.category === "MERGE_INFO"
+                    ? "Duyệt bổ sung / ghi đè thông tin hồ sơ?"
+                    : "Duyệt chuyển công ty mới?"
+                }
+                description={approveDesc}
+                onConfirm={() => handleAction(r, "APPROVE")}
+                okText="Duyệt ngay"
+                cancelText="Hủy"
+              >
+                <Button
+                  size="small"
+                  type="primary"
+                  loading={actionBusy === `${r.id}-APPROVE`}
+                  icon={<Check className="w-3.5 h-3.5" />}
+                  className="flex-1 text-xs font-medium bg-emerald-600 hover:bg-emerald-700"
+                >
+                  Duyệt
+                </Button>
+              </Popconfirm>
+            </div>
             <Popconfirm
               title="Xóa bản ghi phát sinh trùng này?"
               description={`Loại bỏ bản ghi trùng của ${r.fullName} khỏi hệ thống?`}
@@ -400,7 +402,7 @@ export default function DuplicatesPage() {
                 danger
                 loading={actionBusy === `${r.id}-DELETE`}
                 icon={<Trash2 className="w-3.5 h-3.5" />}
-                className="text-xs font-medium"
+                className="w-full text-xs font-medium"
               >
                 Xóa
               </Button>

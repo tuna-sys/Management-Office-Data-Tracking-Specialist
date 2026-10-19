@@ -53,12 +53,26 @@ function isInactiveStatus(status?: string | null): boolean {
     s === "hết hạn hợp đồng" ||
     s === "hết hợp đồng" ||
     s === "hhđ" ||
-    s === "tự ý nghỉ việc"
+    s === "tự ý nghỉ việc" ||
+    s.includes("nghỉ") ||
+    s.includes("hết phí") ||
+    s.includes("bỏ xx") ||
+    s.includes("bỏ xưởng") ||
+    s.includes("bỏ việc") ||
+    s.includes("ko theo dõi") ||
+    s.includes("không theo dõi") ||
+    s.includes("hết hợp đồng") ||
+    s.includes("hết hạn") ||
+    s.includes("hhđ") ||
+    s.includes("kết thúc") ||
+    s.includes("(nh)") ||
+    s.includes("(bỏ xx)")
   );
 }
 
 function isActiveAssignment(a: any): boolean {
   if (a.leaveDate) return false;
+  if (a.leaveReason) return false;
   if (isInactiveStatus(a.status)) return false;
   return true;
 }
@@ -97,9 +111,10 @@ export async function GET(request: NextRequest) {
     }
 
     // =========================================================================
-    // TRƯỜNG HỢP 1: TRÙNG BỔ SUNG / GHI ĐÈ THÔNG TIN HỒ SƠ (MERGE_INFO)
+    // DANH SÁCH CẢNH BÁO: MERGE_INFO VÀ CROSS_COMPANY
     // =========================================================================
     const mergeInfoAlerts: any[] = [];
+    const crossCompanyAlerts: any[] = [];
 
     for (const source of sources) {
       for (const row of source.rows || []) {
@@ -169,6 +184,85 @@ export async function GET(request: NextRequest) {
             matchedWorker.assignments?.[0] ||
             null
           : null;
+
+        const isCrossCompany = review.duplicates.some(
+          (d) => d.kind === "CROSS_COMPANY" || /CHƯA BÁO NGHỈ/i.test(d.message),
+        );
+
+        if (isCrossCompany) {
+          const activeAssignment =
+            (matchedWorker?.assignments || []).find(isActiveAssignment) ||
+            matchedAssignment;
+          const actFactory =
+            activeAssignment?.workingFactory ||
+            activeAssignment?.interviewFactory ||
+            "Chưa rõ công ty";
+
+          crossCompanyAlerts.push({
+            id: alertId,
+            category: "CROSS_COMPANY",
+            type: "ĐANG LÀM CÔNG TY NÀY NHƯNG PV / ĐI LÀM CÔNG TY KHÁC",
+            severity: "CRITICAL",
+            sourceId: source.id,
+            row: row.row,
+            fileName: source.file,
+            workerId: matchedWorker?.id || null,
+            currentAssignmentId: activeAssignment?.id || null,
+            newAssignmentId: null, // Đang được chặn an toàn ở file import, chưa ghi vào DB
+            phone: rawPhone || matchedWorker?.phone || "",
+            idCard: normCard || matchedWorker?.idCard || "—",
+            fullName: rawName || matchedWorker?.fullName || "—",
+            currentFactory: actFactory,
+            currentStatus: activeAssignment?.status || "Đang làm việc",
+            currentInterviewDate: activeAssignment?.interviewDate || "—",
+            newFactory: rawCompany || "—",
+            newStatus: rawStatus || "Mới nạp từ file (Chờ duyệt)",
+            newInterviewDate: rawPv || "—",
+            recruiter:
+              activeAssignment?.recruiter || matchedWorker?.recruiter || "—",
+            newRecruiter: rawRecruiter || "—",
+            warning: `Đang làm việc tại "${actFactory}" (CHƯA BÁO NGHỈ) nhưng file "${source.file}" (Dòng #${row.row}) đăng ký vào "${rawCompany}".`,
+            actionRequired: `Bấm 'Kiểm tra' để đối chiếu, bấm 'Duyệt' để chốt Đã nghỉ việc tại "${actFactory}" và kích hoạt đợt làm việc tại "${rawCompany}", hoặc 'Xóa' để hủy đợt này.`,
+            leftSide: {
+              title: "Công ty đang làm việc trong CSDL (Chưa báo nghỉ)",
+              fullName: matchedWorker?.fullName || rawName || "—",
+              idCard: matchedWorker?.idCard || normCard || "—",
+              phone: matchedWorker?.phone || rawPhone || "—",
+              gender: matchedWorker?.gender || "—",
+              dob: matchedWorker?.dob || "—",
+              province: matchedWorker?.province || matchedWorker?.address || "—",
+              factory: actFactory,
+              interviewDate: activeAssignment?.interviewDate || "—",
+              startDate: activeAssignment?.startDate || "—",
+              leaveDate: activeAssignment?.leaveDate || "Chưa có ngày nghỉ",
+              status: activeAssignment?.status || "Đang làm việc",
+              employeeCode:
+                activeAssignment?.employeeCode || matchedWorker?.code || "—",
+              recruiter:
+                activeAssignment?.recruiter || matchedWorker?.recruiter || "—",
+            },
+            rightSide: {
+              title: `Dòng mới từ file "${source.file}" (Dòng #${row.row})`,
+              fullName: rawName || matchedWorker?.fullName || "—",
+              idCard: normCard || matchedWorker?.idCard || "—",
+              phone: rawPhone || matchedWorker?.phone || "—",
+              gender: rawGender || "—",
+              dob: rawDob || "—",
+              province: rawProvince || "—",
+              factory: rawCompany || "—",
+              interviewDate: rawPv || "—",
+              startDate:
+                formatExcelDate(
+                  v["Ngày đi làm"] || v["Ngày bắt đầu làm"] || "",
+                ) || "—",
+              leaveDate: "—",
+              status: rawStatus || "Chờ tiếp nhận",
+              employeeCode: rawCode || "—",
+              recruiter: rawRecruiter || "—",
+            },
+          });
+          continue;
+        }
 
         const matchedBonus = matchedWorker
           ? (matchedWorker.bonusRecords || []).find(
@@ -302,101 +396,90 @@ export async function GET(request: NextRequest) {
     }
 
     // =========================================================================
-    // TRƯỜNG HỢP 2: ĐANG LÀM CÔNG TY NÀY NHƯNG PV / ĐI LÀM Ở CÔNG TY KHÁC
+    // TRƯỜNG HỢP 2: ĐANG LÀM CÔNG TY NÀY NHƯNG PV / ĐI LÀM Ở CÔNG TY KHÁC (QUÉT THÊM TRONG CSDL)
     // =========================================================================
-    const crossCompanyAlerts: any[] = [];
     const phoneMap = new Map<string, typeof workers>();
 
     for (const w of workers) {
       if (w.assignments.length > 1) {
         const activeList = w.assignments.filter(isActiveAssignment);
-        if (activeList.length > 0) {
-          const otherAssignments = w.assignments.filter(
-            (a) => !activeList.some((act) => act.id === a.id),
-          );
-
-          // Cả trường hợp có 2 đợt cùng đang active ở 2 công ty khác nhau, hoặc 1 đợt đang active nhưng phát sinh đợt PV ở công ty khác
-          const comparePairs: Array<{ act: any; other: any }> = [];
+        if (activeList.length > 1) {
+          // Chỉ cảnh báo nếu có từ 2 đợt CÙNG ĐANG ACTIVE ở 2 công ty khác nhau trong CSDL
+          const seenPairs = new Set<string>();
           for (let i = 0; i < activeList.length; i++) {
             for (let j = i + 1; j < activeList.length; j++) {
-              comparePairs.push({ act: activeList[j], other: activeList[i] });
-            }
-            for (const other of otherAssignments) {
-              // Chỉ cảnh báo nếu đợt kia phát sinh mới hơn hoặc ở công ty khác chưa báo nghỉ ở công ty đang làm
-              comparePairs.push({ act: activeList[i], other });
-            }
-          }
+              const act = activeList[j];
+              const other = activeList[i];
+              const actFactory =
+                act.workingFactory || act.interviewFactory || "Chưa rõ công ty";
+              const otherFactory =
+                other.workingFactory ||
+                other.interviewFactory ||
+                "Chưa rõ công ty";
 
-          const seenPairs = new Set<string>();
-          for (const { act, other } of comparePairs) {
-            const actFactory =
-              act.workingFactory || act.interviewFactory || "Chưa rõ công ty";
-            const otherFactory =
-              other.workingFactory ||
-              other.interviewFactory ||
-              "Chưa rõ công ty";
-            if (!matchFactory(actFactory, otherFactory)) {
-              const pairKey = [act.id, other.id].sort().join("-");
-              if (seenPairs.has(pairKey)) continue;
-              seenPairs.add(pairKey);
+              if (!matchFactory(actFactory, otherFactory)) {
+                const pairKey = [act.id, other.id].sort().join("-");
+                if (seenPairs.has(pairKey)) continue;
+                seenPairs.add(pairKey);
 
-              const alertId = `${w.id}-${act.id}-${other.id}`;
-              if (resolvedIds.has(alertId)) continue;
+                const alertId = `${w.id}-${act.id}-${other.id}`;
+                if (resolvedIds.has(alertId)) continue;
 
-              crossCompanyAlerts.push({
-                id: alertId,
-                category: "CROSS_COMPANY",
-                type: "ĐANG LÀM CÔNG TY NÀY NHƯNG PV / ĐI LÀM CÔNG TY KHÁC",
-                severity: "CRITICAL",
-                workerId: w.id,
-                currentAssignmentId: act.id,
-                newAssignmentId: other.id,
-                phone: w.phone,
-                idCard: w.idCard,
-                fullName: w.fullName,
-                currentFactory: actFactory,
-                currentStatus: act.status || "Đang làm việc",
-                currentInterviewDate: act.interviewDate || "—",
-                newFactory: otherFactory,
-                newStatus: other.status || "Mới phát sinh",
-                newInterviewDate: other.interviewDate || "—",
-                recruiter: act.recruiter || w.recruiter || "—",
-                newRecruiter: other.recruiter || "—",
-                warning: `Đang làm việc tại "${actFactory}" (chưa báo nghỉ) nhưng lại có hồ sơ phỏng vấn / đi làm tại "${otherFactory}".`,
-                actionRequired: `Bấm 'Duyệt' để chốt Đã nghỉ việc ở "${actFactory}" và giữ đợt ở "${otherFactory}", hoặc bấm 'Xóa' để hủy đợt trùng.`,
-                leftSide: {
-                  title: "Công ty đang làm việc (Chưa báo nghỉ)",
-                  fullName: w.fullName,
+                crossCompanyAlerts.push({
+                  id: alertId,
+                  category: "CROSS_COMPANY",
+                  type: "ĐANG LÀM CÔNG TY NÀY NHƯNG PV / ĐI LÀM CÔNG TY KHÁC",
+                  severity: "CRITICAL",
+                  workerId: w.id,
+                  currentAssignmentId: act.id,
+                  newAssignmentId: other.id,
+                  phone: w.phone,
                   idCard: w.idCard,
-                  phone: w.phone || "—",
-                  gender: w.gender || "—",
-                  dob: w.dob || "—",
-                  province: w.province || w.address || "—",
-                  factory: actFactory,
-                  interviewDate: act.interviewDate || "—",
-                  startDate: act.startDate || "—",
-                  leaveDate: act.leaveDate || "Chưa có ngày nghỉ",
-                  status: act.status || "Đang làm việc",
-                  employeeCode: act.employeeCode || w.code || "—",
+                  fullName: w.fullName,
+                  currentFactory: actFactory,
+                  currentStatus: act.status || "Đang làm việc",
+                  currentInterviewDate: act.interviewDate || "—",
+                  newFactory: otherFactory,
+                  newStatus: other.status || "Mới phát sinh",
+                  newInterviewDate: other.interviewDate || "—",
                   recruiter: act.recruiter || w.recruiter || "—",
-                },
-                rightSide: {
-                  title: "Công ty mới phỏng vấn / đi làm",
-                  fullName: w.fullName,
-                  idCard: w.idCard,
-                  phone: w.phone || "—",
-                  gender: w.gender || "—",
-                  dob: w.dob || "—",
-                  province: w.province || w.address || "—",
-                  factory: otherFactory,
-                  interviewDate: other.interviewDate || "—",
-                  startDate: other.startDate || "—",
-                  leaveDate: other.leaveDate || "—",
-                  status: other.status || "Mới phát sinh",
-                  employeeCode: other.employeeCode || w.code || "—",
-                  recruiter: other.recruiter || w.recruiter || "—",
-                },
-              });
+                  newRecruiter: other.recruiter || "—",
+                  warning: `Đang làm việc tại "${actFactory}" (chưa báo nghỉ) nhưng lại có hợp đồng song song tại "${otherFactory}".`,
+                  actionRequired: `Bấm 'Duyệt' để chốt Đã nghỉ việc ở "${actFactory}" và giữ đợt ở "${otherFactory}", hoặc bấm 'Xóa' để hủy đợt trùng.`,
+                  leftSide: {
+                    title: "Công ty đang làm việc (Chưa báo nghỉ)",
+                    fullName: w.fullName,
+                    idCard: w.idCard,
+                    phone: w.phone || "—",
+                    gender: w.gender || "—",
+                    dob: w.dob || "—",
+                    province: w.province || w.address || "—",
+                    factory: actFactory,
+                    interviewDate: act.interviewDate || "—",
+                    startDate: act.startDate || "—",
+                    leaveDate: act.leaveDate || "Chưa có ngày nghỉ",
+                    status: act.status || "Đang làm việc",
+                    employeeCode: act.employeeCode || w.code || "—",
+                    recruiter: act.recruiter || w.recruiter || "—",
+                  },
+                  rightSide: {
+                    title: "Công ty mới phỏng vấn / đi làm",
+                    fullName: w.fullName,
+                    idCard: w.idCard,
+                    phone: w.phone || "—",
+                    gender: w.gender || "—",
+                    dob: w.dob || "—",
+                    province: w.province || w.address || "—",
+                    factory: otherFactory,
+                    interviewDate: other.interviewDate || "—",
+                    startDate: other.startDate || "—",
+                    leaveDate: other.leaveDate || "—",
+                    status: other.status || "Mới phát sinh",
+                    employeeCode: other.employeeCode || w.code || "—",
+                    recruiter: other.recruiter || w.recruiter || "—",
+                  },
+                });
+              }
             }
           }
         }
@@ -412,87 +495,77 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Quét thêm trường hợp SĐT đang đi làm ở công ty A nhưng lại đăng ký PV/đi làm ở công ty B
+    // Quét thêm trường hợp 2 công nhân khác nhau trùng SĐT và CÙNG ĐANG ACTIVE ở 2 công ty khác nhau
     phoneMap.forEach((list, phone) => {
       if (list.length > 1) {
-        const activeWorker = list.find((w) =>
-          w.assignments.some(isActiveAssignment),
-        );
-        if (activeWorker) {
-          const actAssignment =
-            activeWorker.assignments.find(isActiveAssignment);
-          const actFactory =
-            actAssignment?.workingFactory ||
-            actAssignment?.interviewFactory ||
-            "Chưa rõ";
-          for (const otherWorker of list) {
-            if (otherWorker.id !== activeWorker.id) {
-              const alertId = `phone-active-${phone}-${otherWorker.id}`;
-              if (resolvedIds.has(alertId)) continue;
-              const otherAssignment = otherWorker.assignments[0];
-              const otherFactory =
-                otherAssignment?.workingFactory ||
-                otherAssignment?.interviewFactory ||
-                "Chưa rõ";
-              crossCompanyAlerts.push({
-                id: alertId,
-                category: "CROSS_COMPANY",
-                type: "ĐANG LÀM CÔNG TY NÀY NHƯNG PV / ĐI LÀM CÔNG TY KHÁC",
-                severity: "CRITICAL",
-                workerId: otherWorker.id,
-                otherWorkerId: activeWorker.id,
-                currentAssignmentId: actAssignment?.id || null,
-                newAssignmentId: otherAssignment?.id || null,
-                phone,
-                idCard: otherWorker.idCard,
-                fullName: otherWorker.fullName,
-                currentFactory: actFactory,
-                currentStatus: `${activeWorker.fullName} (Đang làm việc)`,
-                currentInterviewDate: actAssignment?.interviewDate || "—",
-                newFactory: otherFactory,
-                newStatus: otherAssignment?.status || "Mới phát sinh",
-                newInterviewDate: otherAssignment?.interviewDate || "—",
-                recruiter:
-                  otherAssignment?.recruiter || otherWorker.recruiter || "—",
-                warning: `SĐT ${phone} đang đi làm tại "${actFactory}" (${activeWorker.fullName}) nhưng lại đăng ký phỏng vấn / đi làm tại "${otherFactory}" (${otherWorker.fullName}).`,
-                actionRequired: `Bấm 'Kiểm tra' để đối chiếu 2 công ty, bấm 'Duyệt' nếu xác nhận hợp lệ hoặc 'Xóa' để xóa bản ghi trùng.`,
-                leftSide: {
-                  title: "Công ty đang làm việc (Trùng SĐT)",
-                  fullName: activeWorker.fullName,
-                  idCard: activeWorker.idCard,
-                  phone: activeWorker.phone || phone,
-                  gender: activeWorker.gender || "—",
-                  dob: activeWorker.dob || "—",
-                  province: activeWorker.province || activeWorker.address || "—",
-                  factory: actFactory,
-                  interviewDate: actAssignment?.interviewDate || "—",
-                  startDate: actAssignment?.startDate || "—",
-                  leaveDate: actAssignment?.leaveDate || "Chưa có ngày nghỉ",
-                  status: actAssignment?.status || "Đang làm việc",
-                  employeeCode:
-                    actAssignment?.employeeCode || activeWorker.code || "—",
-                  recruiter:
-                    actAssignment?.recruiter || activeWorker.recruiter || "—",
-                },
-                rightSide: {
-                  title: "Công ty mới phỏng vấn / đi làm",
-                  fullName: otherWorker.fullName,
-                  idCard: otherWorker.idCard,
-                  phone: otherWorker.phone || phone,
-                  gender: otherWorker.gender || "—",
-                  dob: otherWorker.dob || "—",
-                  province: otherWorker.province || otherWorker.address || "—",
-                  factory: otherFactory,
-                  interviewDate: otherAssignment?.interviewDate || "—",
-                  startDate: otherAssignment?.startDate || "—",
-                  leaveDate: otherAssignment?.leaveDate || "—",
-                  status: otherAssignment?.status || "—",
-                  employeeCode:
-                    otherAssignment?.employeeCode || otherWorker.code || "—",
-                  recruiter:
-                    otherAssignment?.recruiter || otherWorker.recruiter || "—",
-                },
-              });
+        for (let i = 0; i < list.length; i++) {
+          for (let j = i + 1; j < list.length; j++) {
+            const w1 = list[i];
+            const w2 = list[j];
+            const act1 = (w1.assignments || []).find(isActiveAssignment);
+            const act2 = (w2.assignments || []).find(isActiveAssignment);
+            if (act1 && act2) {
+              const f1 = act1.workingFactory || act1.interviewFactory || "Chưa rõ";
+              const f2 = act2.workingFactory || act2.interviewFactory || "Chưa rõ";
+              if (!matchFactory(f1, f2)) {
+                const alertId = `phone-active-${phone}-${w1.id}-${w2.id}`;
+                if (resolvedIds.has(alertId)) continue;
+
+                crossCompanyAlerts.push({
+                  id: alertId,
+                  category: "CROSS_COMPANY",
+                  type: "ĐANG LÀM CÔNG TY NÀY NHƯNG PV / ĐI LÀM CÔNG TY KHÁC",
+                  severity: "CRITICAL",
+                  workerId: w2.id,
+                  otherWorkerId: w1.id,
+                  currentAssignmentId: act1.id,
+                  newAssignmentId: act2.id,
+                  phone,
+                  idCard: w2.idCard,
+                  fullName: w2.fullName,
+                  currentFactory: f1,
+                  currentStatus: `${w1.fullName} (${act1.status || "Đang làm việc"})`,
+                  currentInterviewDate: act1.interviewDate || "—",
+                  newFactory: f2,
+                  newStatus: `${w2.fullName} (${act2.status || "Đang làm việc"})`,
+                  newInterviewDate: act2.interviewDate || "—",
+                  recruiter: act2.recruiter || w2.recruiter || "—",
+                  warning: `SĐT ${phone} đang đi làm tại "${f1}" (${w1.fullName}) nhưng lại đăng ký tại "${f2}" (${w2.fullName}).`,
+                  actionRequired: `Bấm 'Kiểm tra' để đối chiếu 2 công ty, bấm 'Duyệt' nếu xác nhận chuyển đổi hoặc 'Xóa' để hủy bản ghi trùng.`,
+                  leftSide: {
+                    title: `Công ty tại "${f1}" (${w1.fullName})`,
+                    fullName: w1.fullName,
+                    idCard: w1.idCard,
+                    phone: w1.phone || phone,
+                    gender: w1.gender || "—",
+                    dob: w1.dob || "—",
+                    province: w1.province || w1.address || "—",
+                    factory: f1,
+                    interviewDate: act1.interviewDate || "—",
+                    startDate: act1.startDate || "—",
+                    leaveDate: act1.leaveDate || "Chưa có ngày nghỉ",
+                    status: act1.status || "Đang làm việc",
+                    employeeCode: act1.employeeCode || w1.code || "—",
+                    recruiter: act1.recruiter || w1.recruiter || "—",
+                  },
+                  rightSide: {
+                    title: `Công ty tại "${f2}" (${w2.fullName})`,
+                    fullName: w2.fullName,
+                    idCard: w2.idCard,
+                    phone: w2.phone || phone,
+                    gender: w2.gender || "—",
+                    dob: w2.dob || "—",
+                    province: w2.province || w2.address || "—",
+                    factory: f2,
+                    interviewDate: act2.interviewDate || "—",
+                    startDate: act2.startDate || "—",
+                    leaveDate: act2.leaveDate || "Chưa có ngày nghỉ",
+                    status: act2.status || "Đang làm việc",
+                    employeeCode: act2.employeeCode || w2.code || "—",
+                    recruiter: act2.recruiter || w2.recruiter || "—",
+                  },
+                });
+              }
             }
           }
         }
@@ -827,13 +900,49 @@ export async function POST(request: NextRequest) {
     // =========================================================================
     // XỬ LÝ TRƯỜNG HỢP 2: ĐANG LÀM CÔNG TY NÀY NHƯNG PV / ĐI LÀM CÔNG TY KHÁC
     // =========================================================================
-    if (action === "APPROVE") {
-      if (currentAssignmentId && !String(id).startsWith("phone-active-")) {
-        const leaveDay =
-          newInterviewDate && newInterviewDate !== "—"
-            ? String(newInterviewDate)
-            : today();
+    if (action === "DELETE") {
+      if (sourceId && row != null) {
+        // Đợt mới đang được chặn an toàn ở file import: chỉ cần xóa khỏi danh sách chờ duyệt,
+        // TUYỆT ĐỐI không xóa đợt đang làm việc (currentAssignmentId) trong CSDL cũ!
+        await resolveImportSourceRow(String(sourceId), Number(row), "DELETE");
+      } else if (newAssignmentId) {
+        // Trường hợp cả 2 đợt cùng có trong CSDL: chỉ xóa đợt mới (newAssignmentId), giữ nguyên đợt cũ!
         await prisma.$transaction(async (tx) => {
+          const existingAssign = await tx.workAssignment.findUnique({
+            where: { id: String(newAssignmentId) },
+          });
+          if (existingAssign) {
+            await tx.workAssignment.delete({
+              where: { id: existingAssign.id },
+            });
+          }
+        });
+      }
+
+      await addResolvedId(String(id));
+      await prisma.auditLog.create({
+        data: {
+          module: "DUPLICATE",
+          action: "DELETE",
+          operator: actor.username,
+          details: `Hủy bỏ đợt tuyển trùng lặp [${type || id}] của ${fullName || ""} (${idCard || ""})`,
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: "Đã hủy bỏ đợt tuyển trùng lặp thành công",
+      });
+    }
+
+    if (action === "APPROVE") {
+      await prisma.$transaction(async (tx) => {
+        // 1. Chốt trạng thái Đã nghỉ việc tại công ty cũ
+        if (currentAssignmentId && !String(id).startsWith("phone-active-")) {
+          const leaveDay =
+            newInterviewDate && newInterviewDate !== "—"
+              ? String(newInterviewDate)
+              : today();
           const oldAssign = await tx.workAssignment.findUnique({
             where: { id: String(currentAssignmentId) },
           });
@@ -845,7 +954,7 @@ export async function POST(request: NextRequest) {
                 leaveDate: oldAssign.leaveDate || leaveDay,
                 leaveReason:
                   oldAssign.leaveReason ||
-                  "Chuyển công ty mới (Đã duyệt cảnh báo trùng)",
+                  "Chuyển công ty mới (Đã duyệt cảnh báo trùng nhảy xưởng)",
               },
             });
             await tx.assignmentEvent.create({
@@ -859,78 +968,81 @@ export async function POST(request: NextRequest) {
               },
             });
           }
-          await tx.auditLog.create({
-            data: {
-              module: "DUPLICATE",
-              action: "APPROVE",
-              operator: actor.username,
-              details: `Duyệt cảnh báo nhảy xưởng cho ${fullName || ""} (${idCard || ""}): chốt nghỉ đợt cũ ${currentAssignmentId}`,
-            },
-          });
-        });
-      } else {
-        await prisma.auditLog.create({
+        }
+
+        // 2. Kích hoạt tạo đợt làm việc tại công ty mới từ file nguồn (nếu bị chặn lúc import)
+        if (sourceId && row != null) {
+          const sources = await readImportSources();
+          const targetSource = sources.find((s: any) => s.id === String(sourceId));
+          const targetRow = (targetSource?.rows || []).find(
+            (r: any) => Number(r.row) === Number(row),
+          );
+          if (targetRow) {
+            const raw = targetRow.values || {};
+            const { worker, assignment } = parseImportRow(raw, true);
+            let person = await tx.worker.findUnique({
+              where: { idCard: worker.idCard },
+            });
+            if (!person) {
+              person = await tx.worker.create({
+                data: {
+                  idCard: worker.idCard,
+                  fullName: worker.fullName || fullName || "Chưa rõ tên",
+                  phone: worker.phone,
+                  gender: worker.gender,
+                  dob: worker.dob,
+                  address: worker.address,
+                  province: worker.province,
+                },
+              });
+            }
+            const cleanAssignmentData = Object.fromEntries(
+              Object.entries(assignment).filter(
+                ([k, val]) =>
+                  !["orderId", "batchId"].includes(k) &&
+                  val !== undefined &&
+                  val !== null &&
+                  String(val).trim() !== "",
+              ),
+            );
+            const createdAssign = await tx.workAssignment.create({
+              data: {
+                ...cleanAssignmentData,
+                interviewFactory: assignment.interviewFactory,
+                workerId: person.id,
+              } as any,
+            });
+            await tx.assignmentEvent.create({
+              data: {
+                assignmentId: createdAssign.id,
+                occurredOn: today(),
+                toStatus: createdAssign.status,
+                interviewResult: createdAssign.interviewResult || "UNKNOWN",
+                operator: actor.username,
+                note: `Duyệt cảnh báo trùng: tiếp nhận công ty mới từ file ${targetSource.file} dòng #${row}`,
+              },
+            });
+          }
+          await resolveImportSourceRow(String(sourceId), Number(row), "APPROVE");
+        }
+
+        await tx.auditLog.create({
           data: {
             module: "DUPLICATE",
             action: "APPROVE",
             operator: actor.username,
-            details: `Xác nhận hợp lệ cảnh báo trùng [${type || id}] của ${fullName || ""} (${idCard || ""})`,
+            details: `Duyệt tiếp nhận công ty mới và chốt nghỉ công ty cũ cho ${fullName || ""} (${idCard || ""})`,
           },
         });
-      }
+      });
 
       await addResolvedId(String(id));
       return NextResponse.json({
         success: true,
         message:
-          "Đã duyệt: chốt trạng thái Đã nghỉ việc ở công ty cũ và giữ đợt tại công ty mới",
+          "Đã duyệt: tự động chốt nghỉ việc ở công ty cũ và kích hoạt đợt làm việc tại công ty mới thành công",
       });
     }
-
-    // action === "DELETE" cho Trường hợp 2
-    const targetAssignmentId = newAssignmentId || currentAssignmentId;
-    await prisma.$transaction(async (tx) => {
-      if (targetAssignmentId) {
-        const existingAssign = await tx.workAssignment.findUnique({
-          where: { id: String(targetAssignmentId) },
-        });
-        if (existingAssign) {
-          await tx.workAssignment.delete({
-            where: { id: existingAssign.id },
-          });
-          const remainingCount = await tx.workAssignment.count({
-            where: { workerId: existingAssign.workerId },
-          });
-          if (remainingCount === 0) {
-            await tx.worker.delete({
-              where: { id: existingAssign.workerId },
-            });
-          }
-        }
-      } else if (workerId) {
-        const count = await tx.workAssignment.count({
-          where: { workerId: String(workerId) },
-        });
-        if (count === 0) {
-          await tx.worker.delete({ where: { id: String(workerId) } });
-        }
-      }
-
-      await tx.auditLog.create({
-        data: {
-          module: "DUPLICATE",
-          action: "DELETE",
-          operator: actor.username,
-          details: `Xóa đợt tuyển trùng lặp [${type || id}] của ${fullName || ""} (${idCard || ""})`,
-        },
-      });
-    });
-
-    await addResolvedId(String(id));
-    return NextResponse.json({
-      success: true,
-      message: "Đã xóa bản ghi đợt trùng lặp khỏi hệ thống",
-    });
   } catch (err: any) {
     return NextResponse.json(
       {

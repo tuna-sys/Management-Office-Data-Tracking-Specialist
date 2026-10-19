@@ -4,18 +4,18 @@ export function splitImportReview(messages: string[]) {
   const warnings: ImportIssue[] = [], duplicates: ImportIssue[] = [];
   for (const message of new Set(messages)) {
     const row = Number(/^Dòng (\d+):/.exec(message)?.[1] || 0);
-    const duplicate = /Trùng lặp nội bộ|Sai lệch danh tính|Lượt PV đã được người khác thêm|lượt.*đã có|STK trùng|Bản thưởng của đợt đã có/i.test(message);
+    const duplicate = /Trùng lặp nội bộ|Sai lệch danh tính|Lượt PV đã được người khác thêm|lượt.*đã có|STK trùng|Bản thưởng của đợt đã có|CHƯA BÁO NGHỈ/i.test(message);
     const kind = duplicate
-      ? (/STK|tài khoản/.test(message)
+      ? (/CHƯA BÁO NGHỈ/i.test(message)
+        ? 'CROSS_COMPANY'
+        : /STK|tài khoản/.test(message)
         ? 'BANK_ACCOUNT'
         : /Sai lệch danh tính/i.test(message)
         ? 'IDENTITY_MISMATCH'
         : /thưởng/.test(message)
         ? 'BONUS'
         : 'INTERNAL_DUPLICATE')
-      : (/CHƯA BÁO NGHỈ/i.test(message)
-        ? 'ACTIVE_AT_ANOTHER_FACTORY'
-        : /SĐT/i.test(message)
+      : (/SĐT/i.test(message)
         ? 'PHONE_NOTICE'
         : 'DATA_WARNING');
     (duplicate ? duplicates : warnings).push({ row, message, kind });
