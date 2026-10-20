@@ -30,6 +30,7 @@ import {
   Globe,
   Layers,
 } from "lucide-react";
+import GoogleSheetSyncCard from "@/components/GoogleSheetSyncCard";
 
 const { Dragger } = Upload;
 
@@ -205,6 +206,9 @@ export default function ExcelToolsPage() {
           </span>
         </div>
       </div>
+      
+      {/* Khối Tự Động Đồng Bộ Google Sheets (Hỗ trợ quy mô 100.000 dòng) */}
+      <GoogleSheetSyncCard />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Khối Nhập File Excel Đa Năng */}

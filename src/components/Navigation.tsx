@@ -48,7 +48,7 @@ const navGroups: NavGroup[] = [
     group: 'BÁO CÁO & KPI',
     items: [
       { href: '/', label: 'Tổng quan Dashboard', icon: LayoutDashboard },
-      { href: '/workers', label: 'Hồ sơ lao động (DS_TONG)', icon: FileText },
+      { href: '/workers', label: 'Hồ sơ lao động', icon: FileText },
       { href: '/performance', label: 'Đánh giá & So sánh KPI', icon: TrendingUp },
       { href: '/orders', label: 'Đơn hàng & đợt tuyển', icon: Target },
       { href: '/duplicates', label: 'Cảnh báo trùng lặp', icon: ShieldAlert },
@@ -58,7 +58,7 @@ const navGroups: NavGroup[] = [
   {
     group: 'CHÍNH SÁCH & THƯỞNG',
     items: [
-      { href: '/bonuses', label: 'Quản lý Thưởng (DS_THUONG)', icon: Coins },
+      { href: '/bonuses', label: 'Quản lí thưởng', icon: Coins },
       { href: '/rewards', label: 'Mốc thưởng / Đã trả', icon: Award },
       { href: '/bank-accounts', label: 'Tài chính & STK 2026', icon: CreditCard },
       { href: '/policies', label: 'Chính sách thưởng', icon: SlidersHorizontal },
@@ -78,11 +78,11 @@ const navGroups: NavGroup[] = [
 const TAB_TITLES: Record<string, { title: string; subtitle?: string }> = {
   '/': { title: 'Tổng quan Dashboard', subtitle: 'Báo cáo tiến độ và công suất phễu tuyển dụng toàn công ty' },
   '/performance': { title: 'Đánh giá & So sánh KPI', subtitle: 'So sánh hiệu suất tuyển dụng theo Team & Chuyên viên và phân tích chân dung người lao động' },
-  '/workers': { title: 'Hồ sơ lao động (DS_TONG)', subtitle: 'Kiểm tra hồ sơ và xuất dữ liệu đang lọc' },
+  '/workers': { title: 'Hồ sơ lao động', subtitle: 'Kiểm tra hồ sơ và xuất dữ liệu đang lọc' },
   '/orders': { title: 'Đơn hàng & đợt tuyển', subtitle: 'Theo dõi tiến độ đơn hàng và chỉ tiêu theo từng nhà máy' },
   '/duplicates': { title: 'Cảnh báo trùng lặp', subtitle: 'Phát hiện ứng viên trùng CCCD, SĐT hoặc nghỉ việc quay lại' },
   '/lookup': { title: 'Tra cứu người LĐ', subtitle: 'Giải mã tự động và tra cứu hồ sơ cá nhân theo CCCD 12 số' },
-  '/bonuses': { title: 'Quản lý Thưởng (DS_THUONG)', subtitle: 'Ghi nhận và xét duyệt 7 khoản thưởng theo chính sách' },
+  '/bonuses': { title: 'Quản lí thưởng', subtitle: 'Ghi nhận và xét duyệt 7 khoản thưởng theo chính sách' },
   '/rewards': { title: 'Mốc thưởng & Đã trả', subtitle: 'Tiến độ mốc công yêu cầu và ghi nhận chứng từ thanh toán' },
   '/bank-accounts': { title: 'Tài chính & STK 2026', subtitle: 'Đối chiếu số tài khoản ngân hàng và kiểm soát rủi ro lệch tên' },
   '/policies': { title: 'Chính sách thưởng', subtitle: 'Quy chế thưởng công nhân theo nhà máy và đơn hàng' },

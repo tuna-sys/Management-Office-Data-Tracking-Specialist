@@ -77,15 +77,19 @@ export async function issueSession(user: Identity): Promise<string> {
 }
 export async function identity(request: NextRequest): Promise<Identity | null> {
   const host = request.headers.get("host") || "";
-  const isLocal = ["127.0.0.1", "localhost"].some((h) => host.startsWith(h));
+  let hostname = "";
+  try {
+    hostname = new URL(`http://${host}`).hostname.toLowerCase();
+  } catch {}
+  const isLocal = ["127.0.0.1", "localhost", "[::1]"].includes(hostname);
   const localIdentity: Identity | null =
-    process.env.LOCAL_DEMO_AUTO_VIEW !== "0" && isLocal
+    process.env.LOCAL_DEMO_AUTO_VIEW === "1" && isLocal
       ? { username: "Quản trị viên", role: "ADMIN", version: "local-auto-view" }
       : null;
-  if (localIdentity) return localIdentity;
+  const token = request.cookies.get(COOKIE)?.value || "";
+  if (!token) return localIdentity;
   try {
-    const token = request.cookies.get(COOKIE)?.value || "";
-    if (token.length > 2048) return localIdentity;
+    if (token.length > 2048) return null;
     const [payload, signature, extra] = token.split(".");
     if (
       !payload ||
@@ -94,15 +98,15 @@ export async function identity(request: NextRequest): Promise<Identity | null> {
       !/^[a-zA-Z0-9_-]+$/.test(payload) ||
       !/^[0-9a-f]{64}$/.test(signature)
     )
-      return localIdentity;
+      return null;
     const data = await config();
     const expected = createHmac("sha256", data.secret).update(payload).digest();
     const actual = Buffer.from(signature, "hex");
     if (actual.length !== expected.length || !timingSafeEqual(actual, expected))
-      return localIdentity;
+      return null;
     const session = JSON.parse(Buffer.from(payload, "base64url").toString());
     if (typeof session.exp !== "number" || session.exp <= Date.now())
-      return localIdentity;
+      return null;
     const user = data.users.find(
       (u) =>
         u.username === session.username &&
@@ -111,9 +115,9 @@ export async function identity(request: NextRequest): Promise<Identity | null> {
     );
     return user && user.isActive !== false
       ? { username: user.username, role: user.role, version: user.version }
-      : localIdentity;
+      : null;
   } catch {
-    return localIdentity;
+    return null;
   }
 }
 export function sameOrigin(request: NextRequest): boolean {

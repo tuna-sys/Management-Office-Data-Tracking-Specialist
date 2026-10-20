@@ -13,6 +13,7 @@ node_modules/
 
 # Local secrets, databases, and preview screenshots
 .env.*
+!.env.example
 *.db-wal
 *.db-shm
 *.sqlite

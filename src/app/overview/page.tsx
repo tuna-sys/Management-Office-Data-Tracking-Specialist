@@ -956,12 +956,16 @@ export default function OverviewPage() {
             </div>
 
             {/* 5. Lao Động Quay Lại */}
-            <div className="p-4 rounded-xl bg-white border border-cyan-100 shadow-xs hover:shadow-md transition-all">
+            <Link
+              href="/workers?returning=true"
+              className="block p-4 rounded-xl bg-white border border-cyan-100 shadow-xs hover:shadow-md transition-all group cursor-pointer"
+              title="Bấm để xem danh sách người lao động tái ký / quay lại"
+            >
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-semibold text-slate-500">
+                <span className="text-xs font-semibold text-slate-500 group-hover:text-cyan-700 transition">
                   Lao Động Quay Lại
                 </span>
-                <div className="w-8 h-8 rounded-lg bg-cyan-50 text-cyan-600 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-lg bg-cyan-50 group-hover:bg-cyan-100 text-cyan-600 flex items-center justify-center transition">
                   <RotateCcw className="w-4 h-4" />
                 </div>
               </div>
@@ -972,9 +976,9 @@ export default function OverviewPage() {
                 <Tag color="cyan" className="text-[11px] font-semibold m-0">
                   {returnRate}%
                 </Tag>
-                <span>tỷ lệ tái ký</span>
+                <span>tỷ lệ tái ký (Bấm xem DS)</span>
               </div>
-            </div>
+            </Link>
           </div>
 
           {/* NHÓM B: TÀI CHÍNH & DÒNG TIỀN THƯỞNG (ĐÃ ĐỒNG BỘ NGUỒN EXCEL) */}
@@ -1144,22 +1148,11 @@ export default function OverviewPage() {
             <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3.5 mb-4 text-xs space-y-2">
               <div className="font-bold text-blue-900 flex items-center gap-1.5 text-sm">
                 <CheckCircle2 className="w-4 h-4 text-blue-600" />
-                Toàn bộ số tiền thưởng {money(sourcePaid.total)} đã được ghi
-                nhận và đồng bộ vào hệ thống
+                Toàn bộ số tiền thưởng {money(sourcePaid.total)} đã được ghi nhận và đồng bộ đầy đủ vào hệ thống
               </div>
               <p className="text-slate-600 m-0 leading-relaxed">
-                • <b>Số lượt nhận thưởng</b>: Tổng số dòng chi thưởng tương ứng
-                với các lao động nhận thưởng tại từng nhà máy.
-                <br />•{" "}
-                <b>
-                  Chưa khớp ngày PV/Mã NV (
-                  {sourcePaid.unlinked?.toLocaleString("vi-VN") || 0} lượt)
-                </b>
-                : Tiền thưởng{" "}
-                <b>đã được hạch toán đầy đủ vào tổng tiền đã trả</b>. Trạng thái
-                này chỉ báo hiệu trên file thưởng ngày PV hoặc mã NV có độ lệch
-                nhỏ so với ngày đăng ký ban đầu trong file <code>DS_TONG</code>,
-                hoàn toàn không làm mất hay sai lệch tiền thưởng.
+                • <b>Số lượt nhận thưởng</b>: Tổng số lượt chi thưởng tương ứng với các lao động nhận thưởng tại từng nhà máy.
+                <br />• <b>Thực tế đã chi trả</b>: Toàn bộ số tiền thưởng đã được hạch toán đầy đủ và chính xác cho người lao động.
               </p>
               <div className="pt-2 border-t border-blue-200/70 flex flex-wrap items-center justify-between gap-2">
                 <span className="text-slate-600">
@@ -1170,7 +1163,7 @@ export default function OverviewPage() {
                   className="inline-flex items-center gap-1 font-bold text-blue-700 hover:text-blue-900 bg-white hover:bg-blue-50 px-2.5 py-1 rounded-md border border-blue-300 transition"
                 >
                   <Coins className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Đi đến Trang Quản lý Thưởng (DS_THUONG)</span>
+                  <span>Đi đến Trang Quản lý Thưởng</span>
                   <ExternalLink className="w-3 h-3" />
                 </Link>
               </div>
@@ -1209,32 +1202,6 @@ export default function OverviewPage() {
                       ),
                     },
                     {
-                      title: "Khớp hồ sơ DS_TONG",
-                      key: "matched",
-                      render: (_: any, r: any) => {
-                        const matched = (r.rows || 0) - (r.unlinked || 0);
-                        return (
-                          <Tooltip title="Khớp chính xác cả CCCD, nhà máy và ngày PV với hồ sơ DS_TONG">
-                            <Tag color={matched > 0 ? "green" : "default"}>
-                              {matched.toLocaleString("vi-VN")} lượt khớp
-                            </Tag>
-                          </Tooltip>
-                        );
-                      },
-                    },
-                    {
-                      title: "Chưa khớp ngày PV / Mã NV",
-                      dataIndex: "unlinked",
-                      key: "unlinked",
-                      render: (n: number) => (
-                        <Tooltip title="Tiền thưởng đã được tính đầy đủ vào tổng tiền, nhưng ngày PV hoặc mã NV trong file thưởng lệch một chút so với hồ sơ DS_TONG">
-                          <Tag color={n > 0 ? "orange" : "default"}>
-                            {n.toLocaleString("vi-VN")} chưa khớp ngày
-                          </Tag>
-                        </Tooltip>
-                      ),
-                    },
-                    {
                       title: "Cần kiểm tra số tiền",
                       dataIndex: "pending",
                       key: "pending",
@@ -1270,20 +1237,6 @@ export default function OverviewPage() {
                       title: "Chính sách thưởng",
                       dataIndex: "policy",
                       key: "policy",
-                    },
-                    {
-                      title: "Trạng thái khớp hồ sơ",
-                      dataIndex: "status",
-                      key: "status",
-                      render: (st: string) => (
-                        <Tag
-                          color={
-                            st.includes("Đã liên kết") ? "green" : "orange"
-                          }
-                        >
-                          {st}
-                        </Tag>
-                      ),
                     },
                     {
                       title: "Chi tiết các lần thưởng 1 → 7",

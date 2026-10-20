@@ -41,15 +41,16 @@ const req = (host) => ({
   assert.equal(await m.exports.identity(req("example.com")), null);
   const stale = req("127.0.0.1:3005");
   stale.cookies = { get: () => ({ value: "expired.or.invalid" }) };
-  assert.equal((await m.exports.identity(stale)).role, "ADMIN");
+  assert.equal(await m.exports.identity(stale), null);
   assert.equal(
     await m.exports.guard(req("127.0.0.1:3005"), "worker:write"),
     null,
   );
+  assert.equal(await m.exports.identity(req("localhost.evil.example")), null);
   env.LOCAL_DEMO_AUTO_VIEW = "0";
   assert.equal(await m.exports.identity(req("127.0.0.1:3005")), null);
   console.log(
-    "PASS local auto-view only, external hosts rejected, local demo actions enabled, disabled mode requires auth",
+    "PASS explicit local demo, external and deceptive hosts rejected, invalid cookies rejected, disabled mode requires auth",
   );
 })().catch((e) => {
   console.error(e);
