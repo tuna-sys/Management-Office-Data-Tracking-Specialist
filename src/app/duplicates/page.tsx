@@ -871,7 +871,9 @@ export default function DuplicatesPage() {
                               >
                                 {inspectItem.category === "MERGE_INFO"
                                   ? "Ghi đè"
-                                  : "Khác công ty"}
+                                  : r.label === "Công ty / Nhà máy"
+                                    ? "Khác công ty"
+                                    : "Khác nhau"}
                               </Tag>
                             )}
                           </div>

@@ -80,6 +80,7 @@ export default function WorkersPage() {
   );
   const [warningsOnly, setWarningsOnly] = useState(false);
   const [approvedOnly, setApprovedOnly] = useState(false);
+  const [returningOnly, setReturningOnly] = useState(false);
   const [pendingDuplicateCount, setPendingDuplicateCount] = useState(0);
   const [systemWarningCount, setSystemWarningCount] = useState(0);
   const [sourceTotals, setSourceTotals] = useState({
@@ -87,7 +88,18 @@ export default function WorkersPage() {
     sourceRows: 0,
     warningRows: 0,
     approvedRows: 0,
+    returningRows: 0,
   });
+
+  // Đọc tham số URL ?returning=true khi mở từ Dashboard
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const sp = new URLSearchParams(window.location.search);
+      if (sp.get("returning") === "true" || sp.get("rehire") === "true") {
+        setReturningOnly(true);
+      }
+    }
+  }, []);
 
   // Modal thêm mới
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -118,6 +130,7 @@ export default function WorkersPage() {
           : recruiterFilter || "",
         ...(warningsOnly ? { warningsOnly: "true" } : {}),
         ...(approvedOnly ? { approvedOnly: "true" } : {}),
+        ...(returningOnly ? { returningOnly: "true" } : {}),
       });
 
       if (search) params.append("search", search);
@@ -155,6 +168,7 @@ export default function WorkersPage() {
           sourceRows: json.sourceRows || 0,
           warningRows: json.warningRows || 0,
           approvedRows: json.approvedRows || 0,
+          returningRows: json.returningRows || 0,
         });
       }
     } catch {
@@ -176,6 +190,7 @@ export default function WorkersPage() {
     recruiterFilter,
     warningsOnly,
     approvedOnly,
+    returningOnly,
   ]);
 
   const handleSearch = () => {
@@ -193,6 +208,7 @@ export default function WorkersPage() {
     setDateRange(null);
     setWarningsOnly(false);
     setApprovedOnly(false);
+    setReturningOnly(false);
     setCurrentPage(1);
   };
 
@@ -518,6 +534,16 @@ export default function WorkersPage() {
                     className="text-[10px] font-bold py-0 px-1 m-0 rounded shrink-0 leading-tight border-emerald-300 bg-emerald-50 text-emerald-700"
                   >
                     ĐÃ DUYỆT
+                  </Tag>
+                </Tooltip>
+              )}
+              {record.isReturning && (
+                <Tooltip title={`Lao động quay lại / Tái ký (${record.rehireCount || 2} đợt làm việc qua hệ thống)`}>
+                  <Tag
+                    color="cyan"
+                    className="text-[10px] font-bold py-0 px-1.5 m-0 rounded shrink-0 leading-tight border-cyan-300 bg-cyan-50 text-cyan-700 inline-flex items-center gap-0.5"
+                  >
+                    <RotateCcw className="w-2.5 h-2.5 inline" /> TÁI KÝ
                   </Tag>
                 </Tooltip>
               )}
@@ -1027,6 +1053,27 @@ export default function WorkersPage() {
                 {approvedOnly
                   ? `Đang lọc: Hồ sơ đã duyệt trùng (${sourceTotals.approvedRows || 0})`
                   : `Chỉ hồ sơ đã duyệt trùng (${sourceTotals.approvedRows || 0})`}
+              </Button>
+              <Button
+                type={returningOnly ? "primary" : "default"}
+                className={
+                  returningOnly
+                    ? "bg-cyan-600 hover:bg-cyan-700 text-white border-cyan-600 font-semibold"
+                    : "text-cyan-700 border-cyan-300 hover:border-cyan-500 font-medium"
+                }
+                icon={<RotateCcw className="w-3.5 h-3.5 inline mr-1" />}
+                onClick={() => {
+                  const nextVal = !returningOnly;
+                  setReturningOnly(nextVal);
+                  if (nextVal) {
+                    setWarningsOnly(false);
+                    setApprovedOnly(false);
+                  }
+                }}
+              >
+                {returningOnly
+                  ? `Đang lọc: Lao động tái ký (${sourceTotals.returningRows || 0})`
+                  : `Lao động tái ký (${sourceTotals.returningRows || 0})`}
               </Button>
             </div>
 

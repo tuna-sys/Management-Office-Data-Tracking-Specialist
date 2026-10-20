@@ -201,17 +201,28 @@ export async function GET(request: NextRequest) {
         );
 
         if (isCrossCompany) {
+          // 1. Đợt mới nạp vào là Bỏ đào tạo, Trượt PV, Không đạt... -> Chuyện bình thường, không cảnh báo
+          if (isInactiveStatus(rawStatus)) {
+            continue;
+          }
+
           const crossAssign =
             (matchedWorker?.assignments || []).find((a: any) => {
               const curFactory = a.workingFactory || a.interviewFactory || "";
               return (
                 curFactory &&
                 rawCompany &&
-                !matchFactory(curFactory, rawCompany)
+                !matchFactory(curFactory, rawCompany) &&
+                isActiveAssignment(a)
               );
             }) ||
-            (matchedWorker?.assignments || []).find(isActiveAssignment) ||
-            matchedAssignment;
+            (matchedWorker?.assignments || []).find(isActiveAssignment);
+
+          // 2. Nếu đợt cũ đã nghỉ việc (có ngày nghỉ), hoặc bỏ đào tạo/trượt -> Không cảnh báo
+          if (!crossAssign || !isActiveAssignment(crossAssign)) {
+            continue;
+          }
+
           const actFactory =
             crossAssign?.workingFactory ||
             crossAssign?.interviewFactory ||

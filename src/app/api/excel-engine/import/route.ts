@@ -65,6 +65,50 @@ const headerKeywordsByType: Record<string, string[]> = {
   ],
 };
 
+function isInactiveStatus(status?: string | null): boolean {
+  if (!status) return false;
+  const s = status.toLowerCase().trim();
+  return (
+    s === "nh" ||
+    s === "bỏ xx" ||
+    s === "bỏ xưởng" ||
+    s === "bỏ việc" ||
+    s === "tự ý nghỉ việc" ||
+    s === "hết hạn hợp đồng" ||
+    s === "hết hợp đồng" ||
+    s === "hhđ" ||
+    s === "bỏ đt" ||
+    s === "bỏ đào tạo" ||
+    s === "bỏ pv" ||
+    s === "bỏ phỏng vấn" ||
+    s === "trượt" ||
+    s === "trượt pv" ||
+    s === "không đạt" ||
+    s === "ko đạt" ||
+    s === "kđ" ||
+    s === "ko đỗ" ||
+    s === "không đỗ" ||
+    s === "hủy" ||
+    s.includes("nghỉ") ||
+    s.includes("hết phí") ||
+    s.includes("bỏ xx") ||
+    s.includes("bỏ xưởng") ||
+    s.includes("bỏ việc") ||
+    s.includes("bỏ đt") ||
+    s.includes("bỏ đào tạo") ||
+    s.includes("bỏ pv") ||
+    s.includes("bỏ phỏng vấn") ||
+    s.includes("trượt") ||
+    s.includes("ko đỗ") ||
+    s.includes("không đỗ") ||
+    s.includes("không đạt") ||
+    s.includes("ko đạt") ||
+    s.includes("(nh)") ||
+    s.includes("(bỏ xx)") ||
+    s.includes("(bỏ đt)")
+  );
+}
+
 function extractSheetData(
   book: XLSX.WorkBook,
   targetSheetName: string,
@@ -630,24 +674,29 @@ export async function POST(request: NextRequest) {
             continue;
           }
 
-          // Kiểm tra trường hợp công nhân đang phỏng vấn / làm việc ở công ty khác mà nhảy sang công ty này
+          // Kiểm tra trường hợp công nhân đang làm việc ở công ty khác mà chưa báo nghỉ nhưng lại đi làm công ty này
           if (old) {
             const crossCompanyAssign = (old.assignments || []).find((a: any) => {
               const curFactory = a.workingFactory || a.interviewFactory || "";
               const nxtFactory = assignment.workingFactory || assignment.interviewFactory || "";
               if (!curFactory || !nxtFactory || matchFactory(curFactory, nxtFactory)) return false;
 
-              // 1. Đợt cũ chưa có ngày nghỉ (chưa chính thức thanh lý đợt)
-              if (!a.leaveDate) return true;
+              // 1. Nếu đợt mới là Bỏ đào tạo, Bỏ PV, Trượt PV -> Đây là chuyện bình thường, ghi nhận vào lịch sử, không chặn
+              if (isInactiveStatus(assignment.status)) return false;
 
-              // 2. Đợt cũ đang trong trạng thái làm việc hoặc chờ
+              // 2. Nếu đợt cũ đã có ngày nghỉ việc hoặc trạng thái là Đã nghỉ / Bỏ đào tạo / Trượt PV -> Không chặn
+              if (a.leaveDate || a.leaveReason || isInactiveStatus(a.status)) return false;
+
+              // 3. CHỈ CẢNH BÁO NẾU: Đợt cũ THỰC SỰ ĐANG LÀM VIỆC (chưa báo nghỉ) mà lại xuất hiện đi làm/PV ở cty khác
               const s = (a.status || "").toLowerCase().trim();
-              if (s === "đang làm việc" || s === "lv" || s === "chờ kết quả" || s.includes("đang")) return true;
+              const isOldWorking =
+                s.includes("đang làm") ||
+                s === "lv" ||
+                s === "đi làm" ||
+                s.includes("tăng ca") ||
+                s.includes("đang chờ");
 
-              // 3. Cả 2 đợt cùng diễn ra trong cùng tháng (nhảy xưởng trong tháng)
-              if (a.onboardingMonth && assignment.onboardingMonth && a.onboardingMonth === assignment.onboardingMonth) {
-                return true;
-              }
+              if (isOldWorking) return true;
 
               return false;
             });
@@ -657,7 +706,7 @@ export async function POST(request: NextRequest) {
               const newFac = assignment.interviewFactory || assignment.workingFactory;
               duplicateCount++;
               errors.push(
-                `Dòng ${e.row}: Đang có hồ sơ/phỏng vấn tại "${currentFac}" (${crossCompanyAssign.status || "Chưa rõ"}) nhưng nhảy sang "${newFac}" (CẦN QUẢN LÝ XÁC NHẬN).`,
+                `Dòng ${e.row}: Đang làm việc tại "${currentFac}" (chưa báo nghỉ) nhưng đăng ký sang "${newFac}" (CẦN QUẢN LÝ XÁC NHẬN).`,
               );
               continue;
             }

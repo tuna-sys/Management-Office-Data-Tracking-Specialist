@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import { Card, Empty, Select, Tag, Progress, Tooltip } from "antd";
 import {
   Users,
@@ -335,9 +336,13 @@ export default function OverviewCharts({ data }: { data: any }) {
           </div>
 
           {/* Bước 4 */}
-          <div className="p-4 rounded-xl bg-gradient-to-br from-cyan-50/70 to-white border border-cyan-200/80 relative">
+          <Link
+            href="/workers?returning=true"
+            className="block p-4 rounded-xl bg-gradient-to-br from-cyan-50/70 to-white border border-cyan-200/80 relative hover:shadow-md transition-all group cursor-pointer"
+            title="Bấm để xem danh sách lao động tái ký / quay lại trong Hồ sơ lao động"
+          >
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-cyan-700 flex items-center gap-1.5">
+              <span className="text-xs font-bold uppercase tracking-wider text-cyan-700 flex items-center gap-1.5 group-hover:text-cyan-900 transition">
                 <RotateCcw className="w-4 h-4" /> BƯỚC 4 · TÁI TUYỂN DỤNG
               </span>
               <span className="text-xs px-2 py-0.5 rounded-md bg-cyan-600 text-white font-bold">
@@ -347,7 +352,7 @@ export default function OverviewCharts({ data }: { data: any }) {
             <div className="text-3xl font-black text-cyan-700 tracking-tight">
               {returning.toLocaleString("vi-VN")}
               <span className="text-xs font-semibold text-slate-500 ml-1.5">
-                lượt quay lại
+                lượt quay lại (Bấm xem DS)
               </span>
             </div>
             <div className="mt-2 flex items-center justify-between text-xs text-slate-600">
@@ -362,7 +367,7 @@ export default function OverviewCharts({ data }: { data: any }) {
                 style={{ width: `${Math.max(4, Math.min(100, returnRate * 3))}%` }}
               />
             </div>
-          </div>
+          </Link>
         </div>
 
         {/* THANH BIỂU ĐỒ PHÂN BỔ TRẠNG THÁI HỒ SƠ (STACKED STATUS BAR + CHI TIẾT) */}

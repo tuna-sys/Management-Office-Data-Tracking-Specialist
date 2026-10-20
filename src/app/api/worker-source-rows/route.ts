@@ -431,6 +431,45 @@ export async function GET(request: NextRequest) {
       list.push(b);
     }
 
+    // Đếm số đợt làm việc/phỏng vấn của từng CCCD (trong CSDL và trong các nguồn Excel)
+    const returningCards = new Set<string>();
+    const cardAttemptCount = new Map<string, number>();
+
+    for (const w of workers) {
+      if (w.idCard && w.assignments && w.assignments.length >= 2) {
+        returningCards.add(w.idCard);
+        cardAttemptCount.set(w.idCard, w.assignments.length);
+      }
+    }
+
+    const cardBatches = new Map<string, Set<string>>();
+    for (const r of unmergedSourceRows) {
+      const card = r.idCard;
+      if (!card) continue;
+      const fac = cleanFactory(
+        r.sourceValues?.["Nhà máy PV"] || r.sourceValues?.["Nhà máy làm việc"] || "",
+      );
+      const d =
+        dateKey(String(r.sourceValues?.["Ngày PV"] || "")) ||
+        String(r.sourceValues?.["Ngày PV"] || "");
+      const key = `${fac}|${d}`;
+      let s = cardBatches.get(card);
+      if (!s) {
+        s = new Set();
+        cardBatches.set(card, s);
+      }
+      s.add(key);
+    }
+
+    for (const [card, s] of cardBatches.entries()) {
+      const currentCount = cardAttemptCount.get(card) || 0;
+      const total = Math.max(currentCount, s.size);
+      cardAttemptCount.set(card, total);
+      if (total >= 2) {
+        returningCards.add(card);
+      }
+    }
+
     const rows = [...mainSourceRows, ...canonical].map((r) => {
       const candidateBonuses = bonusRowsByCccd.get(r.idCard);
       let rewardSource = candidateBonuses
@@ -460,9 +499,22 @@ export async function GET(request: NextRequest) {
           rewardSource = exactMatches;
         }
       }
+
+      const isRet =
+        returningCards.has(r.idCard) ||
+        Boolean(r.previousAttempts && r.previousAttempts.length > 0) ||
+        Boolean(r.assignmentCount && r.assignmentCount >= 2);
+      const rehireCount =
+        cardAttemptCount.get(r.idCard) ||
+        (r.previousAttempts
+          ? r.previousAttempts.length + 1
+          : r.assignmentCount || (isRet ? 2 : 1));
+
       return {
         ...r,
         rewardSource,
+        isReturning: Boolean(isRet),
+        rehireCount,
       };
     });
 
@@ -562,6 +614,16 @@ export async function GET(request: NextRequest) {
         return false;
       }
 
+      // 7c. Lọc lao động tái ký / quay lại
+      if (
+        (p.get("returningOnly") === "true" ||
+          p.get("returning") === "true" ||
+          p.get("isReturning") === "true") &&
+        !r.isReturning
+      ) {
+        return false;
+      }
+
       // 8. Tìm kiếm từ khóa
       if (p.get("search")) {
         const keyword = p.get("search")!.toLocaleLowerCase("vi");
@@ -610,6 +672,7 @@ export async function GET(request: NextRequest) {
       sourceRows: mainSourceRows.length,
       warningRows: rows.filter((r) => r.sourceWarnings.length).length,
       approvedRows: rows.filter((r) => r.isApproved).length,
+      returningRows: rows.filter((r) => r.isReturning).length,
       duplicateRows: rows.filter((r) => r.sourceDuplicates.length).length,
     });
   } catch {
