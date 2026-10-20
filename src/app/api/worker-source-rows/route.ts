@@ -29,8 +29,7 @@ export async function GET(request: NextRequest) {
         include: {
           assignments: {
             include: {
-              events: { orderBy: { createdAt: "desc" } },
-              bonusRecords: true,
+              events: { where: { note: { startsWith: "Import Excel — source:" } }, orderBy: { createdAt: "desc" }, take: 1, select: { note: true } },
             },
           },
           bankAccounts: true,
@@ -161,22 +160,35 @@ export async function GET(request: NextRequest) {
     );
     const mainSourceRows = sourceRows.filter((r) => !r.sourceDuplicates.length);
 
-    const sourceKey = (card: string, v: any) =>
-      [
-        card,
-        String(v["Nhà máy PV"] || ""),
-        dateKey(String(v["Ngày PV"] || "")) || String(v["Ngày PV"] || ""),
-        String(v["Mã NV"] || ""),
-      ].join("|");
+    // The recruitment identity is CCCD + interview day; company/code can change after review.
+    const sourceKey = (card: string, v: any) => {
+      const day = dateKey(String(v["Ngày PV"] || ""));
+      return day && card ? [card.replace(/\s+/g, ""), day].join("|") :
+        [card, String(v["Nhà máy PV"] || ""), String(v["Ngày PV"] || ""), String(v["Mã NV"] || "")].join("|");
+    };
+    const visibleRecruitments = new Set<string>();
+    const currentSourceRows = mainSourceRows.map(r => {
+      const worker = people.get(r.idCard);
+      const day = dateKey(String(r.sourceValues["Ngày PV"] || ""));
+      const assignment = day ? worker?.assignments.find(a => dateKey(a.interviewDate) === day) : null;
+      if (!worker || !assignment) return r;
+      return { ...r, sourceValues: workerSourceView(worker, assignment, true).values,
+        assignments: [assignmentValues(assignment)] };
+    }).filter(r => {
+      const key = sourceKey(r.idCard, r.sourceValues);
+      if (visibleRecruitments.has(key)) return false;
+      visibleRecruitments.add(key);
+      return true;
+    });
 
     const sourcedKeys = new Set(
-      mainSourceRows.map((r) => sourceKey(r.idCard, r.sourceValues)),
+      currentSourceRows.map((r) => sourceKey(r.idCard, r.sourceValues)),
     );
 
     const canonical = workers
       .flatMap((w) =>
         w.assignments.map((a) => {
-          const source = workerSourceView(w, a);
+          const source = workerSourceView(w, a, true);
           const rev = splitImportReview(source.warnings);
           return {
             id: `${w.id}-${a.id}`,
@@ -224,7 +236,7 @@ export async function GET(request: NextRequest) {
       list.push(b);
     }
 
-    const rows = [...mainSourceRows, ...canonical].map((r) => {
+    const rows = [...currentSourceRows, ...canonical].map((r) => {
       const candidateBonuses = bonusRowsByCccd.get(r.idCard);
       const rewardSource = candidateBonuses
         ? candidateBonuses.filter(
@@ -372,9 +384,17 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    const rawPage = Number(p.get("page"));
+    const rawPageSize = Number(p.get("pageSize"));
+    const paginated = p.has("page") || p.has("pageSize");
+    const pageSize = Number.isFinite(rawPageSize) && rawPageSize > 0 ? Math.min(200, Math.floor(rawPageSize)) : 20;
+    const page = Number.isFinite(rawPage) && rawPage > 0 ? Math.min(Math.floor(rawPage), Math.max(1, Math.ceil(filtered.length / pageSize))) : 1;
     return NextResponse.json({
       success: true,
-      data: filtered,
+      data: paginated ? filtered.slice((page - 1) * pageSize, page * pageSize) : filtered,
+      filteredTotal: filtered.length,
+      page,
+      pageSize,
       options,
       pendingDuplicateCount,
       systemWarningCount,
@@ -385,7 +405,8 @@ export async function GET(request: NextRequest) {
       warningRows: rows.filter((r) => r.sourceWarnings.length).length,
       duplicateRows: rows.filter((r) => r.sourceDuplicates.length).length,
     });
-  } catch {
+  } catch (error) {
+    console.error("worker-source-rows failed", error instanceof Error ? error.message : "Unknown error");
     return NextResponse.json(
       { success: false, message: "Không tải được dữ liệu nguồn" },
       { status: 500 },

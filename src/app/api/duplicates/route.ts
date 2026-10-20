@@ -1,3 +1,5 @@
+import { reviewFields, reviewToken, resolveReview } from "@/lib/duplicate-resolution";
+import { sourceConflicts, assertSourceCompatible, fillMissing, assertSourceCard, assertReviewProfile, assertIdentity, assertDailyInterview, sameInterviewDay, sameFactory, resolveBonusAssignment, isActiveAssignment } from "@/lib/duplicate-check";
 import { guard, identity } from "@/lib/auth";
 import { NextRequest, NextResponse } from "next/server";
 import {
@@ -12,10 +14,11 @@ import { today } from "@/lib/domain";
 import {
   readImportSources,
   resolveImportSourceRow,
+  correctImportSourceDate,
 } from "@/lib/import-source-store";
 import { splitImportReview } from "@/lib/import-review";
 import { parseBonusImportRow, readBonusValue } from "@/lib/bonus-import";
-import { parseImportRow } from "@/lib/worker-import";
+import { parseImportRow, inferProvince } from "@/lib/worker-import";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -40,49 +43,12 @@ async function addResolvedId(id: string) {
   await writeFile(resolvedFile, JSON.stringify([...set], null, 2), "utf8");
 }
 
-function isInactiveStatus(status?: string | null): boolean {
-  if (!status) return false;
-  const s = status.toLowerCase().trim();
-  return (
-    s === "đã nghỉ việc" ||
-    s === "nghỉ việc" ||
-    s === "nghỉ hẳn" ||
-    s === "nh" ||
-    s === "bỏ xx" ||
-    s === "bỏ xưởng" ||
-    s === "hết hạn hợp đồng" ||
-    s === "hết hợp đồng" ||
-    s === "hhđ" ||
-    s === "tự ý nghỉ việc" ||
-    s.includes("nghỉ") ||
-    s.includes("hết phí") ||
-    s.includes("bỏ xx") ||
-    s.includes("bỏ xưởng") ||
-    s.includes("bỏ việc") ||
-    s.includes("ko theo dõi") ||
-    s.includes("không theo dõi") ||
-    s.includes("hết hợp đồng") ||
-    s.includes("hết hạn") ||
-    s.includes("hhđ") ||
-    s.includes("kết thúc") ||
-    s.includes("(nh)") ||
-    s.includes("(bỏ xx)")
-  );
-}
-
-function isActiveAssignment(a: any): boolean {
-  if (a.leaveDate) return false;
-  if (a.leaveReason) return false;
-  if (isInactiveStatus(a.status)) return false;
-  return true;
-}
-
 export async function GET(request: NextRequest) {
   const denied = await guard(request, "read");
   if (denied) return denied;
 
   try {
-    const [workers, resolvedIds, sources] = await Promise.all([
+    const [workers, resolvedIds, sources, statuses] = await Promise.all([
       prisma.worker.findMany({
         include: {
           assignments: {
@@ -98,6 +64,7 @@ export async function GET(request: NextRequest) {
       }),
       readResolvedIds(),
       readImportSources(),
+      prisma.laborStatus.findMany({ where: { isActive: true } }),
     ]);
 
     const workerByCard = new Map<string, any>();
@@ -145,9 +112,8 @@ export async function GET(request: NextRequest) {
         const rawCode = String(v["Mã NV"] || v["Mã nhân viên"] || "").trim();
         const rawGender = String(v["Giới tính"] || "").trim();
         const rawDob = formatExcelDate(v["Ngày sinh"] || "");
-        const rawProvince = String(
-          v["Tỉnh/Thành"] || v["Tỉnh"] || v["Quê quán"] || v["Địa chỉ"] || "",
-        ).trim();
+        const rawAddress = String(v["Địa chỉ"] || v["Quê quán"] || "").trim();
+        const rawProvince = String(v["Tỉnh/Thành"] || v["Tỉnh"] || inferProvince(rawAddress)).trim();
         const rawRecruiter = String(
           v["Tuyển dụng"] || v["Người tuyển"] || "",
         ).trim();
@@ -170,28 +136,20 @@ export async function GET(request: NextRequest) {
 
         const matchedWorker =
           (normCard ? workerByCard.get(normCard) : null) ||
-          (rawPhone ? workerByPhone.get(phoneKey(rawPhone)) : null) ||
           null;
 
-        const matchedAssignment = matchedWorker
-          ? (matchedWorker.assignments || []).find(
-              (a: any) =>
-                (rawCompany &&
-                  (matchFactory(a.interviewFactory, rawCompany) ||
-                    matchFactory(a.workingFactory, rawCompany))) ||
-                (rawPv && dateKey(a.interviewDate) === dateKey(rawPv)),
-            ) ||
-            matchedWorker.assignments?.[0] ||
-            null
-          : null;
+        const dayAssignments = (matchedWorker?.assignments || []).filter((a: any) => sameInterviewDay(a, { interviewDate: rawPv }));
+        const matchedAssignment = dayAssignments[0] || null;
+        const conflicts = sourceConflicts(matchedWorker, v);
+        const isConflict = conflicts.length > 0 || review.duplicates.some((d: any) => d.kind === "IDENTITY_MISMATCH");
 
         const isCrossCompany = review.duplicates.some(
           (d) => d.kind === "CROSS_COMPANY" || /CHƯA BÁO NGHỈ/i.test(d.message),
         );
 
-        if (isCrossCompany) {
+        if (isCrossCompany && !isConflict) {
           const activeAssignment =
-            (matchedWorker?.assignments || []).find(isActiveAssignment) ||
+            (matchedWorker?.assignments || []).find((a: any) => isActiveAssignment(a, statuses)) ||
             matchedAssignment;
           const actFactory =
             activeAssignment?.workingFactory ||
@@ -208,6 +166,8 @@ export async function GET(request: NextRequest) {
             fileName: source.file,
             workerId: matchedWorker?.id || null,
             currentAssignmentId: activeAssignment?.id || null,
+            targetAssignmentId: activeAssignment?.id || null,
+            reviewToken: reviewToken(matchedWorker, activeAssignment, v),
             newAssignmentId: null, // Đang được chặn an toàn ở file import, chưa ghi vào DB
             phone: rawPhone || matchedWorker?.phone || "",
             idCard: normCard || matchedWorker?.idCard || "—",
@@ -230,7 +190,8 @@ export async function GET(request: NextRequest) {
               phone: matchedWorker?.phone || rawPhone || "—",
               gender: matchedWorker?.gender || "—",
               dob: matchedWorker?.dob || "—",
-              province: matchedWorker?.province || matchedWorker?.address || "—",
+              province: matchedWorker?.province || inferProvince(matchedWorker?.address || "") || "—",
+            address: matchedWorker?.address || "—",
               factory: actFactory,
               interviewDate: activeAssignment?.interviewDate || "—",
               startDate: activeAssignment?.startDate || "—",
@@ -249,6 +210,7 @@ export async function GET(request: NextRequest) {
               gender: rawGender || "—",
               dob: rawDob || "—",
               province: rawProvince || "—",
+            address: rawAddress || "—",
               factory: rawCompany || "—",
               interviewDate: rawPv || "—",
               startDate:
@@ -300,9 +262,14 @@ export async function GET(request: NextRequest) {
 
         mergeInfoAlerts.push({
           id: alertId,
-          category: "MERGE_INFO",
-          type: "BỔ SUNG / GHI ĐÈ THÔNG TIN HỒ SƠ",
-          severity: "WARNING",
+          category: isConflict ? "INTERVIEW_CONFLICT" : "MERGE_INFO",
+          type: isConflict ? "XUNG ĐỘT LƯỢT TUYỂN — CẦN XÁC MINH" : "BỔ SUNG THÔNG TIN CÒN TRỐNG",
+          severity: isConflict ? "CRITICAL" : "WARNING",
+          canApprove: true,
+          requiresDecision: isConflict,
+          targetAssignmentId: matchedAssignment?.id || null,
+          reviewToken: reviewToken(matchedWorker, matchedAssignment, v),
+          conflicts,
           sourceId: source.id,
           row: row.row,
           fileName: source.file,
@@ -338,7 +305,7 @@ export async function GET(request: NextRequest) {
           newRecruiter: rawRecruiter || "—",
           warning: `Trùng hồ sơ khi nạp file "${source.file}" (Dòng #${row.row}): ${issueMsg}`,
           actionRequired:
-            "Bấm 'Kiểm tra' để đối chiếu thông tin cũ - mới, bấm 'Duyệt' để ghi đè/bổ sung thông tin đầy đủ vào hồ sơ hoặc 'Xóa' để bỏ qua.",
+            isConflict ? "Duyệt để áp dụng dữ liệu mới và lưu lịch sử trước/sau cùng người duyệt. Xóa chỉ bỏ dòng nhập mới, giữ hồ sơ đang có." : "Chỉ bổ sung các ô trống; giữ nguyên thông tin đã có.",
           leftSide: {
             title: "Hồ sơ đang có trong hệ thống",
             fullName: matchedWorker?.fullName || "—",
@@ -346,7 +313,8 @@ export async function GET(request: NextRequest) {
             phone: matchedWorker?.phone || "—",
             gender: matchedWorker?.gender || "—",
             dob: matchedWorker?.dob || "—",
-            province: matchedWorker?.province || matchedWorker?.address || "—",
+            province: matchedWorker?.province || inferProvince(matchedWorker?.address || "") || "—",
+            address: matchedWorker?.address || "—",
             employeeCode:
               matchedAssignment?.employeeCode ||
               matchedBonus?.workerCode ||
@@ -380,6 +348,7 @@ export async function GET(request: NextRequest) {
             gender: rawGender || "—",
             dob: rawDob || "—",
             province: rawProvince || "—",
+            address: rawAddress || "—",
             employeeCode: rawCode || "—",
             factory: rawCompany || "—",
             interviewDate: rawPv || "—",
@@ -402,7 +371,7 @@ export async function GET(request: NextRequest) {
 
     for (const w of workers) {
       if (w.assignments.length > 1) {
-        const activeList = w.assignments.filter(isActiveAssignment);
+        const activeList = w.assignments.filter((a: any) => isActiveAssignment(a, statuses));
         if (activeList.length > 1) {
           // Chỉ cảnh báo nếu có từ 2 đợt CÙNG ĐANG ACTIVE ở 2 công ty khác nhau trong CSDL
           const seenPairs = new Set<string>();
@@ -453,7 +422,8 @@ export async function GET(request: NextRequest) {
                     phone: w.phone || "—",
                     gender: w.gender || "—",
                     dob: w.dob || "—",
-                    province: w.province || w.address || "—",
+                    province: w.province || inferProvince(w.address || "") || "—",
+                    address: w.address || "—",
                     factory: actFactory,
                     interviewDate: act.interviewDate || "—",
                     startDate: act.startDate || "—",
@@ -469,7 +439,8 @@ export async function GET(request: NextRequest) {
                     phone: w.phone || "—",
                     gender: w.gender || "—",
                     dob: w.dob || "—",
-                    province: w.province || w.address || "—",
+                    province: w.province || inferProvince(w.address || "") || "—",
+                    address: w.address || "—",
                     factory: otherFactory,
                     interviewDate: other.interviewDate || "—",
                     startDate: other.startDate || "—",
@@ -502,8 +473,8 @@ export async function GET(request: NextRequest) {
           for (let j = i + 1; j < list.length; j++) {
             const w1 = list[i];
             const w2 = list[j];
-            const act1 = (w1.assignments || []).find(isActiveAssignment);
-            const act2 = (w2.assignments || []).find(isActiveAssignment);
+            const act1 = (w1.assignments || []).find((a: any) => isActiveAssignment(a, statuses));
+            const act2 = (w2.assignments || []).find((a: any) => isActiveAssignment(a, statuses));
             if (act1 && act2) {
               const f1 = act1.workingFactory || act1.interviewFactory || "Chưa rõ";
               const f2 = act2.workingFactory || act2.interviewFactory || "Chưa rõ";
@@ -539,7 +510,8 @@ export async function GET(request: NextRequest) {
                     phone: w1.phone || phone,
                     gender: w1.gender || "—",
                     dob: w1.dob || "—",
-                    province: w1.province || w1.address || "—",
+                    province: w1.province || inferProvince(w1.address || "") || "—",
+                    address: w1.address || "—",
                     factory: f1,
                     interviewDate: act1.interviewDate || "—",
                     startDate: act1.startDate || "—",
@@ -555,7 +527,8 @@ export async function GET(request: NextRequest) {
                     phone: w2.phone || phone,
                     gender: w2.gender || "—",
                     dob: w2.dob || "—",
-                    province: w2.province || w2.address || "—",
+                    province: w2.province || inferProvince(w2.address || "") || "—",
+                    address: w2.address || "—",
                     factory: f2,
                     interviewDate: act2.interviewDate || "—",
                     startDate: act2.startDate || "—",
@@ -578,7 +551,8 @@ export async function GET(request: NextRequest) {
       success: true,
       totalDuplicates: allAlerts.length,
       counts: {
-        mergeInfoCount: mergeInfoAlerts.length,
+        mergeInfoCount: mergeInfoAlerts.filter(a => a.category === "MERGE_INFO").length,
+        conflictCount: mergeInfoAlerts.filter(a => a.category === "INTERVIEW_CONFLICT").length,
         crossCompanyCount: crossCompanyAlerts.length,
       },
       data: allAlerts,
@@ -620,6 +594,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (body.resolution && sourceId && row != null) {
+      const source=(await readImportSources()).find((s:any)=>s.id===String(sourceId));
+      const incoming=source?.rows?.find((r:any)=>Number(r.row)===Number(row));
+      if(!incoming) return NextResponse.json({success:false,message:"Dòng nguồn đã thay đổi hoặc đã xử lý; tải lại danh sách"},{status:409});
+      if(source.type==='DS_THUONG'){const denied=await guard(request,'bonus:write');if(denied)return denied;}
+      const decision=await prisma.$transaction(tx=>resolveReview(tx,source,incoming,body,actor.username));
+      if(decision.removeSource) await resolveImportSourceRow(String(sourceId),Number(row),'DELETE');
+      else if(decision.correctedInterviewDate) await correctImportSourceDate(String(sourceId),Number(row),decision.correctedInterviewDate);
+      return NextResponse.json({success:true,message:decision.message,data:{sourceRemoved:decision.removeSource}});
+    }
+
+    if (sourceId && row != null) {
+      const stored = (await readImportSources()).find((s: any) => s.id === String(sourceId));
+      const incoming = stored?.rows?.find((r: any) => Number(r.row) === Number(row));
+      if (!incoming) return NextResponse.json({success:false,message:"Không tìm thấy dòng nguồn"},{status:404});
+      const raw = incoming.values || {};
+      const card = normalizeCccd(raw["Số CCCD"] || raw["số CCCD"] || raw.CCCD || "");
+      const person = await prisma.worker.findUnique({where:{idCard:card},include:{assignments:true}});
+      const conflicts = sourceConflicts(person, raw);
+      if (conflicts.length) return NextResponse.json({success:false,code:"INTERVIEW_CONFLICT",message:"Xung đột lượt tuyển: " + conflicts.join("; ") + ". Không được bổ sung, ghi đè hoặc tạo lượt mới."},{status:409});
+    }
+
     // =========================================================================
     // XỬ LÝ TRƯỜNG HỢP 1: BỔ SUNG / GHI ĐÈ THÔNG TIN HỒ SƠ TỪ FILE IMPORT
     // =========================================================================
@@ -655,12 +651,15 @@ export async function POST(request: NextRequest) {
         });
       }
 
+      if (!(targetRow.warnings || []).length && !(targetRow.duplicates || []).length) throw new Error("Dòng đã xử lý; tải lại danh sách");
       const raw = targetRow.values || {};
       const importType = targetSource.type;
+      if (importType === "DS_THUONG") { const denied = await guard(request, "bonus:write"); if (denied) return denied; }
 
       await prisma.$transaction(async (tx) => {
         if (importType === "DS_THUONG") {
           const parsed = parseBonusImportRow(raw);
+          assertSourceCard(raw, parsed.idCard);
           const {
             sequence,
             idCard: parsedCard,
@@ -690,32 +689,18 @@ export async function POST(request: NextRequest) {
               },
               include: { assignments: true },
             });
-          } else if (parsedName && worker.fullName !== parsedName) {
-            worker = await tx.worker.update({
-              where: { id: worker.id },
-              data: { fullName: parsedName },
-              include: { assignments: true },
-            });
           }
-
-          const matchedAssignment =
-            (worker.assignments || []).find(
-              (a: any) =>
-                matchFactory(
-                  a.workingFactory || a.interviewFactory || "",
-                  company,
-                ) &&
-                (!interviewDate ||
-                  dateKey(a.interviewDate) === dateKey(interviewDate)),
-            ) ||
-            worker.assignments?.[0] ||
-            null;
+          assertIdentity(worker, parsedName);
+          assertSourceCompatible(worker, raw);
+          const matchedAssignment = resolveBonusAssignment(worker, parsed);
+          if (!matchedAssignment) throw new Error("Chưa có lượt PV khớp; không liên kết sang đợt khác");
 
           const existingBonus = await tx.bonusRecord.findFirst({
             where: {
               workerId: worker.id,
               month,
               company,
+              assignmentId: matchedAssignment.id,
             },
           });
 
@@ -735,6 +720,7 @@ export async function POST(request: NextRequest) {
           });
 
           if (existingBonus) {
+            if (existingBonus.status !== "DRAFT") throw new Error("Bản thưởng đã duyệt/khóa; không ghi đè");
             await tx.bonusRecord.update({
               where: { id: existingBonus.id },
               data: {
@@ -809,6 +795,7 @@ export async function POST(request: NextRequest) {
           }
         } else {
           const { worker, assignment } = parseImportRow(raw, true);
+        assertSourceCard(raw, worker.idCard);
           let person = await tx.worker.findUnique({
             where: { idCard: worker.idCard },
             include: { assignments: true },
@@ -829,19 +816,19 @@ export async function POST(request: NextRequest) {
               include: { assignments: true },
             });
           } else {
+            assertSourceCompatible(person, raw);
+          assertIdentity(person, worker.fullName);
             await tx.worker.update({
               where: { id: person.id },
-              data: cleanWorkerData,
+              data: fillMissing(person, cleanWorkerData),
             });
           }
 
           const matchedAssignment = (person.assignments || []).find(
             (a: any) =>
-              matchFactory(
-                a.interviewFactory || "",
-                assignment.interviewFactory || "",
-              ) && dateKey(a.interviewDate) === dateKey(assignment.interviewDate),
+              sameFactory(a.interviewFactory, assignment.interviewFactory) && sameInterviewDay(a, assignment),
           );
+          await assertReviewProfile(tx, person, worker, assignment, matchedAssignment?.id);
           const cleanAssignmentData = Object.fromEntries(
             Object.entries(assignment).filter(
               ([k, val]) =>
@@ -855,7 +842,7 @@ export async function POST(request: NextRequest) {
           if (matchedAssignment) {
             await tx.workAssignment.update({
               where: { id: matchedAssignment.id },
-              data: cleanAssignmentData,
+              data: fillMissing(matchedAssignment, cleanAssignmentData),
             });
           } else if (assignment.interviewFactory) {
             const created = await tx.workAssignment.create({
@@ -977,6 +964,8 @@ export async function POST(request: NextRequest) {
           const targetRow = (targetSource?.rows || []).find(
             (r: any) => Number(r.row) === Number(row),
           );
+          if (!targetRow) throw new Error("Không tìm thấy dòng nguồn; tải lại danh sách");
+          if (!(targetRow.warnings || []).length && !(targetRow.duplicates || []).length) throw new Error("Dòng đã xử lý; tải lại danh sách");
           if (targetRow) {
             const raw = targetRow.values || {};
             const { worker, assignment } = parseImportRow(raw, true);
@@ -996,6 +985,9 @@ export async function POST(request: NextRequest) {
                 },
               });
             }
+            const existingPerson = await tx.worker.findUnique({ where: { id: person.id }, include: { assignments: true } });
+            assertIdentity(existingPerson, worker.fullName);
+            assertDailyInterview(existingPerson, assignment);
             const cleanAssignmentData = Object.fromEntries(
               Object.entries(assignment).filter(
                 ([k, val]) =>

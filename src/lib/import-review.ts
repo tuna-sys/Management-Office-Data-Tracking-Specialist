@@ -4,9 +4,9 @@ export function splitImportReview(messages: string[]) {
   const warnings: ImportIssue[] = [], duplicates: ImportIssue[] = [];
   for (const message of new Set(messages)) {
     const row = Number(/^Dòng (\d+):/.exec(message)?.[1] || 0);
-    const duplicate = /Trùng lặp nội bộ|Sai lệch danh tính|Lượt PV đã được người khác thêm|lượt.*đã có|STK trùng|Bản thưởng của đợt đã có|CHƯA BÁO NGHỈ/i.test(message);
+    const duplicate = /Trùng SĐT|Trùng lặp nội bộ|Sai lệch danh tính|Lượt PV đã được người khác thêm|lượt.*đã có|STK trùng|Bản thưởng của đợt đã có|CHƯA BÁO NGHỈ/i.test(message);
     const kind = duplicate
-      ? (/CHƯA BÁO NGHỈ/i.test(message)
+      ? (/Trùng SĐT/i.test(message) ? 'PHONE' : /CHƯA BÁO NGHỈ/i.test(message)
         ? 'CROSS_COMPANY'
         : /STK|tài khoản/.test(message)
         ? 'BANK_ACCOUNT'

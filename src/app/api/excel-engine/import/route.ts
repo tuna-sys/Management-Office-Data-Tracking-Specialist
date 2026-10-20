@@ -1,3 +1,4 @@
+import { assertIdentity, identityText, sameInterviewDay, sameFactory, isActiveAssignment, resolveBonusAssignment } from "@/lib/duplicate-check";
 import { splitImportReview } from "@/lib/import-review";
 import { saveImportSource } from "@/lib/import-source-store";
 import { sourceStatuses } from "@/lib/source-format";
@@ -6,14 +7,13 @@ import {
   phoneKey,
   normalizeCccd,
 } from "@/lib/worker-validation";
-import { matchFactory } from "@/lib/factory-matching";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import * as XLSX from "xlsx";
 import { guard, identity } from "@/lib/auth";
 import { parseImportRow } from "@/lib/worker-import";
 import { parseBonusImportRow, readBonusValue } from "@/lib/bonus-import";
-import { today, day } from "@/lib/domain";
+import { today } from "@/lib/domain";
 import crypto from "node:crypto";
 
 type SheetEntries = {
@@ -331,12 +331,14 @@ export async function POST(request: NextRequest) {
         where: { isActive: true },
       });
       const statusNamesSet = new Set(statuses.map((s) => s.name));
-      const identityKey = (a: any) =>
-        [
-          a.interviewFactory,
-          a.interviewDate ? day(a.interviewDate, "Ngày PV") : null,
-          a.employeeCode || "",
-        ].join("|");
+      const phones = new Map<string, Set<string>>();
+      const indexPhone = (w: any) => {
+        const key = phoneKey(w.phone || "");
+        if (key && !w.archivedAt && (w.assignments || []).some((a: any) => isActiveAssignment(a, statuses))) {
+          const cards = phones.get(key) || new Set<string>(); cards.add(w.idCard); phones.set(key, cards);
+        }
+      };
+      existing.forEach(indexPhone);
 
       const labels: Record<string, string> = {
         fullName: "Họ và tên",
@@ -397,11 +399,13 @@ export async function POST(request: NextRequest) {
             }
           }
           const { worker, assignment } = parseImportRow(raw, true);
+          const sourceCard = String(raw["số CCCD"] ?? raw["Số CCCD"] ?? raw["CCCD"] ?? raw["CMT/CCCD"] ?? "").replace(/\s+/g, "");
+          if (sourceCard && sourceCard !== worker.idCard) throw new Error("Sai lệch danh tính: CCCD thiếu chữ số; không tự thêm số 0 để gộp hồ sơ");
           for (const k of ["orderId", "batchId"])
             if (!assignment[k]) delete assignment[k];
 
           // 1. Kiểm tra trùng lặp nội bộ trong file (cùng CCCD + Nhà máy PV + Ngày PV)
-          const fileKey = `${worker.idCard}|${assignment.interviewFactory || ""}|${dateKey(assignment.interviewDate) || ""}`;
+          const fileKey = `${worker.idCard}|${dateKey(assignment.interviewDate) || ""}`;
           if (seenInFile.has(fileKey)) {
             duplicateCount++;
             errors.push(
@@ -422,8 +426,7 @@ export async function POST(request: NextRequest) {
             old &&
             old.fullName &&
             worker.fullName &&
-            old.fullName.trim().toLocaleLowerCase("vi") !==
-              worker.fullName.trim().toLocaleLowerCase("vi")
+            identityText(old.fullName) !== identityText(worker.fullName)
           ) {
             duplicateCount++;
             errors.push(
@@ -432,16 +435,14 @@ export async function POST(request: NextRequest) {
             continue;
           }
 
+          const phoneMatches = phones.get(phoneKey(worker.phone || ""));
+          if (phoneMatches && [...phoneMatches].some(card => card !== worker.idCard)) throw new Error("Trùng SĐT hồ sơ đang hoạt động; cần xác nhận dùng chung số");
+
           // 3. Kiểm tra trùng lượt tuyển đã có trong CSDL (Smart Merge tự động điền ô trống)
-          const matchAssignment = old?.assignments?.find(
-            (a: any) =>
-              identityKey(a) === identityKey(assignment) ||
-              (a.interviewFactory === assignment.interviewFactory &&
-                dateKey(a.interviewDate) === dateKey(assignment.interviewDate)) ||
-              (assignment.employeeCode &&
-                a.employeeCode === assignment.employeeCode &&
-                a.interviewFactory === assignment.interviewFactory),
-          );
+          const dayMatches = (old?.assignments || []).filter((a: any) => sameInterviewDay(a, assignment));
+          if (dayMatches.length > 1) throw new Error("Trùng lặp nội bộ: nhiều lượt PV cùng ngày; cần đối chiếu");
+          const matchAssignment = dayMatches[0];
+          if (matchAssignment && !sameFactory(matchAssignment.interviewFactory, assignment.interviewFactory)) throw new Error("Trùng lặp nội bộ: cùng CCCD và ngày PV nhưng khác nhà máy");
 
           if (matchAssignment) {
             const workerFillable: Array<keyof typeof worker> = [
@@ -632,40 +633,7 @@ export async function POST(request: NextRequest) {
 
           // Kiểm tra trường hợp công nhân đang làm việc tại công ty khác (CHƯA BÁO NGHỈ)
           if (old) {
-            const activeAssign = (old.assignments || []).find((a: any) => {
-              if (a.leaveDate) return false;
-              if (a.leaveReason) return false;
-              const s = (a.status || "").toLowerCase().trim();
-              const isInactive =
-                !s ||
-                s === "đã nghỉ việc" ||
-                s === "nghỉ việc" ||
-                s === "nghỉ hẳn" ||
-                s === "nh" ||
-                s === "bỏ xx" ||
-                s === "bỏ xưởng" ||
-                s === "hết hạn hợp đồng" ||
-                s === "hết hợp đồng" ||
-                s === "hhđ" ||
-                s === "tự ý nghỉ việc" ||
-                s.includes("nghỉ") ||
-                s.includes("hết phí") ||
-                s.includes("bỏ xx") ||
-                s.includes("bỏ xưởng") ||
-                s.includes("bỏ việc") ||
-                s.includes("ko theo dõi") ||
-                s.includes("không theo dõi") ||
-                s.includes("hết hợp đồng") ||
-                s.includes("hết hạn") ||
-                s.includes("hhđ") ||
-                s.includes("kết thúc") ||
-                s.includes("(nh)") ||
-                s.includes("(bỏ xx)");
-              if (isInactive) return false;
-              const curFactory = a.workingFactory || a.interviewFactory || "";
-              const nxtFactory = assignment.workingFactory || assignment.interviewFactory || "";
-              return curFactory && nxtFactory && !matchFactory(curFactory, nxtFactory);
-            });
+            const activeAssign = (old.assignments || []).find((a: any) => isActiveAssignment(a, statuses) && !sameFactory(a.workingFactory || a.interviewFactory, assignment.workingFactory || assignment.interviewFactory));
 
             if (activeAssign) {
               const currentFac = activeAssign.workingFactory || activeAssign.interviewFactory;
@@ -678,6 +646,7 @@ export async function POST(request: NextRequest) {
             }
           }
 
+          indexPhone({ ...worker, assignments: [assignment] });
           const assignId = crypto.randomUUID();
           let workerId = old?.id;
 
@@ -834,16 +803,8 @@ export async function POST(request: NextRequest) {
           const linkTasks: Array<(tx: any) => Promise<void>> = [];
           for (const ub of unlinkedBonuses) {
             const cands = assignByWorker.get(ub.workerId) || [];
-            const matched = cands.find(
-              (a) =>
-                matchFactory(
-                  ub.company || "",
-                  a.workingFactory || a.interviewFactory || "",
-                ) &&
-                (!ub.interviewDate ||
-                  !a.interviewDate ||
-                  dateKey(ub.interviewDate) === dateKey(a.interviewDate)),
-            );
+            let matched: any = null;
+            try { matched = resolveBonusAssignment({ assignments: cands }, { company: ub.company, interviewDate: ub.interviewDate }); } catch { /* Keep unmatched historical bonus for review. */ }
             if (matched) {
               linkTasks.push(async (tx) => {
                 await tx.bonusRecord.update({
@@ -936,15 +897,19 @@ export async function POST(request: NextRequest) {
           workerCode: true,
           interviewDate: true,
           note: true,
+          status: true,
         },
       });
       const bonusMap = new Map<string, (typeof existingBonuses)[0]>();
+      const bonusCounts = new Map<string, number>();
+      const bonusCompanies = new Map<string, Set<string>>();
       for (const b of existingBonuses) {
-        bonusMap.set(
-          `${b.workerId}|${b.month}|${b.company || ""}|${b.assignmentId || ""}`,
-          b,
-        );
-        bonusMap.set(`${b.workerId}|${b.month}|${b.company || ""}|`, b);
+        const key = `${b.workerId}|${b.month}|${identityText(b.company)}|${dateKey(b.interviewDate || "")}`;
+        bonusCounts.set(key, (bonusCounts.get(key) || 0) + 1);
+        const dayKey = b.workerId + "|" + dateKey(b.interviewDate || "");
+        const companies = bonusCompanies.get(dayKey) || new Set<string>();
+        companies.add(identityText(b.company)); bonusCompanies.set(dayKey, companies);
+        bonusMap.set(`${b.workerId}|${b.month}|${identityText(b.company)}|${dateKey(b.interviewDate || "")}`, b);
       }
 
       let successCount = 0;
@@ -967,9 +932,11 @@ export async function POST(request: NextRequest) {
         try {
           const raw = e.raw;
           const parsed = parseBonusImportRow(raw);
+          for (const warning of parsed.amountWarnings) warnings.push(`Dòng ${e.row}: ${warning}`);
           const cccdRaw = readBonusValue(raw, "idCard");
           if (!cccdRaw) throw new Error("Thiếu số CCCD");
           const idCard = normalizeCccd(cccdRaw);
+          if (String(cccdRaw).replace(/\s+/g, "") !== idCard) throw new Error("Sai lệch danh tính: CCCD thiếu chữ số; cần đối chiếu bản gốc");
           const {
             company,
             month,
@@ -985,11 +952,11 @@ export async function POST(request: NextRequest) {
           } = parsed;
 
           if (!company) throw new Error("Thiếu công ty");
-          if (interviewDate && !dateKey(interviewDate))
+          if (!interviewDate || !dateKey(interviewDate))
             throw new Error("Ngày PV không hợp lệ");
 
           // 1. Kiểm tra trùng lặp nội bộ trong file
-          const fileKey = `${idCard}|${month}|${company}`;
+          const fileKey = `${idCard}|${dateKey(interviewDate) || ""}|${month}|${identityText(company)}`;
           if (seenInFile.has(fileKey)) {
             duplicateCount++;
             errors.push(
@@ -1005,54 +972,32 @@ export async function POST(request: NextRequest) {
           let worker = workerMap.get(idCard);
           const isNewWorker = !worker;
           if (isNewWorker) {
+            const denied = await guard(request, "worker:write");
+            if (denied) throw new Error("Không có quyền tạo hồ sơ mới từ danh sách thưởng");
             if (!/^(\d{9}|\d{12})$/.test(idCard))
               throw new Error("CCCD phải gồm 9 hoặc 12 chữ số để tạo hồ sơ");
             if (!fullName)
               throw new Error("Thiếu họ tên để tạo hồ sơ lao động");
           }
 
-          let candidates = (worker?.assignments || []).filter(
-            (a: any) =>
-              matchFactory(a.interviewFactory, company) ||
-              matchFactory(a.workingFactory, company),
-          );
-          if (workerCode) {
-            const codeMatches = candidates.filter(
-              (a: any) =>
-                a.employeeCode === workerCode || worker?.code === workerCode,
-            );
-            if (codeMatches.length) candidates = codeMatches;
-          }
-          if (dateKey(interviewDate)) {
-            const dateMatches = candidates.filter(
-              (a: any) =>
-                dateKey(a.interviewDate || "") === dateKey(interviewDate),
-            );
-            if (dateMatches.length) candidates = dateMatches;
-          }
-          const selectedAssignment =
-            candidates.length >= 1 ? candidates[0] : null;
+          assertIdentity(worker, fullName);
+          const selectedAssignment = resolveBonusAssignment(worker, { company, interviewDate, workerCode, fullName });
+          if (!selectedAssignment) warnings.push(`Dòng ${e.row}: Chưa có lượt PV khớp CCCD và ngày; giữ thưởng chưa liên kết, cần đối chiếu`);
 
           // 2. Kiểm tra bản thưởng đã có trong CSDL (Smart Merge hoặc Tách trùng an toàn)
           const workerKey = worker?.id || `new:${idCard}`;
-          const bonusKey = `${workerKey}|${month}|${company}|${selectedAssignment?.id || ""}`;
-          const existingBonus =
-            bonusMap.get(bonusKey) ||
-            (selectedAssignment
-              ? bonusMap.get(`${workerKey}|${month}|${company}|`)
-              : undefined) ||
-            existingBonuses.find(
-              (b) =>
-                worker &&
-                b.workerId === worker.id &&
-                b.month === month &&
-                (b.company || "") === company &&
-                (selectedAssignment
-                  ? b.assignmentId === selectedAssignment.id || !b.assignmentId
-                  : !b.assignmentId),
-            );
+          // Use CCCD for file-local identities because preview may assign a temporary worker UUID.
+          const fileDayKey = idCard + "|" + dateKey(interviewDate);
+          const existingDayKey = workerKey + "|" + dateKey(interviewDate);
+          const companies = bonusCompanies.get(fileDayKey) || bonusCompanies.get(existingDayKey) || new Set<string>();
+          if ([...companies].some(c => c && c !== identityText(company))) throw new Error("Trùng lặp nội bộ: cùng CCCD và ngày PV nhưng khác công ty trong danh sách thưởng");
+          companies.add(identityText(company)); bonusCompanies.set(fileDayKey, companies);
+          const bonusKey = `${workerKey}|${month}|${identityText(company)}|${dateKey(interviewDate)}`;
+          if ((bonusCounts.get(bonusKey) || 0) > 1) throw new Error("Trùng lặp nội bộ: nhiều bản thưởng cùng lượt và kỳ; cần đối chiếu");
+          const existingBonus = bonusMap.get(bonusKey);
 
           if (existingBonus && !existingBonus.id.startsWith("temp")) {
+            if (existingBonus.status && existingBonus.status !== "DRAFT") throw new Error("Bản thưởng của đợt đã có và đã duyệt/khóa; không bổ sung tự động");
             const bonusKeys: Array<
               | "bonus1"
               | "bonus2"
@@ -1413,8 +1358,7 @@ export async function POST(request: NextRequest) {
       const totalReady = tongRes.readyCount + bonusRes.readyCount;
       const totalMerged = tongRes.mergedCount + bonusRes.mergedCount;
       const totalDuplicates =
-        (tongRes.duplicateCount || tongRes.review.duplicateRows) +
-        (bonusRes.duplicateCount || bonusRes.review.duplicateRows);
+        tongRes.review.duplicateRows + bonusRes.review.duplicateRows;
       const totalErrors = tongRes.errorCount + bonusRes.errorCount;
 
       return NextResponse.json({
@@ -1546,7 +1490,7 @@ export async function POST(request: NextRequest) {
           successCount: commit ? res.successCount : 0,
           readyCount: commit ? 0 : res.readyCount,
           newWorkerCount: res.newWorkerCount,
-          duplicateCount: res.duplicateCount || res.review.duplicateRows,
+          duplicateCount: res.review.duplicateRows,
           errorCount: res.errorCount,
           warningCount: res.review.warningRows,
           cleanCount: res.entries.length - res.review.reviewRows,
@@ -1578,7 +1522,7 @@ export async function POST(request: NextRequest) {
           totalRows: res.entries.length,
           successCount: commit ? res.successCount : 0,
           readyCount: commit ? 0 : res.readyCount,
-          duplicateCount: res.duplicateCount || res.review.duplicateRows,
+          duplicateCount: res.review.duplicateRows,
           errorCount: res.errorCount,
           warningCount: res.review.warningRows,
           cleanCount: res.entries.length - res.review.reviewRows,
@@ -1732,7 +1676,7 @@ export async function POST(request: NextRequest) {
         totalRows: entries.length,
         successCount: commit ? successCount : 0,
         readyCount: commit ? 0 : readyCount,
-        duplicateCount: duplicateCount || review.duplicateRows,
+        duplicateCount: review.duplicateRows,
         errorCount,
         warningCount: review.warningRows,
         cleanCount: entries.length - review.reviewRows,

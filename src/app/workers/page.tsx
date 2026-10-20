@@ -4,7 +4,7 @@ import DateField from "@/components/DateField";
 import { formatDate } from "@/lib/date-format";
 import { STATUSES } from "@/lib/worker-validation";
 import { useIdentity } from "@/components/AuthGate";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   Table,
   Button,
@@ -67,6 +67,9 @@ export default function WorkersPage() {
   const [historyWorker, setHistoryWorker] = useState<any>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [workers, setWorkers] = useState<any[]>([]);
+  const requestRef = useRef<AbortController | null>(null);
+  const [filteredTotal, setFilteredTotal] = useState(0);
+  const [detailHistoryLoading, setDetailHistoryLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [factoryFilter, setFactoryFilter] = useState<string[]>([]);
@@ -100,11 +103,32 @@ export default function WorkersPage() {
   // Drawer xem chi tiết hồ sơ
   const [detailRecord, setDetailRecord] = useState<any>(null);
 
-  const fetchWorkers = async () => {
+  useEffect(() => () => requestRef.current?.abort(), []);
+  const detailId = detailRecord?.id;
+  useEffect(() => {
+    if (!detailRecord?.workerId) return;
+    const controller = new AbortController();
+    setDetailHistoryLoading(true);
+    const params = new URLSearchParams({ id: detailRecord.workerId, review: "true" });
+    if (detailRecord.assignments?.[0]?.id) params.set("assignmentId", detailRecord.assignments[0].id);
+    fetch("/api/worker-history?" + params, { signal: controller.signal })
+      .then(r => { if (!r.ok) throw new Error("history"); return r.json(); })
+      .then(json => { if (!json.success) throw new Error("history"); setDetailRecord((previous: any) => previous?.id === detailId ? {...previous, reviewHistory: json.data} : previous); })
+      .catch(() => { if (!controller.signal.aborted) message.error("Không tải được lịch sử thay đổi"); })
+      .finally(() => { if (!controller.signal.aborted) setDetailHistoryLoading(false); });
+    return () => controller.abort();
+  }, [detailId]);
+
+  const fetchWorkers = async (page = currentPage, size = pageSize) => {
+    requestRef.current?.abort();
+    const controller = new AbortController();
+    requestRef.current = controller;
     try {
       setLoading(true);
 
       const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(size),
         archived: String(archived),
         month,
         // Chuyển mảng thành chuỗi phân tách bằng dấu phẩy
@@ -140,10 +164,14 @@ export default function WorkersPage() {
         params.append("toDate", dateRange[1].format("YYYY-MM-DD"));
       }
 
-      const res = await fetch(`/api/worker-source-rows?${params.toString()}`);
+      const res = await fetch(`/api/worker-source-rows?${params.toString()}`, { signal: controller.signal });
       const json = await res.json();
+      if (controller.signal.aborted) return;
+      if (!res.ok || !json.success) throw new Error("worker-list");
       if (json.success) {
         setWorkers(json.data || []);
+        setFilteredTotal(json.filteredTotal ?? json.data?.length ?? 0);
+        if (json.page) setCurrentPage(json.page);
         setSourceOptions(json.options || {});
         setPendingDuplicateCount(json.pendingDuplicateCount || 0);
         setSystemWarningCount(json.systemWarningCount || 0);
@@ -153,16 +181,16 @@ export default function WorkersPage() {
           warningRows: json.warningRows || 0,
         });
       }
-    } catch {
-      message.error("Lỗi tải danh sách hồ sơ");
+    } catch (error) {
+      if (!controller.signal.aborted) message.error("Lỗi tải danh sách hồ sơ");
     } finally {
-      setLoading(false);
+      if (requestRef.current === controller) setLoading(false);
     }
   };
 
   useEffect(() => {
     setCurrentPage(1);
-    fetchWorkers();
+    fetchWorkers(1);
   }, [
     factoryFilter,
     statusFilter,
@@ -175,7 +203,7 @@ export default function WorkersPage() {
 
   const handleSearch = () => {
     setCurrentPage(1);
-    fetchWorkers();
+    fetchWorkers(1);
   };
 
   const handleResetFilters = () => {
@@ -1061,11 +1089,13 @@ export default function WorkersPage() {
           pagination={{
             current: currentPage,
             pageSize: pageSize,
+            total: filteredTotal,
             showSizeChanger: true,
             pageSizeOptions: ["10", "20", "50", "100", "200"],
             onChange: (page, size) => {
               setCurrentPage(page);
               setPageSize(size);
+              fetchWorkers(page, size);
             },
             showTotal: (total, range) =>
               `${range[0]} - ${range[1]} / ${total} dòng nguồn / lượt tuyển`,
@@ -1290,6 +1320,18 @@ export default function WorkersPage() {
                 />
               </div>
             )}
+
+            <div>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 border-b pb-1">Lịch sử thay đổi</h4>
+              {detailHistoryLoading ? <div className="text-slate-500">Đang tải lịch sử…</div> : detailRecord.reviewHistory?.length ? detailRecord.reviewHistory.map((entry: any) => (
+                <div key={entry.id} className="mb-4 rounded-lg border p-3">
+                  <div className="font-semibold">{new Date(entry.createdAt).toLocaleString("vi-VN")} · Người duyệt: {entry.reviewer}</div>
+                  <div className="text-xs text-slate-500 mb-2">{entry.sourceFile} · Dòng {entry.sourceRow}</div>
+                  {entry.changes.map((change: any) => <div key={change.key} className="py-1"><strong>{change.label}:</strong> {String(change.before ?? "") || "Trống"} → {String(change.after ?? "") || "Trống"}</div>)}
+                  {!entry.changes.length && <div>Đã duyệt đối chiếu, thông tin không thay đổi.</div>}
+                </div>
+              )) : <div className="text-slate-500">Chưa có thay đổi được duyệt.</div>}
+            </div>
 
             {/* Thao tác */}
             <div className="flex gap-2 pt-4 border-t">

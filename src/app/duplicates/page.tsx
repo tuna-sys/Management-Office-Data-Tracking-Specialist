@@ -8,7 +8,6 @@ import {
   Card,
   message,
   Alert,
-  Select,
   Input,
   Modal,
   Popconfirm,
@@ -37,6 +36,7 @@ interface SideData {
   gender?: string;
   dob?: string;
   province?: string;
+  address?: string;
   employeeCode?: string;
   factory?: string;
   interviewDate?: string;
@@ -52,7 +52,12 @@ interface SideData {
 
 interface DuplicateAlert {
   id: string;
-  category: "MERGE_INFO" | "CROSS_COMPANY";
+  category: "MERGE_INFO" | "CROSS_COMPANY" | "INTERVIEW_CONFLICT";
+  canApprove?: boolean;
+  conflicts?: string[];
+  targetAssignmentId?: string | null;
+  reviewToken?: string;
+  reviewFields?: Array<{key:string;label:string;before:any;after:any}>;
   type: string;
   severity: "CRITICAL" | "HIGH" | "WARNING" | "INFO";
   sourceId?: string;
@@ -84,9 +89,11 @@ export default function DuplicatesPage() {
   const [counts, setCounts] = useState<{
     mergeInfoCount: number;
     crossCompanyCount: number;
+    conflictCount: number;
   }>({
     mergeInfoCount: 0,
     crossCompanyCount: 0,
+    conflictCount: 0,
   });
   const [loading, setLoading] = useState(false);
   const [typeFilter, setTypeFilter] = useState<string>("ALL");
@@ -94,6 +101,7 @@ export default function DuplicatesPage() {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(20);
   const [inspectItem, setInspectItem] = useState<DuplicateAlert | null>(null);
+  const openReview=(item:DuplicateAlert)=>setInspectItem(item);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
 
   const fetchDuplicates = async () => {
@@ -107,6 +115,7 @@ export default function DuplicatesPage() {
           setCounts({
             mergeInfoCount: json.counts.mergeInfoCount || 0,
             crossCompanyCount: json.counts.crossCompanyCount || 0,
+            conflictCount: json.counts.conflictCount || 0,
           });
         }
       } else {
@@ -126,13 +135,16 @@ export default function DuplicatesPage() {
   const handleAction = async (
     item: DuplicateAlert,
     action: "APPROVE" | "DELETE",
+    decision?: Record<string, any>,
   ) => {
+    if (item.sourceId && !decision) decision={resolution:action==="APPROVE"?"APPROVE_SOURCE":"DISCARD_SOURCE",confirmResolution:true,targetAssignmentId:item.targetAssignmentId,reviewToken:item.reviewToken};
     try {
       setActionBusy(`${item.id}-${action}`);
       const res = await fetch("/api/duplicates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          ...decision,
           action,
           id: item.id,
           category: item.category,
@@ -167,12 +179,7 @@ export default function DuplicatesPage() {
   // Lọc dữ liệu hiển thị theo đúng 2 trường hợp
   const filteredDuplicates = useMemo(() => {
     return duplicates.filter((item) => {
-      if (typeFilter !== "ALL") {
-        if (typeFilter === "MERGE_INFO" && item.category !== "MERGE_INFO")
-          return false;
-        if (typeFilter === "CROSS_COMPANY" && item.category !== "CROSS_COMPANY")
-          return false;
-      }
+      if (typeFilter !== "ALL" && item.category !== typeFilter) return false;
 
       if (searchKeyword.trim()) {
         const kw = searchKeyword.trim().toLowerCase();
@@ -241,6 +248,7 @@ export default function DuplicatesPage() {
       key: "category",
       width: 220,
       render: (_, r) => {
+        if (r.category === "INTERVIEW_CONFLICT") return <div><Tag color="red">XUNG ĐỘT LƯỢT TUYỂN</Tag><div className="text-xs text-red-700">Người duyệt chọn cách xử lý</div></div>;
         if (r.category === "MERGE_INFO") {
           return (
             <div className="space-y-1 max-w-[205px]">
@@ -252,7 +260,7 @@ export default function DuplicatesPage() {
                 <span className="truncate">TH1: BỔ SUNG HỒ SƠ</span>
               </Tag>
               <div className="text-[10px] text-blue-700 font-medium leading-tight">
-                📝 Ghi đè thông tin còn thiếu / mới
+                📝 Chỉ bổ sung ô trống, giữ thông tin đã có
               </div>
             </div>
           );
@@ -351,65 +359,13 @@ export default function DuplicatesPage() {
       width: 175,
       fixed: "right",
       align: "center",
-      render: (_, r) => {
-        const approveDesc =
-          r.category === "MERGE_INFO"
-            ? "Hệ thống sẽ ghi đè và bổ sung toàn bộ thông tin mới đầy đủ hơn vào hồ sơ hiện có."
-            : `Hệ thống sẽ tự động cập nhật đợt tại "${r.currentFactory}" sang "Đã nghỉ việc" và giữ lại đợt mới tại "${r.newFactory}".`;
-        return (
-          <div className="flex flex-col gap-1.5 max-w-[150px] mx-auto">
-            <div className="flex items-center gap-1.5">
-              <Button
-                size="small"
-                icon={<Eye className="w-3.5 h-3.5" />}
-                onClick={() => setInspectItem(r)}
-                className="flex-1 text-xs font-medium text-blue-600 border-blue-200 bg-blue-50/60 hover:bg-blue-100"
-              >
-                Kiểm tra
-              </Button>
-              <Popconfirm
-                title={
-                  r.category === "MERGE_INFO"
-                    ? "Duyệt bổ sung / ghi đè thông tin hồ sơ?"
-                    : "Duyệt chuyển công ty mới?"
-                }
-                description={approveDesc}
-                onConfirm={() => handleAction(r, "APPROVE")}
-                okText="Duyệt ngay"
-                cancelText="Hủy"
-              >
-                <Button
-                  size="small"
-                  type="primary"
-                  loading={actionBusy === `${r.id}-APPROVE`}
-                  icon={<Check className="w-3.5 h-3.5" />}
-                  className="flex-1 text-xs font-medium bg-emerald-600 hover:bg-emerald-700"
-                >
-                  Duyệt
-                </Button>
-              </Popconfirm>
-            </div>
-            <Popconfirm
-              title="Xóa bản ghi phát sinh trùng này?"
-              description={`Loại bỏ bản ghi trùng của ${r.fullName} khỏi hệ thống?`}
-              onConfirm={() => handleAction(r, "DELETE")}
-              okText="Xóa bản ghi"
-              cancelText="Hủy"
-              okButtonProps={{ danger: true }}
-            >
-              <Button
-                size="small"
-                danger
-                loading={actionBusy === `${r.id}-DELETE`}
-                icon={<Trash2 className="w-3.5 h-3.5" />}
-                className="w-full text-xs font-medium"
-              >
-                Xóa
-              </Button>
-            </Popconfirm>
-          </div>
-        );
-      },
+      render: (_, r) => (
+        <div className="flex flex-col gap-1.5">
+          <Button size="small" icon={<Eye className="w-3.5 h-3.5" />} onClick={()=>openReview(r)}>Kiểm tra</Button>
+          <Popconfirm title="Duyệt dữ liệu mới?" description="Lưu lịch sử trước/sau cùng người duyệt rồi áp dụng dữ liệu mới." onConfirm={()=>handleAction(r,"APPROVE")}><Button size="small" type="primary" loading={actionBusy===`${r.id}-APPROVE`}>Duyệt</Button></Popconfirm>
+          {r.sourceId && <Popconfirm title="Xóa dòng nhập mới khỏi hàng chờ?" description="Hồ sơ và lịch sử đang có được giữ nguyên." onConfirm={()=>handleAction(r,"DELETE")}><Button size="small" danger loading={actionBusy===`${r.id}-DELETE`}>Xóa</Button></Popconfirm>}
+        </div>
+      ),
     },
   ];
 
@@ -423,9 +379,7 @@ export default function DuplicatesPage() {
             <span>Kiểm tra & Xử lý Cảnh báo Trùng lặp</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Quản lý tập trung 2 trường hợp trùng lặp: (1) Bổ sung thông tin còn
-            thiếu vào hồ sơ & (2) Đang làm công ty này nhưng PV / đi làm công ty
-            khác.
+            Đối chiếu dữ liệu trùng và xử lý theo từng nhóm. Thông tin mâu thuẫn được giữ nguyên để xác minh.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -450,76 +404,6 @@ export default function DuplicatesPage() {
         </div>
       </div>
 
-      {/* 2 Thẻ KPI tương ứng đúng 2 Trường hợp */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card
-          size="small"
-          className={`cursor-pointer transition-all border-blue-300 bg-blue-50/50 hover:shadow-sm ${
-            typeFilter === "MERGE_INFO" ? "ring-2 ring-blue-600" : ""
-          }`}
-          onClick={() => {
-            setTypeFilter(typeFilter === "MERGE_INFO" ? "ALL" : "MERGE_INFO");
-            setCurrentPage(1);
-          }}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-blue-800">
-              Trường hợp 1: Trùng bổ sung / ghi đè thông tin hồ sơ
-            </span>
-            <FilePlus2 className="w-5 h-5 text-blue-600" />
-          </div>
-          <div className="mt-1.5 text-2xl font-bold text-blue-700">
-            {counts.mergeInfoCount}
-            <span className="text-xs font-normal text-slate-500 ml-1.5">
-              hồ sơ chờ duyệt ghi đè
-            </span>
-          </div>
-          <p className="mt-1 text-xs text-blue-700 font-medium">
-            📝 Các ô đang trống đã được hệ thống tự động điền khi nạp file. Các
-            bản ghi lệch giá trị hiện tại đây để bạn bấm <b>Duyệt</b> ghi đè.
-          </p>
-        </Card>
-
-        <Card
-          size="small"
-          className={`cursor-pointer transition-all border-rose-300 bg-rose-50/50 hover:shadow-sm ${
-            typeFilter === "CROSS_COMPANY" ? "ring-2 ring-rose-600" : ""
-          }`}
-          onClick={() => {
-            setTypeFilter(
-              typeFilter === "CROSS_COMPANY" ? "ALL" : "CROSS_COMPANY",
-            );
-            setCurrentPage(1);
-          }}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-rose-800">
-              Trường hợp 2: Đang làm công ty này nhưng PV / đi làm công ty khác
-            </span>
-            <Building2 className="w-5 h-5 text-rose-600" />
-          </div>
-          <div className="mt-1.5 text-2xl font-bold text-rose-700">
-            {counts.crossCompanyCount}
-            <span className="text-xs font-normal text-slate-500 ml-1.5">
-              trường hợp nhảy xưởng / đa công ty
-            </span>
-          </div>
-          <p className="mt-1 text-xs text-rose-700 font-medium">
-            🚨 Công nhân đang làm việc tại công ty cũ (chưa báo nghỉ) nhưng lại
-            hiện đang phỏng vấn hoặc đi làm ở công ty mới.
-          </p>
-        </Card>
-      </div>
-
-      {/* Alert giải thích cơ chế tự động */}
-      <Alert
-        message="Cơ chế tự động bổ sung thông tin (Smart Merge)"
-        description="Khi bạn upload lại file có đầy đủ thông tin hơn (Giới tính, Ngày sinh, SĐT, Tỉnh/Quê quán, Mã NV, STK, hoặc các mốc thưởng mới), hệ thống đã TỰ ĐỘNG GHI ĐÈ VÀO CÁC Ô CÒN THIẾU. Bảng dưới đây chỉ hiển thị các dòng xung đột giá trị cần duyệt ghi đè (Trường hợp 1) và các công nhân đang làm công ty này nhưng phỏng vấn/đi làm ở công ty khác (Trường hợp 2)."
-        type="info"
-        showIcon
-        className="border-blue-200 bg-blue-50/50 text-xs"
-      />
-
       {/* Filter Bar */}
       <Card size="small" className="shadow-xs border-slate-200">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -536,28 +420,18 @@ export default function DuplicatesPage() {
               allowClear
             />
 
-            <Select
-              className="w-full sm:w-96"
-              value={typeFilter}
-              onChange={(v) => {
-                setTypeFilter(v);
-                setCurrentPage(1);
-              }}
-              options={[
-                {
-                  label: `Tất cả cảnh báo trùng (${duplicates.length})`,
-                  value: "ALL",
-                },
-                {
-                  label: `📝 TH1: Bổ sung / Ghi đè thông tin hồ sơ (${counts.mergeInfoCount})`,
-                  value: "MERGE_INFO",
-                },
-                {
-                  label: `🚨 TH2: Đang làm công ty này nhưng PV / đi làm công ty khác (${counts.crossCompanyCount})`,
-                  value: "CROSS_COMPANY",
-                },
-              ]}
-            />
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Lọc nhóm cảnh báo">
+              {[
+                {value:"ALL",label:"Tất cả",count:duplicates.length},
+                {value:"INTERVIEW_CONFLICT",label:"Cần xác minh",count:counts.conflictCount},
+                {value:"MERGE_INFO",label:"Bổ sung ô trống",count:counts.mergeInfoCount},
+                {value:"CROSS_COMPANY",label:"Chuyển công ty",count:counts.crossCompanyCount},
+              ].filter(group => group.value === "ALL" || group.count > 0 || group.value === typeFilter).map(group => (
+                <Button key={group.value} type={typeFilter === group.value ? "primary" : "default"} danger={group.value === "INTERVIEW_CONFLICT"} aria-pressed={typeFilter === group.value} onClick={() => {setTypeFilter(group.value);setCurrentPage(1);}}>
+                  {group.label} ({group.count})
+                </Button>
+              ))}
+            </div>
 
             {(typeFilter !== "ALL" || searchKeyword) && (
               <Button
@@ -588,7 +462,7 @@ export default function DuplicatesPage() {
           dataSource={filteredDuplicates}
           rowKey={(r) => r.id}
           loading={loading}
-          scroll={{ x: 1380 }}
+          scroll={{ x: 1500, y: "max(180px, calc(100dvh - 440px))" }}
           pagination={{
             current: currentPage,
             pageSize: pageSize,
@@ -609,23 +483,34 @@ export default function DuplicatesPage() {
       <Modal
         open={!!inspectItem}
         onCancel={() => setInspectItem(null)}
-        width={840}
+        width="min(1200px, calc(100vw - 40px))"
+        style={{ top: 20 }}
+        styles={{ body: { maxHeight: "calc(100dvh - 190px)", overflowY: "auto" } }}
         title={
           <div className="flex items-center gap-2 text-slate-900">
             <ArrowRightLeft className="w-5 h-5 text-blue-600" />
             <span>
-              {inspectItem?.category === "MERGE_INFO"
-                ? "Kiểm tra bổ sung & ghi đè thông tin hồ sơ"
+              {inspectItem?.category === "INTERVIEW_CONFLICT" ? "Xung đột lượt tuyển — cần xác minh" : inspectItem?.category === "MERGE_INFO"
+                ? "Kiểm tra bổ sung thông tin còn trống"
                 : "Kiểm tra công nhân đang làm công ty này nhưng PV / đi làm công ty khác"}
             </span>
           </div>
         }
         footer={
-          inspectItem ? (
+          inspectItem?.sourceId ? (
+            <div className="flex items-center justify-between gap-2">
+              <Button onClick={()=>setInspectItem(null)}>Đóng</Button>
+              <div className="flex gap-2">
+                <Popconfirm title="Xóa dòng nhập mới khỏi hàng chờ?" description="Giữ nguyên hồ sơ và lịch sử đang có." onConfirm={()=>handleAction(inspectItem,"DELETE")}><Button danger loading={actionBusy===`${inspectItem.id}-DELETE`}>Xóa</Button></Popconfirm>
+                <Popconfirm title="Duyệt dữ liệu mới?" description="Lưu lịch sử trước/sau và người duyệt rồi áp dụng dữ liệu mới." onConfirm={()=>handleAction(inspectItem,"APPROVE")}><Button type="primary" loading={actionBusy===`${inspectItem.id}-APPROVE`}>Duyệt</Button></Popconfirm>
+              </div>
+            </div>
+          ) : inspectItem ? (
             <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
               <Button onClick={() => setInspectItem(null)}>Đóng</Button>
               <div className="flex items-center gap-2">
                 <Popconfirm
+                  disabled={inspectItem.canApprove === false}
                   title="Xóa bản ghi trùng này?"
                   description={`Loại bỏ bản ghi trùng của ${inspectItem.fullName} khỏi danh sách?`}
                   onConfirm={() => handleAction(inspectItem, "DELETE")}
@@ -635,6 +520,7 @@ export default function DuplicatesPage() {
                 >
                   <Button
                     danger
+                    disabled={inspectItem.canApprove === false}
                     loading={actionBusy === `${inspectItem.id}-DELETE`}
                     icon={<Trash2 className="w-4 h-4" />}
                   >
@@ -642,14 +528,15 @@ export default function DuplicatesPage() {
                   </Button>
                 </Popconfirm>
                 <Popconfirm
+                  disabled={inspectItem.canApprove === false}
                   title={
                     inspectItem.category === "MERGE_INFO"
-                      ? "Duyệt ghi đè & bổ sung thông tin này?"
+                      ? "Duyệt bổ sung các ô trống?"
                       : "Duyệt chuyển công ty cho công nhân này?"
                   }
                   description={
                     inspectItem.category === "MERGE_INFO"
-                      ? "Hệ thống sẽ cập nhật toàn bộ thông tin đầy đủ ở cột bên phải vào hồ sơ CSDL."
+                      ? "Chỉ điền các ô trống, không thay thông tin đã có."
                       : `Hệ thống sẽ tự động cập nhật đợt tại "${inspectItem.currentFactory}" sang "Đã nghỉ việc" và giữ lại đợt mới tại "${inspectItem.newFactory}".`
                   }
                   onConfirm={() => handleAction(inspectItem, "APPROVE")}
@@ -658,12 +545,13 @@ export default function DuplicatesPage() {
                 >
                   <Button
                     type="primary"
+                    disabled={inspectItem.canApprove === false}
                     loading={actionBusy === `${inspectItem.id}-APPROVE`}
                     icon={<Check className="w-4 h-4" />}
                     className="bg-emerald-600 hover:bg-emerald-700"
                   >
-                    {inspectItem.category === "MERGE_INFO"
-                      ? "Duyệt & Ghi đè thông tin đầy đủ"
+                    {inspectItem.category === "INTERVIEW_CONFLICT" ? "Xung đột lượt tuyển — giữ nguyên hai phía" : inspectItem.category === "MERGE_INFO"
+                      ? "Chỉ bổ sung ô trống"
                       : "Duyệt & Chuyển công ty cũ sang Đã nghỉ"}
                   </Button>
                 </Popconfirm>
@@ -677,7 +565,7 @@ export default function DuplicatesPage() {
             {/* Banner tóm tắt lý do trùng */}
             <div
               className={`p-3 rounded-xl border text-xs space-y-1.5 ${
-                inspectItem.category === "CROSS_COMPANY"
+                inspectItem.category !== "MERGE_INFO"
                   ? "bg-rose-50 border-rose-200 text-rose-900"
                   : "bg-blue-50 border-blue-200 text-blue-950"
               }`}
@@ -685,17 +573,18 @@ export default function DuplicatesPage() {
               <div className="font-bold text-sm flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
                 <span>
-                  {inspectItem.category === "MERGE_INFO"
-                    ? "Trường hợp 1: Trùng bổ sung / ghi đè thông tin hồ sơ"
+                  {inspectItem.category === "INTERVIEW_CONFLICT" ? "Xung đột lượt tuyển — cần xác minh" : inspectItem.category === "MERGE_INFO"
+                    ? "Trường hợp 1: Bổ sung thông tin còn trống"
                     : "Trường hợp 2: Đang làm công ty này nhưng PV / đi làm ở công ty khác"}
                 </span>
               </div>
               <div>{inspectItem.warning}</div>
+              {inspectItem.category === "INTERVIEW_CONFLICT" && <Alert type="warning" showIcon message="Cần quyết định của người duyệt" description={(inspectItem.conflicts || []).join("; ") + ". Bấm Duyệt để áp dụng dữ liệu mới và lưu lịch sử trước/sau; bấm Xóa để bỏ dòng nhập mới."} />}
               <div className="font-semibold pt-0.5">
-                👉 Khi bấm &ldquo;Duyệt&rdquo;:{" "}
+                {inspectItem.category === "INTERVIEW_CONFLICT" ? "Duyệt: áp dụng dữ liệu mới, lưu lịch sử trước/sau và người duyệt. Xóa: chỉ bỏ dòng nhập mới, giữ hồ sơ hiện có." : <>👉 Khi bấm &ldquo;Duyệt&rdquo;:{" "}
                 {inspectItem.category === "MERGE_INFO"
-                  ? "Ghi đè và lấp đầy các thông tin từ cột phải (File mới) vào hồ sơ trong CSDL."
-                  : `Tự động chuyển trạng thái tại "${inspectItem.currentFactory}" sang "Đã nghỉ việc" và giữ đợt mới tại "${inspectItem.newFactory}" hoạt động bình thường.`}
+                  ? "Chỉ bổ sung các ô trống; giữ nguyên thông tin và lịch sử đã có."
+                  : `Tự động chuyển trạng thái tại "${inspectItem.currentFactory}" sang "Đã nghỉ việc" và giữ đợt mới tại "${inspectItem.newFactory}" hoạt động bình thường.`}</>}
               </div>
             </div>
 
@@ -733,9 +622,14 @@ export default function DuplicatesPage() {
                       : "—",
                 },
                 {
-                  label: "Tỉnh / Quê quán",
+                  label: "Tỉnh/Thành",
                   leftVal: left.province || "—",
                   rightVal: right.province || "—",
+                },
+                {
+                  label: "Địa chỉ/Quê quán",
+                  leftVal: left.address || "—",
+                  rightVal: right.address || "—",
                 },
                 {
                   label: "Mã nhân viên",
@@ -861,7 +755,7 @@ export default function DuplicatesPage() {
                                 color="green"
                                 className="m-0 text-[10px] px-1 leading-tight"
                               >
-                                Bổ sung mới
+                                {inspectItem.category === "INTERVIEW_CONFLICT" ? "Chỉ có ở nguồn" : "Bổ sung mới"}
                               </Tag>
                             )}
                             {isConflict && (
@@ -869,9 +763,7 @@ export default function DuplicatesPage() {
                                 color="red"
                                 className="m-0 text-[10px] px-1 leading-tight"
                               >
-                                {inspectItem.category === "MERGE_INFO"
-                                  ? "Ghi đè"
-                                  : "Khác công ty"}
+                                Mâu thuẫn
                               </Tag>
                             )}
                           </div>

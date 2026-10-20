@@ -89,7 +89,7 @@ export function normalizeWorkerSourceValues(values: Record<string, unknown>) {
   }
   return result;
 }
-export function workerSourceView(worker: any, assignment: any) {
+export function workerSourceView(worker: any, assignment: any, preferCurrent = false) {
   const result: Record<string, unknown> = {};
   for (const [name, key] of Object.entries(fields))
     result[name] = assignment[key] ?? worker[key] ?? "";
@@ -106,6 +106,12 @@ export function workerSourceView(worker: any, assignment: any) {
       hasSource = true;
       break;
     } catch {}
+  }
+  if (preferCurrent) {
+    for (const [name, key] of Object.entries(fields)) {
+      const value = assignment[key] ?? worker[key];
+      if (value !== undefined && value !== null) result[name] = value;
+    }
   }
   return { values: result, warnings, hasSource };
 }

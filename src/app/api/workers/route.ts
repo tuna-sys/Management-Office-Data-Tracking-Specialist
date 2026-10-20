@@ -1,3 +1,4 @@
+import { assertDailyInterview, identityText } from "@/lib/duplicate-check";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { matchesAssignment } from "@/lib/reporting";
@@ -131,8 +132,7 @@ export async function POST(request: NextRequest) {
             },
           };
         if (
-          existing.fullName.trim().toLocaleLowerCase("vi") !==
-          worker.fullName.toLocaleLowerCase("vi")
+          identityText(existing.fullName) !== identityText(worker.fullName)
         )
           return {
             status: 409,
@@ -142,6 +142,15 @@ export async function POST(request: NextRequest) {
                 "Tên không khớp CCCD cũ; xác minh và sửa hồ sơ trước khi tiếp tục",
             },
           };
+        if (await assignmentEnded(tx, assignment.status))
+          return {
+            status: 400,
+            body: {
+              success: false,
+              message: "Đợt tuyển mới không được bắt đầu ở trạng thái kết thúc",
+            },
+          };
+        assertDailyInterview(existing, assignment);
         if (
           (await warnsWorker(tx, existing)) &&
           body.confirmActiveDuplicate !== true
@@ -155,14 +164,6 @@ export async function POST(request: NextRequest) {
               existingWorkerId: existing.id,
               message:
                 "CCCD đang có đợt Đang làm việc/Chưa đào tạo. Xem lịch sử và xác nhận trước khi thêm đợt mới.",
-            },
-          };
-        if (await assignmentEnded(tx, assignment.status))
-          return {
-            status: 400,
-            body: {
-              success: false,
-              message: "Đợt tuyển mới không được bắt đầu ở trạng thái kết thúc",
             },
           };
         const a = await tx.workAssignment.create({
@@ -233,6 +234,7 @@ export async function POST(request: NextRequest) {
             },
           };
       }
+      assertDailyInterview(null, assignment);
       const data = await tx.worker.create({
         data: {
           ...worker,

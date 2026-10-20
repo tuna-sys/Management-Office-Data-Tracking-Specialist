@@ -1,3 +1,4 @@
+import { assertDailyInterview, isActiveAssignment } from "@/lib/duplicate-check";
 import { NextRequest, NextResponse } from "next/server";
 import {
   assignmentRelations,
@@ -82,6 +83,7 @@ export async function PUT(
           },
         };
       const merged = { ...latest, ...assignment };
+      assertDailyInterview(current, merged, latest.id);
       if (
         latest.status !== merged.status &&
         (await assignmentEnded(tx, latest.status)) &&
@@ -127,19 +129,19 @@ export async function PUT(
       }
       if (worker.phone) {
         const names = await tx.laborStatus.findMany({
-          where: { warnsDuplicate: true, isActive: true },
+          where: { isActive: true },
         });
         const others = await tx.worker.findMany({
           where: {
             id: { not: current.id },
             phone: { not: null },
             archivedAt: null,
-            assignments: { some: { status: { in: names.map((s) => s.name) } } },
+
           },
-          select: { phone: true },
+          include: { assignments: true },
         });
         if (
-          others.some((w) => phoneKey(w.phone!) === worker.phone) &&
+          others.some((w) => phoneKey(w.phone!) === worker.phone && w.assignments.some((a) => isActiveAssignment(a, names))) &&
           body.confirmPhoneDuplicate !== true
         )
           return {

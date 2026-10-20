@@ -1,3 +1,4 @@
+import { isActiveAssignment } from "@/lib/duplicate-check";
 import { NextResponse } from "next/server";
 import { dateKey } from "@/lib/worker-validation";
 export class DomainError extends Error {
@@ -42,7 +43,7 @@ export function resultError(error: any) {
           ? error.message
           : error?.code === "P2002"
             ? "Mã hoặc bản ghi đã tồn tại"
-            : "Không thể xử lý yêu cầu",
+            : /Trùng lặp nội bộ|Sai lệch danh tính/.test(error?.message || "") ? error.message : "Không thể xử lý yêu cầu",
     },
     {
       status:
@@ -50,7 +51,7 @@ export function resultError(error: any) {
           ? error.status
           : error?.code === "P2002"
             ? 409
-            : 500,
+            : /Trùng lặp nội bộ|Sai lệch danh tính/.test(error?.message || "") ? 409 : 500,
     },
   );
 }
@@ -159,8 +160,7 @@ export async function assignmentEnded(tx: any, name: string): Promise<boolean> {
 
 export async function warnsWorker(tx: any, worker: any) {
   const statuses = await tx.laborStatus.findMany({
-    where: { warnsDuplicate: true, isActive: true },
+    where: { isActive: true },
   });
-  const names = new Set(statuses.map((s: any) => s.name));
-  return worker.assignments.some((a: any) => names.has(a.status));
+  return worker.assignments.some((a: any) => isActiveAssignment(a, statuses));
 }

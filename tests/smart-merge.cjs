@@ -16,7 +16,7 @@ function load(f) {
       exports: m.exports,
       Buffer,
       Date,
-      require: (n) => {
+      require: (n) => { if (n === '@/lib/duplicate-check') return require('./load-duplicate-check.js');
         if (!(n in deps)) throw Error(n);
         return deps[n];
       },
@@ -107,6 +107,12 @@ deps['@/lib/import-source-store'] = {
   saveImportSource: async () => 'mock-source-id',
 };
 
+deps['@/lib/bonus-import'] = load('src/lib/bonus-import.ts');
+deps['node:crypto'] = { default: require('node:crypto') };
+mockPrisma.worker.createMany = async ({data}) => { dbWorkers.push(...data); return {count:data.length}; };
+mockPrisma.workAssignment.createMany = async ({data}) => { dbAssignments.push(...data); return {count:data.length}; };
+mockPrisma.assignmentEvent.createMany = async ({data}) => { dbEvents.push(...data); return {count:data.length}; };
+mockPrisma.bonusRecord = {findMany:async()=>[]};
 const route = load('src/app/api/excel-engine/import/route.ts');
 
 function makeRequest(rows, commit, smartMerge = true) {

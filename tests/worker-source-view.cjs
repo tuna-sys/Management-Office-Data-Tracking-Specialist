@@ -112,3 +112,9 @@ assert.equal(view.warnings.length, 1);
 console.log(
   "PASS source fields, incomplete data retained, leave fields retained, original snapshot overrides canonical and warning preserved",
 );
+
+const current = deps["@/lib/worker-source-view"].workerSourceView({phone:"updated"}, {interviewFactory:"Approved factory", status:"NH", events:[{note:"Import Excel — source:"+JSON.stringify({values:{"Nhà máy PV":"Old factory","Tình trạng":"Bỏ ĐT",SĐT:"old"}})}]}, true);
+assert.equal(current.values["Nhà máy PV"], "Approved factory");
+assert.equal(current.values["Tình trạng"], "NH");
+assert.equal(current.values.SĐT, "updated");
+console.log("PASS approved current values override old import snapshot");
