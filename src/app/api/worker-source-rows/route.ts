@@ -2,7 +2,7 @@ import { splitImportReview } from "@/lib/import-review";
 import { dateKey } from "@/lib/worker-validation";
 import { matchFactory, cleanFactory } from "@/lib/factory-matching";
 import { NextRequest, NextResponse } from "next/server";
-import { guard } from "@/lib/auth";
+import { guard } from "@/lib/local-request";
 import { prisma } from "@/lib/prisma";
 import { readImportSources } from "@/lib/import-source-store";
 import {
@@ -75,7 +75,6 @@ export async function GET(request: NextRequest) {
       contractType: a.contractType,
       status: a.status,
       interviewFactory: a.interviewFactory,
-      workingFactory: a.workingFactory,
       leaveDate: a.leaveDate,
       leaveReason: a.leaveReason,
       shuttleBusKtx: a.shuttleBusKtx,
@@ -170,17 +169,17 @@ export async function GET(request: NextRequest) {
         const alertId = `import-${s.id}-${r.row}`;
         const pvDate = String(values["Ngày PV"] || "");
         const code = String(values["Mã NV"] || "");
-        const factory = String(values["Nhà máy PV"] || values["Nhà máy làm việc"] || "");
+        const factory = String(values["Nhà máy PV"] || "");
 
         const matchedAssignment =
           worker?.assignments?.find((a: any) => {
-            if (!matchFactory(a.interviewFactory || a.workingFactory || "", factory)) return false;
+            if (!matchFactory(a.interviewFactory || "", factory)) return false;
             if (pvDate && a.interviewDate && dateKey(a.interviewDate) !== dateKey(pvDate)) return false;
             if (code && a.employeeCode && String(a.employeeCode).trim() !== code.trim()) return false;
             return true;
           }) ||
           worker?.assignments?.find((a: any) => {
-            if (!matchFactory(a.interviewFactory || a.workingFactory || "", factory)) return false;
+            if (!matchFactory(a.interviewFactory || "", factory)) return false;
             if (pvDate && a.interviewDate && dateKey(a.interviewDate) === dateKey(pvDate)) return true;
             return false;
           });
@@ -285,7 +284,7 @@ export async function GET(request: NextRequest) {
         continue;
       }
       const factory = cleanFactory(
-        r.sourceValues?.["Nhà máy PV"] || r.sourceValues?.["Nhà máy làm việc"] || "",
+        r.sourceValues?.["Nhà máy PV"] || "",
       );
       const m =
         dateKey(String(r.sourceValues?.["Ngày PV"] || ""))?.slice(0, 7) ||
@@ -437,7 +436,7 @@ export async function GET(request: NextRequest) {
       const card = r.idCard;
       if (!card) continue;
       const fac = cleanFactory(
-        r.sourceValues?.["Nhà máy PV"] || r.sourceValues?.["Nhà máy làm việc"] || "",
+        r.sourceValues?.["Nhà máy PV"] || "",
       );
       const d =
         dateKey(String(r.sourceValues?.["Ngày PV"] || "")) ||
@@ -468,10 +467,6 @@ export async function GET(request: NextRequest) {
               matchFactory(
                 String(b.values["Công ty"] || ""),
                 String(r.sourceValues["Nhà máy PV"] || ""),
-              ) ||
-              matchFactory(
-                String(b.values["Công ty"] || ""),
-                String(r.sourceValues["Nhà máy làm việc"] || ""),
               ),
           )
         : [];
@@ -516,7 +511,6 @@ export async function GET(request: NextRequest) {
     const options: Record<string, string[]> = {};
     for (const column of [
       "Nhà máy PV",
-      "Nhà máy làm việc",
       "Tình trạng",
       "Tháng nhận việc",
       "Tuyển dụng",

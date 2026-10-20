@@ -1,7 +1,7 @@
-import { guard, identity } from "@/lib/auth";
+import { guard, identity } from "@/lib/local-request";
 import { NextRequest, NextResponse } from "next/server";
 export async function POST(request: NextRequest) {
-  const denied = await guard(request, "bank:write");
+  const denied = await guard(request);
   if (denied) return denied;
   let body: any;
   try {

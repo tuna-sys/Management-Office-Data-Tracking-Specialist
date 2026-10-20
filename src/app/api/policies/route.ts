@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard, identity } from "@/lib/auth";
+import { guard, identity } from "@/lib/local-request";
 import { text, day, DomainError, resultError, rulesOf } from "@/lib/domain";
 export const dynamic = "force-dynamic";
 export async function GET(r: NextRequest) {
@@ -19,7 +19,7 @@ export async function GET(r: NextRequest) {
   }
 }
 async function save(r: NextRequest, edit: boolean) {
-  const denied = await guard(r, "bonus:write");
+  const denied = await guard(r);
   if (denied) return denied;
   try {
     const b = await r.json(),
@@ -86,7 +86,7 @@ export const POST = (r: NextRequest) => save(r, false);
 export const PUT = (r: NextRequest) => save(r, true);
 
 export async function DELETE(r: NextRequest) {
-  const denied = await guard(r, "bonus:write");
+  const denied = await guard(r);
   if (denied) return denied;
   try {
     const b = await r.json(),

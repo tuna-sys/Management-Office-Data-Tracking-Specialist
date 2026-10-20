@@ -32,7 +32,7 @@ deps["@/lib/source-format"] = load("src/lib/source-format.ts");
 deps["@/lib/bonus-import"] = load("src/lib/bonus-import.ts");
 deps["@/lib/factory-matching"] = load("src/lib/factory-matching.ts");
 deps["@/lib/worker-import"] = load("src/lib/worker-import.ts");
-deps["@/lib/auth"] = {
+deps["@/lib/local-request"] = {
   guard: async () => null,
   identity: async () => ({ username: "QA" }),
 };

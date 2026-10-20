@@ -15,7 +15,6 @@ import {
   Tabs,
   Alert,
 } from "antd";
-import { useIdentity } from "@/components/AuthGate";
 const kinds = [
   ["FACTORY", "Nhà máy"],
   ["TEAM", "Team"],
@@ -24,8 +23,7 @@ const kinds = [
   ["IMPORT", "Ánh xạ import / Sheets"],
 ];
 export default function CatalogsPage() {
-  const user = useIdentity(),
-    canWrite = user?.permissions.includes("worker:write");
+  const canWrite = true;
   const [kind, setKind] = useState("FACTORY"),
     [rows, setRows] = useState<any[]>([]),
     [teams, setTeams] = useState<any[]>([]),

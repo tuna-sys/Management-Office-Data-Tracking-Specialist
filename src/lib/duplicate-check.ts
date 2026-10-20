@@ -31,7 +31,7 @@ export function resolveBonusAssignment(worker: any, row: any) {
     if (!matches.length)
         return null;
     const a = matches[0];
-    if (!sameFactory(a.interviewFactory, row.company) && !sameFactory(a.workingFactory, row.company))
+    if (!sameFactory(a.interviewFactory, row.company))
         throw new Error("Trùng lặp nội bộ: CCCD và ngày PV khớp nhưng khác công ty");
     if (row.workerCode && a.employeeCode && identityText(row.workerCode) !== identityText(a.employeeCode))
         throw new Error("Trùng lặp nội bộ: mã nhân viên không khớp lượt PV");
@@ -53,7 +53,7 @@ export async function assertReviewProfile(tx: any, person: any, worker: any, ass
     assertIdentity(person, worker.fullName);
     assertDailyInterview(person, assignment, excludeId);
     const statuses = await tx.laborStatus.findMany({ where: { isActive: true } });
-    if ((person?.assignments || []).some((a: any) => a.id !== excludeId && isActiveAssignment(a, statuses) && !sameFactory(a.workingFactory || a.interviewFactory, assignment.workingFactory || assignment.interviewFactory)))
+    if ((person?.assignments || []).some((a: any) => a.id !== excludeId && isActiveAssignment(a, statuses) && !sameFactory(a.interviewFactory, assignment.interviewFactory)))
         throw new Error("CHƯA BÁO NGHỈ: cần xử lý chuyển công ty ở cảnh báo trùng, không duyệt bổ sung trực tiếp");
 }
 
@@ -66,15 +66,18 @@ export function sourceConflicts(person: any, raw: any): string[] {
  const day = formatExcelDate(raw["Ngày PV"] || raw["Ngày phỏng vấn"] || "");
  const matches = (person.assignments || []).filter((a: any) => sameInterviewDay(a, {interviewDate: day}));
  if (matches.length > 1) issues.push("Có nhiều lượt tuyển cùng ngày trong hệ thống");
- const company = raw["Công ty"] || raw["Nhà máy PV"] || raw["Nhà máy làm việc"];
+ const company = raw["Công ty"] || raw["Nhà máy PV"];
  for (const a of matches) {
-  if (company && !sameFactory(a.interviewFactory, company) && !sameFactory(a.workingFactory, company)) issues.push("Cùng ngày PV nhưng khác công ty");
+  if (company && !sameFactory(a.interviewFactory, company)) issues.push("Cùng ngày PV nhưng khác công ty");
   const pairs = [
    ["Mã nhân viên", a.employeeCode, raw["Mã NV"] || raw["Mã nhân viên"]],
    ["Trạng thái", a.status, raw["Tình trạng"]],
    ["Người tuyển dụng", a.recruiter, raw["Tuyển dụng"] || raw["Người tuyển"]],
   ];
-  for (const [label, old, next] of pairs) if (old && next && identityText(old) !== identityText(next)) issues.push(label + " không khớp lượt tuyển");
+  for (const [label, old, next] of pairs) {
+   if (label === "Mã nhân viên" && company && !sameFactory(a.interviewFactory, company)) continue;
+   if (old && next && identityText(old) !== identityText(next)) issues.push(label + " không khớp lượt tuyển");
+  }
   const leave = formatExcelDate(raw["Ngày NH"] || raw["Ngày nghỉ"] || "");
   if (a.leaveDate && leave && dateKey(a.leaveDate) !== dateKey(leave)) issues.push("Ngày nghỉ việc không khớp lượt tuyển");
  }

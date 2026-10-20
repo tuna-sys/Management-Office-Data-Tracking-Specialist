@@ -17,7 +17,7 @@ const domain = { ...load('src/lib/domain.ts', { 'next/server': server, '@/lib/wo
 const auth = { guard: async () => null, identity: async () => ({ username: 'tester' }) };
 const stamp = new Date('2026-10-01T00:00:00Z');
 function route(file, tx) {
-  return load(file, { 'next/server': server, '@/lib/domain': domain, '@/lib/auth': auth,
+  return load(file, { 'next/server': server, '@/lib/domain': domain, '@/lib/local-request': auth,
     '@/lib/worker-validation': validation, '@/lib/reporting': {},
     '@/lib/prisma': { prisma: { $transaction: fn => fn(tx) } } });
 }

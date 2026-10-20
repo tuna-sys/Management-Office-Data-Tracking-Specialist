@@ -2,7 +2,6 @@ import { sourceHeader } from "@/lib/source-format";
 export const workerSourceColumns = [
   "STT",
   "Nhà máy PV",
-  "Nhà máy làm việc",
   "Loại HĐ",
   "Tình trạng",
   "Ngày NH",
@@ -25,7 +24,6 @@ export const workerSourceColumns = [
 ];
 const fields: Record<string, string> = {
   "Nhà máy PV": "interviewFactory",
-  "Nhà máy làm việc": "workingFactory",
   "Loại HĐ": "contractType",
   "Tình trạng": "status",
   "Ngày NH": "leaveDate",
@@ -72,7 +70,9 @@ for (const [column, aliases] of [
 export function normalizeWorkerSourceValues(values: Record<string, unknown>) {
   const entries = Object.entries(values || {});
   const result: Record<string, unknown> = Object.fromEntries(
-    entries.map(([key, value]) => [sourceHeader(key), value]),
+    entries
+      .filter(([key]) => sourceHeaderKey(key) !== sourceHeaderKey("Nhà máy làm việc"))
+      .map(([key, value]) => [sourceHeader(key), value]),
   );
   for (const [key, value] of entries) {
     const canonical = sourceHeaderAliases.get(sourceHeaderKey(key));

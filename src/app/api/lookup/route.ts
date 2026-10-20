@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { rateLimit, sameOrigin } from "@/lib/auth";
+import { rateLimit, sameOrigin } from "@/lib/local-request";
 import { phoneKey } from "@/lib/worker-validation";
 import { createHash } from "node:crypto";
 
@@ -207,8 +207,7 @@ export async function POST(request: NextRequest) {
         (r) =>
           r.assignmentId === a.id ||
           (r.company &&
-            (r.company === a.interviewFactory ||
-              r.company === a.workingFactory)),
+            r.company === a.interviewFactory),
       );
 
       const totalBonusFromRecords = linkedBonuses.reduce(
@@ -219,9 +218,8 @@ export async function POST(request: NextRequest) {
 
       return {
         id: a.id,
-        factory: a.workingFactory || a.interviewFactory,
+        factory: a.interviewFactory,
         interviewFactory: a.interviewFactory,
-        workingFactory: a.workingFactory,
         contractType: a.contractType || "Thời vụ",
         status: a.status,
         interviewDate: a.interviewDate || "—",
@@ -271,7 +269,6 @@ export async function POST(request: NextRequest) {
             ? {
                 status: primaryAssignment.status,
                 interviewFactory: primaryAssignment.interviewFactory,
-                workingFactory: primaryAssignment.workingFactory,
                 onboardingMonth: primaryAssignment.onboardingMonth,
               }
             : null,

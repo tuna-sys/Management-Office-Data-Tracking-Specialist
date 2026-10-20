@@ -9,7 +9,7 @@ import {
   today,
   warnsWorker,
 } from "@/lib/domain";
-import { guard, identity } from "@/lib/auth";
+import { guard, identity } from "@/lib/local-request";
 import {
   WORKER_FIELDS,
   ASSIGNMENT_FIELDS,
@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
   }
 }
 export async function POST(request: NextRequest) {
-  const denied = await guard(request, "worker:write");
+  const denied = await guard(request);
   if (denied) return denied;
   let body: any,
     worker: Record<string, string>,
@@ -275,7 +275,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const denied = await guard(request, "worker:write");
+  const denied = await guard(request);
   if (denied) return denied;
 
   try {

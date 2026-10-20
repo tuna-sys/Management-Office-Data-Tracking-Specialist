@@ -13,6 +13,7 @@ import {
   Badge,
   Tooltip,
   Select,
+  Dropdown,
 } from "antd";
 import {
   Globe,
@@ -70,6 +71,7 @@ export default function GoogleSheetSyncCard({ onSyncCompleted }: Props) {
   const [newName, setNewName] = useState("");
   const [importType, setImportType] = useState("AUTO");
   const [smartMerge, setSmartMerge] = useState(true);
+  const [editing, setEditing] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(60);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -181,6 +183,7 @@ export default function GoogleSheetSyncCard({ onSyncCompleted }: Props) {
       if (data.success) {
         setConfig(data.config);
         message.success(data.message);
+        setEditing(false);
         if (syncImmediately) {
           await handleSyncNow(data.source?.id || config?.activeSourceId);
         }
@@ -261,7 +264,8 @@ export default function GoogleSheetSyncCard({ onSyncCompleted }: Props) {
       const data = await res.json();
       if (data.success) {
         setConfig(data.config);
-        message.success("Đã xóa nguồn liên kết");
+        message.success("Đã gỡ liên kết; dữ liệu đã nhập được giữ nguyên");
+        await fetchConfig();
       }
     } catch {
       message.error("Lỗi khi xóa nguồn");
@@ -283,10 +287,10 @@ export default function GoogleSheetSyncCard({ onSyncCompleted }: Props) {
             </div>
             <div>
               <span className="font-bold text-slate-800 text-sm sm:text-base">
-                Tự Động Đồng Bộ Dữ Liệu Từ Google Sheets
+                Nguồn Google Sheets
               </span>
               <div className="text-[11px] text-slate-500 font-normal">
-                Tự động kiểm tra thay đổi & cập nhật ngầm • Tối ưu cho quy mô đến 100.000 dòng
+                Quản lý nguồn và theo dõi kết quả đồng bộ
               </div>
             </div>
           </div>
@@ -305,16 +309,8 @@ export default function GoogleSheetSyncCard({ onSyncCompleted }: Props) {
     >
       <div className="space-y-4">
         {/* Banner hướng dẫn nhanh */}
-        <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl text-xs space-y-1 text-slate-700">
-          <div className="font-bold text-blue-900 flex items-center gap-1.5 text-xs">
-            <ShieldCheck className="w-4 h-4 text-blue-600" />
-            Cơ chế bảo vệ máy chủ & Chống nghẽn cho 100.000 dòng:
-          </div>
-          <p className="m-0 leading-relaxed text-slate-600">
-            Hệ thống sử dụng cơ chế <b>hỏi trạng thái siêu nhẹ</b> (chỉ mất 0.05s). Cứ mỗi 60 giây, web kiểm tra xem có ai vừa sửa ô nào trên Sheet không. Nếu không ai sửa, hệ thống <b>bỏ qua ngay lập tức</b>, hoàn toàn không tốn mạng và không làm chậm máy.
-          </p>
-        </div>
-
+        <div className="flex justify-end"><Button onClick={() => { setNewUrl(""); setNewName(""); setImportType("AUTO"); setSmartMerge(true); setEditing(true); }} disabled={syncing}>Thêm nguồn</Button></div>
+        {(editing || !config?.sources.length) && <>
         {/* Ô nhập liên kết Google Sheets */}
         <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
           <div className="text-xs font-bold text-slate-700 flex items-center justify-between">
@@ -341,14 +337,16 @@ export default function GoogleSheetSyncCard({ onSyncCompleted }: Props) {
               type="primary"
               size="large"
               loading={syncing}
-              onClick={() => handleSaveSource(true)}
+              onClick={() => handleSaveSource(false)}
               className="bg-emerald-600 hover:bg-emerald-500 font-bold shrink-0 shadow-sm"
               icon={<RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} />}
             >
-              Lưu & Đồng Bộ Ngay
+              Lưu nguồn
             </Button>
           </div>
 
+          <Button type="text" onClick={() => setEditing(false)} disabled={syncing}>Hủy</Button>
+          <details><summary className="cursor-pointer text-xs text-slate-600">Tùy chọn nâng cao</summary>
           {/* Tùy chỉnh tên và chế độ */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
             <Input
@@ -380,8 +378,9 @@ export default function GoogleSheetSyncCard({ onSyncCompleted }: Props) {
               </span>
             </div>
           </div>
+          </details>
         </div>
-
+        </>}
         {/* Trạng thái hoạt động hiện tại */}
         {activeSource && activeSource.url && (
           <div className="p-3.5 bg-white border border-slate-200 rounded-xl space-y-2.5">
@@ -413,6 +412,11 @@ export default function GoogleSheetSyncCard({ onSyncCompleted }: Props) {
               </div>
 
               <div className="flex items-center gap-2">
+                <Dropdown menu={{ items: [
+                  { key: "edit", label: "Sửa cấu hình", onClick: () => { setNewUrl(activeSource.url); setNewName(activeSource.name); setImportType(activeSource.importType); setSmartMerge(activeSource.smartMerge); setEditing(true); } },
+                  { key: "clear", label: "Xóa dữ liệu nguồn này (chưa thể xác định an toàn)", disabled: true },
+                ] }}><Button size="small" disabled={syncing}>Thao tác</Button></Dropdown>
+                <Popconfirm title="Gỡ nguồn đồng bộ?" description="Giữ nguyên dữ liệu đã nhập và nội dung Google Sheets." onConfirm={() => handleDeleteSource(activeSource.id)} okText="Gỡ nguồn" cancelText="Hủy"><Button size="small" danger disabled={syncing}>Gỡ nguồn</Button></Popconfirm>
                 <Button
                   size="small"
                   type="default"
@@ -421,7 +425,7 @@ export default function GoogleSheetSyncCard({ onSyncCompleted }: Props) {
                   className="font-semibold text-xs border-slate-300 hover:border-emerald-500"
                   icon={<RefreshCw className={`w-3 h-3 text-emerald-600 ${syncing ? "animate-spin" : ""}`} />}
                 >
-                  Quét ngay
+                  Đồng bộ ngay
                 </Button>
               </div>
             </div>
@@ -493,14 +497,15 @@ export default function GoogleSheetSyncCard({ onSyncCompleted }: Props) {
           </div>
         )}
 
+        {activeSource && <p className="text-xs text-slate-500">Xóa dữ liệu theo nguồn đang khóa vì chưa xác định được bản ghi dùng chung giữa các lần nhập.</p>}
         {/* Danh sách các link đã lưu nếu có nhiều hơn 1 nguồn */}
         {config?.sources && config.sources.length > 1 && (
           <div className="pt-2">
             <div className="text-xs font-bold text-slate-700 mb-2">
-              Các nguồn Google Sheets khác đã lưu ({config.sources.length}):
+              Các nguồn Google Sheets khác ({config.sources.length - 1}):
             </div>
             <div className="space-y-1.5">
-              {config.sources.map((s) => (
+              {config.sources.filter((s) => s.id !== activeSource?.id).map((s) => (
                 <div
                   key={s.id}
                   className={`flex items-center justify-between p-2 rounded-lg border text-xs transition ${
@@ -537,9 +542,10 @@ export default function GoogleSheetSyncCard({ onSyncCompleted }: Props) {
                       </Button>
                     )}
                     <Popconfirm
-                      title="Xóa nguồn này?"
+                      title="Gỡ nguồn này?"
+                      description="Giữ nguyên dữ liệu đã nhập."
                       onConfirm={() => handleDeleteSource(s.id)}
-                      okText="Xóa"
+                      okText="Gỡ nguồn"
                       cancelText="Hủy"
                     >
                       <Button

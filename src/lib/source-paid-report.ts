@@ -63,7 +63,7 @@ export function sourcePaidReport(
       if (worker?.archivedAt) continue;
       const assignments = (worker?.assignments || []).filter(
         (a: any) =>
-          norm(a.workingFactory || a.interviewFactory) === norm(company) &&
+          norm(a.interviewFactory) === norm(company) &&
           dateKey(a.interviewDate || "") === dateKey(pv) &&
           (!code || String(a.employeeCode || worker.code || "") === code),
       );

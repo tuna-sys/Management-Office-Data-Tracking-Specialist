@@ -1,6 +1,6 @@
 import { sourceConflicts, assertSourceCompatible, fillMissing, assertSourceCard, assertReviewProfile, assertIdentity, sameFactory, resolveBonusAssignment } from "@/lib/duplicate-check";
 import { NextRequest, NextResponse } from "next/server";
-import { guard, identity } from "@/lib/auth";
+import { guard, identity } from "@/lib/local-request";
 import {
   readImportSources,
   deleteImportSource,
@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
         const rawPhone = v["SĐT"] || v["Số điện thoại"] || "";
         const pk = rawPhone ? phoneKey(String(rawPhone)) : "";
         const rawCompany = String(
-          v["Công ty"] || v["Nhà máy PV"] || v["Nhà máy làm việc"] || "",
+          v["Công ty"] || v["Nhà máy PV"] || "",
         ).trim();
         const rawPv = formatExcelDate(
           v["Ngày PV"] || v["Ngày phỏng vấn"] || "",
@@ -79,8 +79,7 @@ export async function GET(request: NextRequest) {
             (matchedWorker.assignments || []).find(
               (a: any) =>
                 (rawCompany &&
-                  (a.interviewFactory === rawCompany ||
-                    a.workingFactory === rawCompany)) ||
+                  a.interviewFactory === rawCompany) ||
                 (rawPv && dateKey(a.interviewDate) === dateKey(rawPv)),
             ) ||
             matchedWorker.assignments?.[0] ||
@@ -108,7 +107,6 @@ export async function GET(request: NextRequest) {
                 matchedAssignment?.recruiter || matchedWorker.recruiter || "",
               team: matchedAssignment?.team || matchedWorker.team || "",
               interviewFactory: matchedAssignment?.interviewFactory || "",
-              workingFactory: matchedAssignment?.workingFactory || "",
               interviewDate: matchedAssignment?.interviewDate || "",
               status: matchedAssignment?.status || "",
               employeeCode:
@@ -166,7 +164,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const denied = await guard(request, "worker:write");
+  const denied = await guard(request);
   if (denied) return denied;
   const actor = (await identity(request))!;
 
@@ -236,7 +234,7 @@ export async function POST(request: NextRequest) {
     const raw = targetRow.values || {};
     const importType = targetSource.type;
 
-    if (importType === "DS_THUONG") { const denied = await guard(request, "bonus:write"); if (denied) return denied; }
+    if (importType === "DS_THUONG") { const denied = await guard(request); if (denied) return denied; }
     await prisma.$transaction(async (tx) => {
       if (importType === "DS_THUONG") {
         const parsed = parseBonusImportRow(raw);
@@ -473,7 +471,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const denied = await guard(request, "worker:write");
+  const denied = await guard(request);
   if (denied) return denied;
   try {
     const url = new URL(request.url);

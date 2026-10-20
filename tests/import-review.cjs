@@ -63,7 +63,7 @@ const sources = [
     ],
   },
 ];
-deps["@/lib/auth"] = { guard: async () => null };
+deps["@/lib/local-request"] = { guard: async () => null };
 deps["@/lib/import-source-store"] = { readImportSources: async () => sources };
 deps["@/lib/prisma"] = { prisma: { worker: { findMany: async () => [] }, auditLog: { findMany: async () => [] } } };
 deps["next/server"] = {

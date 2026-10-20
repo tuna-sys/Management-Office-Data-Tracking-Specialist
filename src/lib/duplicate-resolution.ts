@@ -12,7 +12,7 @@ type Candidate = {
 export function reviewToken(worker: any, assignment: any, raw: any) {
     const pick = (v: any, keys: string[]) => Object.fromEntries(keys.map(k => [k, v?.[k] ?? null]));
     const w = pick(worker, ['id', 'idCard', 'fullName', 'phone', 'gender', 'dob', 'address', 'province', 'updatedAt']);
-    const a = pick(assignment, ['id', 'workerId', 'interviewFactory', 'workingFactory', 'interviewDate', 'employeeCode', 'status', 'leaveDate', 'leaveReason', 'recruiter', 'updatedAt']);
+    const a = pick(assignment, ['id', 'workerId', 'interviewFactory', 'interviewDate', 'employeeCode', 'status', 'leaveDate', 'leaveReason', 'recruiter', 'updatedAt']);
     const days = (worker?.assignments || []).map((v: any) => pick(v, ['id', 'interviewDate', 'updatedAt'])).sort((a: any, b: any) => String(a.id).localeCompare(String(b.id)));
     return createHash('sha256').update(JSON.stringify({ worker: w, assignment: a, days, raw })).digest('hex');
 }
@@ -26,7 +26,7 @@ export function reviewFields(worker: any, a: any, raw: any): Candidate[] {
         ['worker.fullName', 'Họ và tên', raw['Họ và tên'] || raw['Họ tên']], ['worker.phone', 'SĐT', raw['SĐT'] || raw['Số điện thoại']],
         ['worker.gender', 'Giới tính', raw['Giới tính']], ['worker.dob', 'Ngày sinh', formatExcelDate(raw['Ngày sinh'])],
         ['worker.address', 'Địa chỉ/Quê quán', address], ['worker.province', 'Tỉnh/Thành', raw['Tỉnh/Thành'] || raw['Tỉnh'] || inferProvince(address || '')],
-        ['assignment.interviewFactory', 'Nhà máy phỏng vấn', raw['Nhà máy PV']], ['assignment.workingFactory', 'Công ty làm việc', raw['Nhà máy làm việc'] || raw['Công ty']],
+        ['assignment.interviewFactory', 'Nhà máy phỏng vấn', raw['Nhà máy PV']],
         ['assignment.employeeCode', 'Mã nhân viên', raw['Mã NV'] || raw['Mã nhân viên']], ['assignment.interviewDate', 'Ngày PV', formatExcelDate(raw['Ngày PV'] || raw['Ngày phỏng vấn'])],
         ['assignment.status', 'Trạng thái', raw['Tình trạng']], ['assignment.leaveDate', 'Ngày nghỉ', formatExcelDate(raw['Ngày NH'] || raw['Ngày nghỉ'])],
         ['assignment.leaveReason', 'Lý do nghỉ', raw['Lý do']], ['assignment.recruiter', 'Người tuyển dụng', raw['Tuyển dụng'] || raw['Người tuyển']],
@@ -78,7 +78,7 @@ export async function resolveReview(tx: any, source: any, row: any, body: any, a
         if (merged.leaveDate && dateKey(merged.leaveDate)! < dateKey(merged.interviewDate)!)
             throw new Error('Ngày nghỉ không được trước ngày phỏng vấn');
         validateWorker({ ...worker, ...workerPatch }, merged, true, true);
-        if (['interviewFactory', 'workingFactory', 'interviewDate', 'employeeCode'].some(k => k in assignmentPatch) && await tx.policyEnrollment.count({ where: { assignmentId: assignment.id } }))
+        if (['interviewFactory', 'interviewDate', 'employeeCode'].some(k => k in assignmentPatch) && await tx.policyEnrollment.count({ where: { assignmentId: assignment.id } }))
             throw new Error('Đợt đã áp dụng chính sách: cần xử lý điều chỉnh thưởng trước khi thay thông tin liên kết');
         if (Object.keys(workerPatch).length)
             await tx.worker.update({ where: { id: worker.id }, data: workerPatch });

@@ -1,28 +1,27 @@
 {
   "autoSyncEnabled": true,
   "syncIntervalSeconds": 60,
-  "activeSourceId": "gs-1792396241002",
+  "activeSourceId": "gs-1792480776247",
   "sources": [
     {
-      "id": "gs-1792396241002",
+      "id": "gs-1792480776247",
       "name": "Bảng tính 1X-JvXlV",
       "url": "https://docs.google.com/spreadsheets/d/1X-JvXlVwd7Z-0-9tsfJMuydecx9yO8hj/edit?usp=sharing&ouid=105716732724409418929&rtpof=true&sd=true",
       "spreadsheetId": "1X-JvXlVwd7Z-0-9tsfJMuydecx9yO8hj",
       "smartMerge": true,
       "importType": "AUTO",
       "lastStatus": "SUCCESS",
-      "lastMessage": "Đồng bộ thành công 16.901 dòng (bổ sung 0 dòng).",
-      "createdAt": "2026-10-19T07:50:41.002Z",
+      "lastMessage": "Đồng bộ thành công 5.919 dòng (bổ sung 5.919 dòng).",
+      "createdAt": "2026-10-20T07:19:36.247Z",
       "lastHash": "268497a40c5a353dd3e7a852a90ba047",
-      "lastSyncAt": "2026-10-19T08:19:57.046Z",
+      "lastSyncAt": "2026-10-20T07:22:42.101Z",
       "lastSummary": {
         "totalRows": 16944,
-        "successCount": 16901,
-        "mergedCount": 0,
-        "duplicateCount": 43,
-        "newWorkerCount": 1
-      },
-      "updatedAt": "2026-10-19T08:19:43.271Z"
+        "successCount": 5919,
+        "mergedCount": 5919,
+        "duplicateCount": 11025,
+        "newWorkerCount": 0
+      }
     }
   ]
 }

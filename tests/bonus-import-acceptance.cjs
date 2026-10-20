@@ -117,7 +117,6 @@ const writtenBonuses = [];
 const writtenBanks = [];
 const savedWarnings = [];
 const createdWorkers = [];
-const guardedPermissions = [];
 const prisma = {
   importProfile: { findUnique: async () => null },
   worker: {
@@ -179,11 +178,8 @@ const route = load("src/app/api/excel-engine/import/route.ts", {
   "@/lib/bonus-import": bonusImport,
   'node:crypto': {default:require('node:crypto')},
   xlsx: XLSX,
-  "@/lib/auth": {
-    guard: async (_request, permission) => {
-      if (permission) guardedPermissions.push(permission);
-      return null;
-    },
+  "@/lib/local-request": {
+    guard: async () => null,
     identity: async () => ({ username: "QA" }),
   },
   "@/lib/worker-import": { parseImportRow: () => ({}) },
@@ -287,9 +283,8 @@ const makeRequest = (confirm) => ({
   assert.equal(createdWorkers[0].fullName, "Nguyễn Văn A");
   assert.equal(writtenBonuses[3].workerId, createdWorkers[0].id);
   assert.equal(writtenBonuses[3].assignmentId, null);
-  assert.ok(guardedPermissions.includes("worker:write"));
   const bonusListRoute = load("src/app/api/bonuses/route.ts", {
-    "@/lib/auth": {
+    "@/lib/local-request": {
       guard: async () => null,
       identity: async () => ({ username: "QA" }),
     },

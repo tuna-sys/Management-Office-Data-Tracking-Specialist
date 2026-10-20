@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard, identity } from "@/lib/auth";
+import { guard, identity } from "@/lib/local-request";
 import { DomainError, day, text, today, resultError } from "@/lib/domain";
 export async function POST(r: NextRequest) {
-  const denied = await guard(r, "bonus:approve");
+  const denied = await guard(r);
   if (denied) return denied;
   try {
     const b = await r.json(),

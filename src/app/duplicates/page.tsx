@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import type { ColumnsType } from "antd/es/table";
 import { formatDate } from "@/lib/date-format";
+import { sameFactory, sameInterviewDay } from "@/lib/duplicate-check";
 
 interface SideData {
   title?: string;
@@ -725,15 +726,26 @@ export default function DuplicatesPage() {
                   </div>
                   <div className="divide-y divide-slate-200 text-xs">
                     {baseRows.map((r, i) => {
+                      const differentCompanies =
+                        !!left.factory && !!right.factory &&
+                        left.factory !== "—" && right.factory !== "—" &&
+                        !sameFactory(left.factory, right.factory);
+                      const sameDayCompanyConflict =
+                        differentCompanies && !!left.idCard &&
+                        left.idCard === right.idCard && sameInterviewDay(left, right);
+                      const differentEmployerCode =
+                        differentCompanies && r.label === "Mã nhân viên";
+                      const dateConflict =
+                        sameDayCompanyConflict && r.label === "Ngày phỏng vấn";
                       const isAdded =
                         (r.leftVal === "—" || r.leftVal === "— • —") &&
                         r.rightVal !== "—" &&
                         r.rightVal !== "— • —";
                       const isConflict =
-                        !isAdded &&
+                        dateConflict || (!differentEmployerCode && !isAdded &&
                         r.leftVal !== "—" &&
                         r.rightVal !== "—" &&
-                        r.leftVal !== r.rightVal;
+                        r.leftVal !== r.rightVal);
 
                       return (
                         <div
@@ -763,8 +775,15 @@ export default function DuplicatesPage() {
                                 color="red"
                                 className="m-0 text-[10px] px-1 leading-tight"
                               >
-                                Mâu thuẫn
+                                {dateConflict
+                                  ? "Trùng ngày PV tại hai công ty"
+                                  : r.label === "Công ty / Nhà máy" && differentCompanies
+                                    ? "Khác công ty"
+                                    : "Mâu thuẫn"}
                               </Tag>
+                            )}
+                            {differentEmployerCode && r.leftVal !== "—" && r.rightVal !== "—" && r.leftVal !== r.rightVal && (
+                              <Tag color="blue" className="m-0 text-[10px] px-1 leading-tight">Khác mã theo công ty</Tag>
                             )}
                           </div>
                           <div className="col-span-4 p-2.5 border-r border-slate-200 font-medium text-slate-800 break-words">

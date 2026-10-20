@@ -108,7 +108,6 @@ function explainIssue(
     const factory =
       values["Công ty"] ||
       values["Nhà máy PV"] ||
-      values["Nhà máy làm việc"] ||
       "";
     const interviewDate = values["Ngày PV"] || values["Ngày phỏng vấn"] || "";
     return {
@@ -116,7 +115,7 @@ function explainIssue(
       color: "orange",
       badge: "Lệch hồ sơ",
       title: `Lệch hồ sơ: File ghi "${factory || "Chưa rõ nhà máy"}" (Ngày PV: ${interviewDate ? formatDate(interviewDate) : "Trống"})`,
-      detail: `File Thưởng ghi nhà máy "${factory}", ngày PV "${interviewDate ? formatDate(interviewDate) : ""}". Tuy nhiên trong danh sách tuyển dụng gốc (DS_TONG) không có đợt tuyển tương ứng hoặc ghi nhà máy làm việc khác (VD: Nam Sơn thay vì Goertek).`,
+      detail: `File Thưởng ghi nhà máy "${factory}", ngày PV "${interviewDate ? formatDate(interviewDate) : ""}". Tuy nhiên trong danh sách tuyển dụng gốc (DS_TONG) không có đợt tuyển tương ứng hoặc ghi nhà máy phỏng vấn khác (VD: Nam Sơn thay vì Goertek).`,
       solution:
         "Kiểm tra công nhân có đổi nhà máy làm việc thực tế hoặc cập nhật ngày PV trong DS_TONG.",
     };
@@ -451,7 +450,7 @@ export default function ImportReviewPage() {
           v["SĐT"] || v["Số điện thoại"] || "",
         ).toLocaleLowerCase("vi");
         const company = String(
-          v["Công ty"] || v["Nhà máy PV"] || v["Nhà máy làm việc"] || "",
+          v["Công ty"] || v["Nhà máy PV"] || "",
         ).toLocaleLowerCase("vi");
         const issuesText = r.issues
           .map((i) => i.message)
@@ -528,7 +527,7 @@ export default function ImportReviewPage() {
       render: (_, r) => {
         const v = r.values || {};
         const factory =
-          v["Công ty"] || v["Nhà máy PV"] || v["Nhà máy làm việc"] || "—";
+          v["Công ty"] || v["Nhà máy PV"] || "—";
         const interviewDate = v["Ngày PV"] || v["Ngày phỏng vấn"] || "";
         const month = v["Tháng"] || v["Tháng nhận việc"] || "";
 
@@ -1216,7 +1215,6 @@ export default function ImportReviewPage() {
                   excelVal: String(
                     v["Công ty"] ||
                       v["Nhà máy PV"] ||
-                      v["Nhà máy làm việc"] ||
                       "—",
                   ),
                 },

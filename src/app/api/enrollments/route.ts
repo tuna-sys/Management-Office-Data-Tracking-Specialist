@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard, identity } from "@/lib/auth";
+import { guard, identity } from "@/lib/local-request";
 import {
   DomainError,
   resultError,
@@ -121,7 +121,6 @@ export async function GET(r: NextRequest) {
             interviewDate: b.interviewDate || "",
             onboardingMonth: monthOriginal,
             interviewFactory: b.company,
-            workingFactory: b.company,
             orderId: b.assignment?.orderId || null,
             worker: b.worker || {
               id: b.workerId,
@@ -172,8 +171,7 @@ export async function GET(r: NextRequest) {
         const fLower = factory.toLowerCase();
         const fMatch =
           (e.factory && e.factory.toLowerCase().includes(fLower)) ||
-          (a.interviewFactory && a.interviewFactory.toLowerCase().includes(fLower)) ||
-          (a.workingFactory && a.workingFactory.toLowerCase().includes(fLower));
+          (a.interviewFactory && a.interviewFactory.toLowerCase().includes(fLower));
         if (!fMatch) return false;
       }
 
@@ -212,7 +210,7 @@ export async function GET(r: NextRequest) {
   }
 }
 export async function POST(r: NextRequest) {
-  const denied = await guard(r, "bonus:write");
+  const denied = await guard(r);
   if (denied) return denied;
   try {
     const b = await r.json(),
@@ -246,7 +244,7 @@ export async function POST(r: NextRequest) {
           "Ngày PV không thuộc hiệu lực chính sách đang áp dụng",
         );
       if (
-        p.factory !== (a.workingFactory || a.interviewFactory) ||
+        p.factory !== a.interviewFactory ||
         (p.orderId && p.orderId !== a.orderId)
       )
         throw new DomainError(
@@ -290,7 +288,7 @@ export async function POST(r: NextRequest) {
   }
 }
 export async function PUT(r: NextRequest) {
-  const denied = await guard(r, "bonus:write");
+  const denied = await guard(r);
   if (denied) return denied;
   try {
     const b = await r.json(),

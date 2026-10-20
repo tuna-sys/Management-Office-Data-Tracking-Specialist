@@ -1,5 +1,4 @@
 "use client";
-import { useIdentity } from "@/components/AuthGate";
 import { formatDate } from "@/lib/date-format";
 import React, { useEffect, useState } from "react";
 import {
@@ -48,9 +47,8 @@ const FACTORIES = [
   "Bảo vệ",
 ];
 export default function BonusesPage() {
-  const user = useIdentity();
-  const canWrite = user?.permissions.includes("bonus:write");
-  const canApprove = user?.permissions.includes("bonus:approve");
+  const canWrite = true;
+  const canApprove = true;
   const [editing, setEditing] = useState<any>(null);
   const [policies, setPolicies] = useState<any[]>([]);
   const [bonuses, setBonuses] = useState<any[]>([]);
@@ -747,7 +745,6 @@ export default function BonusesPage() {
                   idCard: worker?.idCard || "",
                   assignmentId: assignment?.id,
                   company:
-                    assignment?.workingFactory ||
                     assignment?.interviewFactory ||
                     "",
                   interviewDate: assignment?.interviewDate || "",
@@ -774,7 +771,7 @@ export default function BonusesPage() {
                 options={(selectedAddWorker?.assignments || []).map(
                   (a: any) => ({
                     value: a.id,
-                    label: `${a.workingFactory || a.interviewFactory || "Chưa có công ty"} · PV ${a.interviewDate || "chưa có ngày"} · ${a.employeeCode || "chưa có mã NV"}`,
+                    label: `${a.interviewFactory || "Chưa có công ty"} · PV ${a.interviewDate || "chưa có ngày"} · ${a.employeeCode || "chưa có mã NV"}`,
                   }),
                 )}
                 onChange={(assignmentId) => {
@@ -784,7 +781,6 @@ export default function BonusesPage() {
                   if (assignment)
                     addForm.setFieldsValue({
                       company:
-                        assignment.workingFactory ||
                         assignment.interviewFactory ||
                         "",
                       interviewDate: assignment.interviewDate || "",

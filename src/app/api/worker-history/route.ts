@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard } from "@/lib/auth";
+import { guard } from "@/lib/local-request";
 import { resultError } from "@/lib/domain";
 export const dynamic = "force-dynamic";
 export async function GET(r: NextRequest) {

@@ -39,7 +39,7 @@ const raw = {
   "Tháng nhận việc": "Tháng 05",
 };
 const result = parser.parseImportRow(raw, true);
-assert.equal(result.assignment.workingFactory, "B");
+assert.equal(result.assignment.workingFactory, undefined, "legacy working factory must not be imported");
 assert.equal(result.assignment.contractType, "CTV");
 assert.equal(result.assignment.leaveDate, "không rõ");
 assert.equal(result.worker.phone, "khôngrõ");
@@ -105,7 +105,7 @@ const view = deps["@/lib/worker-source-view"].workerSourceView(
   },
 );
 assert.equal(view.values["SĐT"], "không rõ");
-assert.equal(view.values["Nhà máy làm việc"], "B");
+assert.equal(view.values["Nhà máy làm việc"], undefined, "retired column must not be exposed");
 assert.equal(view.values["Đón xe + KTX"], 0);
 assert.equal(view.values["Tình trạng đào tạo"], "OK");
 assert.equal(view.warnings.length, 1);

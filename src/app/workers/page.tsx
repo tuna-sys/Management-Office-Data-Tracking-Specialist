@@ -3,7 +3,6 @@ import AssignmentFields from "@/components/AssignmentFields";
 import DateField from "@/components/DateField";
 import { formatDate } from "@/lib/date-format";
 import { STATUSES } from "@/lib/worker-validation";
-import { useIdentity } from "@/components/AuthGate";
 import React, { useEffect, useState, useRef } from "react";
 import {
   Table,
@@ -57,8 +56,7 @@ const DATE_FIELDS = new Set([
 ]);
 
 export default function WorkersPage() {
-  const user = useIdentity();
-  const canWrite = user?.permissions.includes("worker:write");
+  const canWrite = true;
   const [archived, setArchived] = useState(false);
   const [month, setMonth] = useState("");
   const [sourceMonth, setSourceMonth] = useState<string[]>([]);
@@ -377,7 +375,6 @@ export default function WorkersPage() {
       source: getVal("source", "Nguồn"),
 
       interviewFactory: getVal("interviewFactory", "Nhà máy PV"),
-      workingFactory: getVal("workingFactory", "Nhà máy làm việc"),
       contractType: getVal("contractType", "Loại hợp đồng", "Loại HĐ"),
       shuttleBusKtx: getVal(
         "shuttleBusKtx",
@@ -606,13 +603,6 @@ export default function WorkersPage() {
         record.sourceValues?.["Nhà máy PV"] || "—",
     },
     {
-      title: "Nhà máy làm việc",
-      key: "Nhà máy làm việc",
-      width: 130,
-      render: (_: any, record: any) =>
-        record.sourceValues?.["Nhà máy làm việc"] || "—",
-    },
-    {
       title: "Loại HĐ",
       key: "Loại HĐ",
       width: 155,
@@ -838,7 +828,7 @@ export default function WorkersPage() {
             Danh sách người lao động
           </h1>
           <p className="text-xs text-slate-500 mt-1">
-            Hiển thị đầy đủ 22 cột quản lý nguồn Excel. Khóa cố định cột Họ tên
+            Hiển thị các cột quản lý nguồn Excel. Khóa cố định cột Họ tên
             &amp; CCCD khi cuộn ngang.
           </p>
         </div>
@@ -1436,11 +1426,6 @@ export default function WorkersPage() {
                 }}
                 contentStyle={{ minWidth: "220px", color: "#0f172a" }}
               >
-                <Descriptions.Item label="Nhà máy làm việc">
-                  <span className="font-semibold text-slate-900 whitespace-nowrap">
-                    {detailRecord.sourceValues?.["Nhà máy làm việc"] || "—"}
-                  </span>
-                </Descriptions.Item>
                 <Descriptions.Item label="Mã nhân viên">
                   <span className="font-mono font-bold text-blue-900 whitespace-nowrap">
                     {detailRecord.sourceValues?.["Mã NV"] || "—"}
@@ -1648,7 +1633,7 @@ export default function WorkersPage() {
                 render: (_: any, a: any) => (
                   <div>
                     <div className="font-bold text-slate-800">
-                      {a.workingFactory || a.interviewFactory}
+                      {a.interviewFactory}
                     </div>
                     <div className="text-[11px] text-slate-400">
                       Đơn hàng: {a.order?.name || "Mặc định"}
@@ -1847,7 +1832,6 @@ export default function WorkersPage() {
               "idCardPlace",
               "province",
               "team",
-              "workingFactory",
               "contractType",
               "shuttleBusKtx",
               "interviewDate",
@@ -1867,7 +1851,6 @@ export default function WorkersPage() {
                       idCardPlace: "Nơi cấp",
                       province: "Tỉnh/Thành",
                       team: "Đội nhóm",
-                      workingFactory: "Nhà máy làm việc",
                       contractType: "Loại hợp đồng",
                       shuttleBusKtx: "Đón xe / KTX",
                       interviewDate: "Ngày PV",
@@ -1923,7 +1906,6 @@ export default function WorkersPage() {
               recruiter: "Tuyển dụng",
               source: "Nguồn",
               interviewFactory: "Nhà máy PV",
-              workingFactory: "Nhà máy làm việc",
               contractType: "Loại hợp đồng",
               shuttleBusKtx: "Đón xe / KTX",
               interviewDate: "Ngày PV",

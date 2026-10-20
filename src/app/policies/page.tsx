@@ -14,12 +14,10 @@ import {
   Tag,
   message,
 } from "antd";
-import { useIdentity } from "@/components/AuthGate";
 import DateField from "@/components/DateField";
 import { formatDate } from "@/lib/date-format";
 export default function PoliciesPage() {
-  const user = useIdentity(),
-    canWrite = user?.permissions.includes("bonus:write");
+  const     canWrite = true;
   const [rows, setRows] = useState<any[]>([]),
     [orders, setOrders] = useState<any[]>([]),
     [edit, setEdit] = useState<any>(null),

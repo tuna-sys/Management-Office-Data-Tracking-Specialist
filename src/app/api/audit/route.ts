@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard, authEvents } from "@/lib/auth";
+import { guard } from "@/lib/local-request";
 export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
-  const denied = await guard(request, "audit");
+  const denied = await guard(request);
   if (denied) return denied;
   const p = request.nextUrl.searchParams;
   const page = Math.max(
@@ -17,11 +17,6 @@ export async function GET(request: NextRequest) {
       : {}),
   };
   try {
-    const events = (await authEvents()).filter(
-      (e: any) =>
-        (!p.get("module") || e.module === p.get("module")) &&
-        (!p.get("operator") || e.operator.includes(p.get("operator"))),
-    );
     const [dbRows, dbTotal] = await prisma.$transaction([
       prisma.auditLog.findMany({
         where,
@@ -30,7 +25,7 @@ export async function GET(request: NextRequest) {
       }),
       prisma.auditLog.count({ where }),
     ]);
-    const merged = [...dbRows, ...events].sort(
+    const merged = [...dbRows].sort(
       (a, b) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() ||
         b.id.localeCompare(a.id),
@@ -38,7 +33,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: merged.slice((page - 1) * 20, page * 20),
-      total: dbTotal + events.length,
+      total: dbTotal,
       page,
     });
   } catch {

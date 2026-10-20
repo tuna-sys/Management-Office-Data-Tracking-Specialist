@@ -35,7 +35,6 @@ export const WORKER_FIELDS = [
 ] as const;
 export const ASSIGNMENT_FIELDS = [
   "interviewFactory",
-  "workingFactory",
   "contractType",
   "status",
   "leaveDate",

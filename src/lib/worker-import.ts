@@ -23,7 +23,6 @@ const mappings: Record<string, string[]> = {
   recruiter: ["Tuyển dụng", "Tuyển Dụng"],
   source: ["Nguồn"],
   interviewFactory: ["Nhà máy PV", "Công ty"],
-  workingFactory: ["Nhà máy làm việc"],
   contractType: ["Loại HD", "Loại HĐ"],
   status: ["Tình trạng", "TT"],
   leaveDate: ["Ngày NH"],

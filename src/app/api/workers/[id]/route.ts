@@ -9,7 +9,7 @@ import {
   DomainError,
 } from "@/lib/domain";
 import { prisma } from "@/lib/prisma";
-import { guard, identity } from "@/lib/auth";
+import { guard, identity } from "@/lib/local-request";
 import {
   WORKER_FIELDS,
   ASSIGNMENT_FIELDS,
@@ -28,7 +28,7 @@ export async function PUT(
     };
   },
 ) {
-  const denied = await guard(request, "worker:write");
+  const denied = await guard(request);
   if (denied) return denied;
   let body: any,
     worker: Record<string, string>,
@@ -249,7 +249,7 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } },
 ) {
-  const denied = await guard(request, "worker:write");
+  const denied = await guard(request);
   if (denied) return denied;
   try {
     const actor = (await identity(request))!;
@@ -292,7 +292,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: { id: string } },
 ) {
-  const denied = await guard(request, "worker:write");
+  const denied = await guard(request);
   if (denied) return denied;
   try {
     const actor = (await identity(request))!;

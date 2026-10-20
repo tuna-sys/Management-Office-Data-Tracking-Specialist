@@ -88,7 +88,7 @@ const db = {
   $transaction: async (callback) => callback(db),
 };
 const route = load("src/app/api/bonuses/route.ts", {
-  "@/lib/auth": {
+  "@/lib/local-request": {
     guard: async () => null,
     identity: async () => ({ username: "QA", role: "ADMIN" }),
   },

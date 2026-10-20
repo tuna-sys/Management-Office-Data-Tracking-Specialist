@@ -10,7 +10,7 @@ import {
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import * as XLSX from "xlsx";
-import { guard, identity } from "@/lib/auth";
+import { guard, identity } from "@/lib/local-request";
 import { parseImportRow } from "@/lib/worker-import";
 import { parseBonusImportRow, readBonusValue } from "@/lib/bonus-import";
 import { today } from "@/lib/domain";
@@ -344,7 +344,6 @@ export async function POST(request: NextRequest) {
         fullName: "Họ và tên",
         idCard: "số CCCD",
         interviewFactory: "Nhà máy PV",
-        workingFactory: "Nhà máy làm việc",
         contractType: "Loại HĐ",
         interviewDate: "Ngày PV",
         employeeCode: "Mã nhân viên",
@@ -472,7 +471,6 @@ export async function POST(request: NextRequest) {
             }
 
             const assignmentFillable: Array<keyof typeof assignment> = [
-              "workingFactory",
               "contractType",
               "employeeCode",
               "team",
@@ -633,11 +631,11 @@ export async function POST(request: NextRequest) {
 
           // Kiểm tra trường hợp công nhân đang làm việc tại công ty khác (CHƯA BÁO NGHỈ)
           if (old) {
-            const activeAssign = (old.assignments || []).find((a: any) => isActiveAssignment(a, statuses) && !sameFactory(a.workingFactory || a.interviewFactory, assignment.workingFactory || assignment.interviewFactory));
+            const activeAssign = (old.assignments || []).find((a: any) => isActiveAssignment(a, statuses) && !sameFactory(a.interviewFactory, assignment.interviewFactory));
 
             if (activeAssign) {
-              const currentFac = activeAssign.workingFactory || activeAssign.interviewFactory;
-              const newFac = assignment.interviewFactory || assignment.workingFactory;
+              const currentFac = activeAssign.interviewFactory;
+              const newFac = assignment.interviewFactory;
               duplicateCount++;
               errors.push(
                 `Dòng ${e.row}: Đang làm việc tại "${currentFac}" (CHƯA BÁO NGHỈ) nhưng phát sinh đợt phỏng vấn/tuyển dụng mới tại "${newFac}".`,
@@ -972,7 +970,7 @@ export async function POST(request: NextRequest) {
           let worker = workerMap.get(idCard);
           const isNewWorker = !worker;
           if (isNewWorker) {
-            const denied = await guard(request, "worker:write");
+            const denied = await guard(request);
             if (denied) throw new Error("Không có quyền tạo hồ sơ mới từ danh sách thưởng");
             if (!/^(\d{9}|\d{12})$/.test(idCard))
               throw new Error("CCCD phải gồm 9 hoặc 12 chữ số để tạo hồ sơ");
@@ -1300,9 +1298,9 @@ export async function POST(request: NextRequest) {
       foundTongSheet &&
       foundBonusSheet
     ) {
-      const workerDenied = await guard(request, "worker:write");
+      const workerDenied = await guard(request);
       if (workerDenied) return workerDenied;
-      const bonusDenied = await guard(request, "bonus:write");
+      const bonusDenied = await guard(request);
       if (bonusDenied) return bonusDenied;
 
       const tongData = extractSheetData(
@@ -1424,15 +1422,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const typeDenied = await guard(
-      request,
-      detectedType === "DS_THUONG"
-        ? "bonus:write"
-        : detectedType === "BANK_ACCOUNTS"
-          ? "bank:write"
-          : "worker:write",
-    );
-    if (typeDenied) return typeDenied;
+
 
     const sheetData = extractSheetData(
       book,
