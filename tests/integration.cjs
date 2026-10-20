@@ -14,9 +14,7 @@ const originals = ["prisma/dev.db", "prisma/schema.prisma", ".env"]
 const db = path.join(root, "test.db").replace(/\\/g, "/");
 fs.writeFileSync(
   path.join(root, "schema.prisma"),
-  fs
-    .readFileSync("prisma/schema.prisma", "utf8")
-    .replace("file:./dev.db", "file:" + db),
+  fs.readFileSync("prisma/schema.prisma", "utf8"),
 );
 fs.writeFileSync(db, "");
 const pushed = spawnSync(
@@ -29,7 +27,10 @@ const pushed = spawnSync(
     path.join(root, "schema.prisma"),
     "--skip-generate",
   ],
-  { encoding: "utf8" },
+  {
+    encoding: "utf8",
+    env: { ...process.env, DATABASE_URL: "file:" + db },
+  },
 );
 if (pushed.status !== 0) throw new Error(pushed.stderr || pushed.stdout);
 const fixtureClient = new (require("../.generated/client").PrismaClient)({
@@ -70,7 +71,7 @@ const server = spawn(
       LOCAL_DEMO_AUTO_VIEW: "0",
       LOCAL_BUILD_DIR:
         process.env.QA_PRODUCTION === "1" ? ".next-evolution" : ".next-qa",
-      LOCAL_TEST_DATABASE_URL: "file:" + db,
+      DATABASE_URL: "file:" + db,
       LOCAL_AUTH_FILE: authFile,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -192,6 +193,7 @@ async function json(url, method, data, cookie, expected = 200) {
   const bonus = {
     workerId: w.id,
     assignmentId: w.assignments[0].id,
+    company: "QA TEST FACTORY",
     month: "T10.2026",
     bonus1: 300000,
     bonus2: 0,

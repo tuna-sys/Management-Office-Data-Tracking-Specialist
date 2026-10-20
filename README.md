@@ -8,7 +8,10 @@
 
 ## Chạy cục bộ
 
+Sao chép `.env.example` thành `.env` nếu chưa có, rồi kiểm tra `DATABASE_URL`. App chỉ kết nối URL được cấu hình; nó không tự chọn database preview, tạo schema hoặc chạy migration khi khởi động.
+
 ```powershell
+if (!(Test-Path .env)) { Copy-Item .env.example .env }
 npm run auth:setup
 npm run dev
 ```
@@ -22,8 +25,12 @@ npm run build
 npm start
 ```
 
-Kiểm thử integration dùng CSDL/tài khoản giả lập riêng trong `.local/qa-*` và cổng loopback 3101. Không nhập thử vào `prisma/dev.db`. Các lệnh chạy ứng dụng chỉ bind localhost.
+`DATABASE_URL` trong `.env` trỏ tới DB SQLite duy nhất của môi trường đang chạy. Mặc định local là `file:./dev.db`, tương ứng `prisma/dev.db`. Không đặt URL sang file preview hoặc dùng cùng một file SQLite đồng thời ở nhiều môi trường.
 
-Schema SQLite và dữ liệu hiện có được giữ nguyên. Không chạy migration hoặc triển khai trong đợt hoàn thiện này.
+Kiểm tra migration bằng `npm run db:migrate:status`; tạo migration trong môi trường phát triển bằng `npm run db:migrate:dev`; triển khai migration đã được review bằng `npm run db:migrate:deploy`. Migration hiện có trong repository cần được đối chiếu/baseline trước khi chạy trên DB đã có dữ liệu; một thư mục migration đang thiếu `migration.sql`. Không chạy `db:push` hoặc `migrate deploy` trên DB thật cho tới khi baseline và backup/restore được xác minh.
+
+Kiểm thử integration dùng CSDL/tài khoản giả lập riêng trong `.local/qa-*` qua `DATABASE_URL` và cổng loopback 3101. Không nhập thử vào DB thật. Các lệnh chạy ứng dụng chỉ bind localhost.
+
+Các thay đổi code không tự chạy migration hay thay đổi database hiện có.
 
 Bản README cũ được giữ để đối chiếu tại [docs/README_V2_TRUOC_CHINH_SUA.md](docs/README_V2_TRUOC_CHINH_SUA.md); không dùng các tuyên bố cũ về xác minh ngân hàng, ngày công hay Internet Banking làm bằng chứng chức năng đã hoàn thành.

@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { guard, identity } from '@/lib/auth';
 import { deleteImportSource } from '@/lib/import-source-store';
 import { copyFile, mkdir } from 'node:fs/promises';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 export async function GET(request: NextRequest) {
@@ -42,10 +42,13 @@ export async function POST(request: NextRequest) {
 
   try {
     // 1. Sao lưu CSDL an toàn trước khi xóa
-    const settingsPath = path.resolve('.local/evolution-preview.json');
-    const preview = existsSync(settingsPath) ? JSON.parse(readFileSync(settingsPath, 'utf8')) : null;
-    const dbUrl = process.env.LOCAL_APPLICATION_DATABASE_URL || preview?.databaseUrl || 'file:./prisma/dev.db';
-    const dbFilePath = dbUrl.replace(/^file:/, '');
+    const dbUrl = process.env.DATABASE_URL;
+    if (!dbUrl?.startsWith('file:'))
+      throw new Error('DATABASE_URL phải trỏ tới một file SQLite để tạo bản sao lưu.');
+    const configuredPath = decodeURIComponent(dbUrl.slice(5).split('?')[0]);
+    const dbFilePath = path.isAbsolute(configuredPath)
+      ? path.normalize(configuredPath)
+      : path.resolve('prisma', configuredPath);
 
     const backupDir = path.resolve('.local/backups');
     await mkdir(backupDir, { recursive: true });
