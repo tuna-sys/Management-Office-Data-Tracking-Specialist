@@ -138,11 +138,20 @@ export function sourcePaidReport(
       conflicting: false,
     });
   }
-  const selectedCompany = p.get("interviewFactory") || p.get("factory");
+  const selectedCompanyRaw = p.get("interviewFactory") || p.get("factory");
+  const selectedCompanies = selectedCompanyRaw
+    ? selectedCompanyRaw
+        .split(",")
+        .map((c) => norm(c))
+        .filter(Boolean)
+    : [];
   const rows = [...unique.values()]
     .filter((r) => {
       const d = dateKey(r.interviewDate);
-      if (selectedCompany && norm(r.company) !== norm(selectedCompany))
+      if (
+        selectedCompanies.length > 0 &&
+        !selectedCompanies.includes(norm(r.company))
+      )
         return false;
       if (
         (p.get("month") && d?.slice(0, 7) !== p.get("month")) ||
@@ -150,8 +159,35 @@ export function sourcePaidReport(
         (p.get("to") && (!d || d > p.get("to")!))
       )
         return false;
-      for (const key of ["orderId", "batchId"])
-        if (p.get(key) && r.assignment?.[key] !== p.get(key)) return false;
+      if (p.get("orderId")) {
+        const orderIds = p
+          .get("orderId")!
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (orderIds.length > 0 && !orderIds.includes(String(r.assignment?.orderId || "")))
+          return false;
+      }
+      if (p.get("batchId")) {
+        const batchItems = p
+          .get("batchId")!
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (batchItems.length > 0) {
+          const matchedBatch = batchItems.some((item) => {
+            if (String(r.assignment?.batchId || "").trim() === item) return true;
+            if (String(r.assignment?.batch?.periodMonth || "").trim() === item)
+              return true;
+            const m = /^T(0[1-9]|1[0-2])\.(\d{4})$/i.exec(item);
+            if (m) {
+              return d?.slice(0, 7) === `${m[2]}-${m[1]}`;
+            }
+            return false;
+          });
+          if (!matchedBatch) return false;
+        }
+      }
       for (const key of ["recruiter", "team"])
         if (
           p.get(key) &&

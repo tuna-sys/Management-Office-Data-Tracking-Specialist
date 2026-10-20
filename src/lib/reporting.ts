@@ -23,8 +23,22 @@ export function matchesAssignment(a: any, p: URLSearchParams) {
       matchMulti("interviewFactory", a.interviewFactory)) &&
     // Lọc Đơn hàng (Multi-select)
     (!p.get("orderId") || matchMulti("orderId", a.orderId)) &&
-    // Lọc Đợt tuyển (Multi-select)
-    (!p.get("batchId") || matchMulti("batchId", a.batchId)) &&
+    // Lọc Đợt tuyển (Multi-select theo mã kỳ T01.2026..T12.2026 hoặc batchId)
+    (!p.get("batchId") ||
+      p
+        .get("batchId")!
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .some((item) => {
+          if (String(a.batchId || "").trim() === item) return true;
+          if (String(a.batch?.periodMonth || "").trim() === item) return true;
+          const m = /^T(0[1-9]|1[0-2])\.(\d{4})$/i.exec(item);
+          if (m) {
+            return monthOf(a.interviewDate) === `${m[2]}-${m[1]}`;
+          }
+          return false;
+        })) &&
     // Lọc Người tuyển dụng (Multi-select)
     (!p.get("recruiter") || matchMulti("recruiter", a.recruiter)) &&
     // Lọc Đội nhóm (Multi-select)

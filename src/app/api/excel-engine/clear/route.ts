@@ -77,7 +77,8 @@ export async function POST(request: NextRequest) {
         );
         await tx.$executeRawUnsafe(`
         INSERT OR IGNORE INTO TempImportAssignments (id)
-        SELECT DISTINCT assignmentId FROM AssignmentEvent WHERE note LIKE 'Import Excel%'
+        SELECT DISTINCT assignmentId FROM AssignmentEvent 
+        WHERE note LIKE 'Import Excel%' OR note LIKE '%cảnh báo trùng%'
       `);
 
         // 2. Xóa các khoản thanh toán & mốc thưởng chính sách (RewardPayment -> RewardStage -> PolicyEnrollment)
@@ -161,6 +162,13 @@ export async function POST(request: NextRequest) {
 
     // 3. Xóa các file lưu nguồn review trong .local/source-imports/
     await deleteImportSource();
+
+    // 4. Reset danh sách đã duyệt trùng lặp để lần nạp sau hoàn toàn nhất quán
+    const resolvedFile = path.resolve('.local/resolved-duplicates.json');
+    if (existsSync(resolvedFile)) {
+      const { unlink } = await import('node:fs/promises');
+      await unlink(resolvedFile).catch(() => {});
+    }
 
     return NextResponse.json({
       success: true,

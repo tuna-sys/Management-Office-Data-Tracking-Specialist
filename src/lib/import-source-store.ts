@@ -57,3 +57,24 @@ export async function deleteImportSource(id?:string){
   }
  }
 }
+
+export async function resolveImportSourceRow(sourceId:string,rowNum:number,mode:'APPROVE'|'DELETE'){
+ const fileName=`${sourceId}.json`;
+ const filePath=path.join(directory,fileName);
+ const raw=await readFile(filePath,'utf8');
+ const data=JSON.parse(raw);
+ const targetRow=(data.rows||[]).find((r:any)=>Number(r.row)===Number(rowNum));
+ if(!targetRow) return null;
+ if(mode==='DELETE'){
+  data.rows=(data.rows||[]).filter((r:any)=>Number(r.row)!==Number(rowNum));
+ }else{
+  targetRow.warnings=[];
+  targetRow.duplicates=[];
+  targetRow.isApproved=true;
+ }
+ await writeFile(filePath+'.tmp',JSON.stringify(data),'utf8');
+ await rename(filePath+'.tmp',filePath);
+ memoryCache.delete(fileName);
+ return {source:data,row:targetRow};
+}
+

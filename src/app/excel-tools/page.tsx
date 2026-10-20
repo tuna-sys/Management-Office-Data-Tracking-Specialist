@@ -30,6 +30,7 @@ import {
   Globe,
   Layers,
 } from "lucide-react";
+import GoogleSheetSyncCard from "@/components/GoogleSheetSyncCard";
 
 const { Dragger } = Upload;
 
@@ -205,6 +206,9 @@ export default function ExcelToolsPage() {
           </span>
         </div>
       </div>
+      
+      {/* Khối Tự Động Đồng Bộ Google Sheets (Hỗ trợ quy mô 100.000 dòng) */}
+      <GoogleSheetSyncCard />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Khối Nhập File Excel Đa Năng */}
@@ -424,11 +428,13 @@ export default function ExcelToolsPage() {
                   <span>Loại file phát hiện:</span>
                   <Tag
                     color={
-                      result.detectedType === "DS_THUONG"
-                        ? "gold"
-                        : result.detectedType === "BANK_ACCOUNTS"
-                          ? "green"
-                          : "blue"
+                      result.detectedType === "COMBINED"
+                        ? "purple"
+                        : result.detectedType === "DS_THUONG"
+                          ? "gold"
+                          : result.detectedType === "BANK_ACCOUNTS"
+                            ? "green"
+                            : "blue"
                     }
                     className="font-bold text-xs px-2 py-0.5"
                   >
@@ -441,6 +447,14 @@ export default function ExcelToolsPage() {
                   </span>
                 )}
               </div>
+
+              {result.detectedType === "COMBINED" && (
+                <Alert
+                  type="success"
+                  showIcon
+                  message="Đã tự động phát hiện và ghép nối 2 Sheet: 'DS Tổng' (Hồ sơ & Đợt tuyển) + 'Thưởng' (Chính sách thưởng gắn trực tiếp vào từng đợt tuyển theo Số CCCD + Ngày PV)."
+                />
+              )}
 
               <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200">
                 <h4 className="font-bold text-emerald-800 flex items-center gap-2 text-sm mb-2">
@@ -488,13 +502,6 @@ export default function ExcelToolsPage() {
                   ))}
                 </div>
               </div>
-              {result.preview && (
-                <Alert
-                  type={result.summary?.errorCount ? "warning" : "success"}
-                  showIcon
-                  message={`Cảnh báo ${result.summary?.warningCount || 0} dòng không chặn nạp. ${result.summary?.errorCount || 0} dòng thiếu/sai dữ liệu bắt buộc mới không được ghi vào danh sách nghiệp vụ; toàn bộ dòng nguồn vẫn được lưu để đối chiếu.`}
-                />
-              )}
               {result.detectedType === "DS_THUONG" &&
                 result.summary?.newWorkerCount > 0 && (
                   <Alert
@@ -507,9 +514,8 @@ export default function ExcelToolsPage() {
               <p className="text-xs text-slate-600">
                 Đếm theo số dòng. {result.mainSourceRows ?? 0} dòng vào danh
                 sách chính (trong đó có {result.summary?.mergedCount ?? 0} dòng
-                bổ sung thông tin); {result.pendingDuplicateCount ?? 0} dòng
-                trùng hoàn toàn vào danh sách chờ kiểm tra riêng. Dòng vừa cảnh
-                báo vừa trùng đi theo luồng trùng.
+                tự động điền bù thông tin trống); {result.pendingDuplicateCount ?? 0} dòng
+                trùng lặp (lệch thông tin hoặc đang làm cty khác) được tách riêng chờ duyệt.
               </p>
               {result.preview &&
                 (pendingFile ||
@@ -518,8 +524,8 @@ export default function ExcelToolsPage() {
                     title="Xác nhận nạp dữ liệu vào hệ thống"
                     description={
                       smartMerge
-                        ? "Dữ liệu mới và các thông tin bổ sung sẽ được cập nhật vào hệ thống. Các dòng trùng lặp sẽ được bảo vệ an toàn."
-                        : "Ghi nhận dòng dữ liệu vào danh sách chính và đưa dòng trùng vào luồng kiểm tra riêng."
+                        ? "Dữ liệu mới và các thông tin bổ sung sẽ được cập nhật vào hệ thống. Các dòng trùng lặp sẽ được tách sang mục Cảnh báo Trùng lặp."
+                        : "Ghi nhận dòng dữ liệu vào danh sách chính và đưa dòng trùng vào mục Cảnh báo Trùng lặp."
                     }
                     okText="Ghi vào CSDL ngay"
                     cancelText="Hủy"
@@ -542,97 +548,51 @@ export default function ExcelToolsPage() {
                   </Popconfirm>
                 )}
 
-              <Tabs
-                items={[
-                  {
-                    key: "warnings",
-                    label: `Cảnh báo dữ liệu (${result.summary?.warningCount || 0} dòng)`,
-                    children: (
-                      <>
-                        <Alert
-                          type="warning"
-                          showIcon
-                          message="Kiểm tra giá trị thiếu/sai; vẫn giữ nguyên dòng nguồn"
-                          className="mb-3"
-                        />
-                        <Table<any>
-                          size="small"
-                          rowKey={(r, i) => `${r.row}-${i}`}
-                          pagination={{ pageSize: 10 }}
-                          dataSource={(result.review?.warnings || []).filter(
-                            (i: any) =>
-                              !result.review?.duplicates?.some(
-                                (d: any) => d.row === i.row,
-                              ),
-                          )}
-                          columns={[
-                            {
-                              title: "Dòng Excel",
-                              dataIndex: "row",
-                              width: 100,
-                            },
-                            { title: "Cảnh báo dữ liệu", dataIndex: "message" },
-                          ]}
-                        />
-                        <a
-                          className="text-blue-600"
-                          href="/import-review?type=warnings"
-                        >
-                          Mở luồng cảnh báo dữ liệu đã lưu
-                        </a>
-                      </>
-                    ),
-                  },
-                  {
-                    key: "duplicates",
-                    label: `Trùng lặp (${result.summary?.duplicateCount || 0} dòng)`,
-                    children: (
-                      <>
-                        <Alert
-                          type="info"
-                          showIcon
-                          message="Đối chiếu danh tính hoặc lượt tuyển; không ghi đè hay tạo lượt trùng chính xác"
-                          className="mb-3"
-                        />
-                        <Table<any>
-                          size="small"
-                          rowKey={(r, i) => `${r.row}-${i}`}
-                          pagination={{ pageSize: 10 }}
-                          dataSource={result.review?.duplicates || []}
-                          columns={[
-                            {
-                              title: "Dòng Excel",
-                              dataIndex: "row",
-                              width: 100,
-                            },
-                            {
-                              title: "Loại trùng",
-                              dataIndex: "kind",
-                              render: (v: string) =>
-                                (
-                                  ({
-                                    BANK_ACCOUNT: "STK đã có",
-                                    PHONE: "Trùng SĐT",
-                                    ACTIVE_IDENTITY: "CCCD đang hoạt động",
-                                    BONUS: "Thưởng đã có",
-                                    EXACT_RECRUITMENT: "Lượt tuyển đã có",
-                                  }) as Record<string, string>
-                                )[v] || v,
-                            },
-                            { title: "Chi tiết", dataIndex: "message" },
-                          ]}
-                        />
-                        <a
-                          className="text-blue-600"
-                          href="/import-review?type=duplicates"
-                        >
-                          Mở luồng trùng lặp đã lưu
-                        </a>
-                      </>
-                    ),
-                  },
-                ]}
-              />
+              {(result.summary?.duplicateCount || 0) > 0 && (
+                <div className="space-y-2 pt-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-rose-700">
+                      Danh sách Dòng trùng lặp ({result.summary?.duplicateCount || 0} dòng)
+                    </span>
+                    <a
+                      className="text-xs font-semibold text-blue-600 hover:underline"
+                      href="/duplicates"
+                    >
+                      Mở trang Kiểm tra & Xử lý Cảnh báo Trùng lặp →
+                    </a>
+                  </div>
+                  <Table<any>
+                    size="small"
+                    rowKey={(r, i) => `${r.row}-${i}`}
+                    pagination={{ pageSize: 10 }}
+                    dataSource={result.review?.duplicates || []}
+                    columns={[
+                      {
+                        title: "Dòng Excel",
+                        dataIndex: "row",
+                        width: 100,
+                      },
+                      {
+                        title: "Loại trùng",
+                        dataIndex: "kind",
+                        width: 170,
+                        render: (v: string) =>
+                          (
+                            ({
+                              BANK_ACCOUNT: "STK đã có",
+                              PHONE: "Trùng SĐT",
+                              ACTIVE_IDENTITY: "Lệch thông tin hồ sơ",
+                              CROSS_COMPANY: "Đang làm cty khác",
+                              BONUS: "Thưởng đã có",
+                              EXACT_RECRUITMENT: "Lượt tuyển đã có",
+                            }) as Record<string, string>
+                          )[v] || v,
+                      },
+                      { title: "Chi tiết", dataIndex: "message" },
+                    ]}
+                  />
+                </div>
+              )}
             </div>
           )}
         </Card>
