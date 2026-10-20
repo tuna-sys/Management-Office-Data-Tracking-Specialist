@@ -76,7 +76,9 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       });
       const identityResult = await identityResponse.json();
       if (!identityResponse.ok || !identityResult.success)
-        throw new Error(identityResult.message || "Không thể tải phiên đăng nhập");
+        throw new Error(
+          identityResult.message || "Không thể tải phiên đăng nhập",
+        );
       setUser(identityResult.data);
       setPassword("");
     } catch (cause) {
