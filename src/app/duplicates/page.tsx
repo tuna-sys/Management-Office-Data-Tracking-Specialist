@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   Table,
   Button,
@@ -114,15 +114,37 @@ export default function DuplicatesPage() {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(20);
   const [inspectItem, setInspectItem] = useState<DuplicateAlert | null>(null);
-  const openReview=(item:DuplicateAlert)=>setInspectItem(item);
+  const listRequest = useRef<AbortController | null>(null);
+  const detailRequest = useRef<AbortController | null>(null);
+  const [totalDuplicates, setTotalDuplicates] = useState(0);
+  const [filteredTotal, setFilteredTotal] = useState(0);
+  const loadDetail = async (item: DuplicateAlert, signal?: AbortSignal): Promise<DuplicateAlert> => {
+    const response = await fetch("/api/duplicates?id=" + encodeURIComponent(item.id), { cache: "no-store", signal });
+    const result = await response.json();
+    if (!response.ok || !result.success) throw new Error(result.message || "Không tải được chi tiết");
+    return result.data;
+  };
+  const openReview = async (item: DuplicateAlert) => {
+    detailRequest.current?.abort();
+    const controller = new AbortController(); detailRequest.current = controller;
+    try { const detail = await loadDetail(item, controller.signal); if (!controller.signal.aborted) setInspectItem(detail); }
+    catch (error: any) { if (!controller.signal.aborted) message.error(error.message || "Không tải được chi tiết"); }
+  };
   const [actionBusy, setActionBusy] = useState<string | null>(null);
 
   const fetchDuplicates = async () => {
+    listRequest.current?.abort();
+    const controller = new AbortController(); listRequest.current = controller;
     try {
       setLoading(true);
-      const res = await fetch("/api/duplicates", { cache: "no-store" });
+      const params = new URLSearchParams({ view: "list", page: String(currentPage), pageSize: String(pageSize), category: typeFilter, search: searchKeyword });
+      const res = await fetch("/api/duplicates?" + params, { cache: "no-store", signal: controller.signal });
       const json = await res.json();
+      if (controller.signal.aborted) return;
       if (json.success) {
+        setTotalDuplicates(json.totalDuplicates || 0);
+        setFilteredTotal(json.filteredTotal || 0);
+        if (json.page) setCurrentPage(json.page);
         setDuplicates(json.data || []);
         if (json.counts) {
           setCounts({
@@ -136,21 +158,27 @@ export default function DuplicatesPage() {
         message.error(json.message || "Lỗi tải danh sách cảnh báo trùng");
       }
     } catch {
-      message.error("Lỗi tải danh sách cảnh báo trùng");
+      if (!controller.signal.aborted) message.error("Lỗi tải danh sách cảnh báo trùng");
     } finally {
-      setLoading(false);
+      if (listRequest.current === controller) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchDuplicates();
-  }, []);
+    const timer = setTimeout(() => { void fetchDuplicates(); }, 250);
+    return () => { clearTimeout(timer); listRequest.current?.abort(); };
+  }, [currentPage, pageSize, typeFilter, searchKeyword]);
+  useEffect(() => () => { detailRequest.current?.abort(); }, []);
 
   const handleAction = async (
     item: DuplicateAlert,
     action: "APPROVE" | "DELETE",
     decision?: Record<string, any>,
   ) => {
+    if (item.sourceId && !item.reviewToken) {
+      try { return await handleAction(await loadDetail(item), action, decision); }
+      catch (error: any) { message.error(error.message || "Không tải được dữ liệu mới nhất"); return; }
+    }
     if (item.sourceId && !decision) decision={resolution:action==="APPROVE"?"APPROVE_SOURCE":"DISCARD_SOURCE",confirmResolution:true,targetAssignmentId:item.targetAssignmentId,reviewToken:item.reviewToken};
     try {
       setActionBusy(`${item.id}-${action}`);
@@ -190,21 +218,7 @@ export default function DuplicatesPage() {
     }
   };
 
-  // Lọc dữ liệu hiển thị theo đúng 2 trường hợp
-  const filteredDuplicates = useMemo(() => {
-    return duplicates.filter((item) => {
-      if (typeFilter !== "ALL" && item.category !== typeFilter) return false;
-
-      if (searchKeyword.trim()) {
-        const kw = searchKeyword.trim().toLowerCase();
-        const target =
-          `${item.fullName || ""} ${item.idCard || ""} ${item.phone || ""} ${item.currentFactory || ""} ${item.newFactory || ""} ${item.recruiter || ""} ${item.warning || ""}`.toLowerCase();
-        if (!target.includes(kw)) return false;
-      }
-
-      return true;
-    });
-  }, [duplicates, typeFilter, searchKeyword]);
+  const filteredDuplicates = duplicates;
 
   const handleExportExcel = async () => {
     try {
@@ -436,7 +450,7 @@ export default function DuplicatesPage() {
 
             <div className="flex flex-wrap gap-2" role="group" aria-label="Lọc nhóm cảnh báo">
               {[
-                {value:"ALL",label:"Tất cả",count:duplicates.length},
+                {value:"ALL",label:"Tất cả",count:totalDuplicates},
                 {value:"INTERVIEW_CONFLICT",label:"Cần xác minh",count:counts.conflictCount},
                 {value:"MERGE_INFO",label:"Bổ sung ô trống",count:counts.mergeInfoCount},
                 {value:"CROSS_COMPANY",label:"Chuyển công ty",count:counts.crossCompanyCount},
@@ -463,8 +477,8 @@ export default function DuplicatesPage() {
           </div>
 
           <div className="text-xs text-slate-500 font-medium">
-            Hiển thị <strong>{filteredDuplicates.length}</strong> /{" "}
-            {duplicates.length} trường hợp
+            Hiển thị <strong>{filteredTotal}</strong> /{" "}
+            {totalDuplicates} trường hợp
             {counts.unchangedCount > 0 && <span className="block text-xs text-slate-500 mt-1">Đã ẩn {counts.unchangedCount.toLocaleString("vi-VN")} dòng không có thay đổi; giữ nguyên dữ liệu nguồn.</span>}
           </div>
         </div>
@@ -480,6 +494,7 @@ export default function DuplicatesPage() {
           scroll={{ x: 1500, y: "max(180px, calc(100dvh - 440px))" }}
           pagination={{
             current: currentPage,
+            total: filteredTotal,
             pageSize: pageSize,
             showSizeChanger: true,
             pageSizeOptions: ["10", "20", "50", "100"],

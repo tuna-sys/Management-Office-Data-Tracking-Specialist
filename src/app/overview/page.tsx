@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import {
   Card,
   Table,
@@ -16,6 +16,7 @@ import {
   message,
   Tooltip,
 } from "antd";
+import SourcePaidRowsTable from "./SourcePaidRowsTable";
 import OverviewCharts from "@/components/OverviewCharts";
 import DateField from "@/components/DateField";
 import { formatDate } from "@/lib/date-format";
@@ -65,8 +66,12 @@ export default function OverviewPage() {
 
   const [busy, setBusy] = useState(false);
   const [tableSearch, setTableSearch] = useState("");
+  const [appliedFilters, setAppliedFilters] = useState<Record<string, unknown>>({});
+  const reportRequest = useRef<AbortController | null>(null);
 
   async function load() {
+    reportRequest.current?.abort();
+    const controller = new AbortController(); reportRequest.current = controller;
     setBusy(true);
     try {
       const params = new URLSearchParams();
@@ -82,18 +87,21 @@ export default function OverviewPage() {
         }
       });
 
-      const res = await fetch(`/api/reports?${params.toString()}`);
+      params.set("view", "overview");
+      const res = await fetch(`/api/reports?${params.toString()}`, { signal: controller.signal, cache: "no-store" });
       const j = await res.json();
+      if (controller.signal.aborted) return;
 
       if (j.success) {
         setData(j.data);
+        setAppliedFilters(filters);
       } else {
         message.error(j.message || "Không tải được báo cáo");
       }
     } catch {
-      message.error("Lỗi khi tải dữ liệu báo cáo");
+      if (!controller.signal.aborted) message.error("Lỗi khi tải dữ liệu báo cáo");
     } finally {
-      setBusy(false);
+      if (reportRequest.current === controller) setBusy(false);
     }
   }
 
@@ -114,6 +122,8 @@ export default function OverviewPage() {
     const timer = setInterval(() => load(), 60000);
     return () => clearInterval(timer);
   }, [filters]);
+
+  useEffect(() => () => { reportRequest.current?.abort(); }, []);
 
   // 1. Cập nhật hàm set để nhận cả string và mảng string[]
   const set = (key: string, value: any) =>
@@ -1031,7 +1041,7 @@ export default function OverviewPage() {
                   ) : (
                     <span className="text-purple-600 font-medium">
                       Hạch toán từ{" "}
-                      {sourcePaid?.rows?.length?.toLocaleString("vi-VN") || 0}{" "}
+                      {(sourcePaid?.rowCount ?? sourcePaid?.rows?.length ?? 0).toLocaleString("vi-VN")}{" "}
                       lượt chi thưởng DS_THUONG
                     </span>
                   )}
@@ -1106,7 +1116,7 @@ export default function OverviewPage() {
 
       {/* 4. ĐỐI CHIẾU NGUỒN EXCEL (CHỈ HIỂN THỊ KHI CÓ DỮ LIỆU NGUỒN) */}
       {sourcePaid &&
-        (sourcePaid.total > 0 || (sourcePaid.rows || []).length > 0) && (
+        (sourcePaid.total > 0 || (sourcePaid.rowCount ?? sourcePaid.rows?.length ?? 0) > 0) && (
           <Card
             title={
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 py-1">
@@ -1214,34 +1224,8 @@ export default function OverviewPage() {
                 },
                 {
                   key: "sourceRows",
-                  label: `Danh Sách Chi Tiết Từng Lượt Nhận Thưởng (${sourcePaid.rows?.length || 0})`,
-                  children: renderTable(sourcePaid.rows, [
-                    { title: "Người lao động", dataIndex: "name", key: "name" },
-                    { title: "Số CCCD", dataIndex: "idCard", key: "idCard" },
-                    { title: "Công ty", dataIndex: "company", key: "company" },
-                    { title: "Tháng thưởng", dataIndex: "month", key: "month" },
-                    {
-                      title: "Đã chi trả",
-                      dataIndex: "paid",
-                      key: "paid",
-                      render: money,
-                    },
-                    {
-                      title: "Ngày PV ghi nhận",
-                      dataIndex: "interviewDate",
-                      key: "interviewDate",
-                    },
-                    {
-                      title: "Chính sách thưởng",
-                      dataIndex: "policy",
-                      key: "policy",
-                    },
-                    {
-                      title: "Chi tiết các lần thưởng 1 → 7",
-                      dataIndex: "sourceRewards",
-                      key: "sourceRewards",
-                    },
-                  ]),
+                  label: `Danh Sách Chi Tiết Từng Lượt Nhận Thưởng (${sourcePaid.rowCount ?? sourcePaid.rows?.length ?? 0})`,
+                  children: <SourcePaidRowsTable filters={appliedFilters} search={tableSearch} />,
                 },
               ]}
             />

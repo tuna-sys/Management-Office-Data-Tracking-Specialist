@@ -158,6 +158,7 @@ export default function WorkersPage() {
       setLoading(true);
 
       const params = new URLSearchParams({
+        view: "list",
         page: String(page),
         pageSize: String(size),
         archived: String(archived),
