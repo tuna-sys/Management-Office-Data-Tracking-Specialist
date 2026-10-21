@@ -8,7 +8,7 @@ function load(file, deps = {}) {
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
   }).outputText, { module: m, exports: m.exports, Date, URLSearchParams,
-    require: n => { if (n === '@/lib/duplicate-check') return require('./load-duplicate-check.js');  if (!(n in deps)) throw Error(`Unexpected dependency ${n}`); return deps[n]; } });
+    require: n => { if (n === '@/lib/duplicate-check') return require('./load-duplicate-check.js'); if (n === '@/lib/province-name') return load('src/lib/province-name.ts'); if (!(n in deps)) throw Error(`Unexpected dependency ${n}`); return deps[n]; } });
   return m.exports;
 }
 const server = { NextResponse: { json: (body, options = {}) => ({ body, status: options.status || 200 }) } };

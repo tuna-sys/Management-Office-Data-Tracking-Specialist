@@ -523,8 +523,8 @@ async function json(url, method, data, cookie, expected = 200) {
         assignmentId: first.id,
         updatedAt: person.updatedAt,
         assignmentUpdatedAt: first.updatedAt,
-        confirmedWorkDays: 7,
-        workDaysAsOf: "2026-10-10",
+        confirmedWorkDays: 3,
+        workDaysAsOf: "2026-10-04",
       },
       "",
     )

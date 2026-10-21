@@ -1,0 +1,171 @@
+%% ERD hiện trạng theo prisma/schema.prisma — các field không FK được giữ nguyên như thiết kế đang chạy.
+erDiagram
+  WORKER {
+    string id PK
+    string idCard UK
+    string code "Mã hồ sơ, text"
+    string fullName
+    string phone
+    string recruiter "Snapshot/text"
+    string team "Snapshot/text"
+  }
+  WORK_ASSIGNMENT {
+    string id PK
+    string workerId FK
+    string interviewFactory "Text, chưa FK Factory"
+    string workingFactory "Text, chưa FK Factory"
+    string status "Text, chưa FK LaborStatus"
+    string employeeCode "Mã NV tại công ty, text"
+    string recruiterId FK
+    string teamId FK
+    string orderId FK
+    string batchId FK
+    string recruiter "Snapshot/text"
+    string team "Snapshot/text"
+  }
+  FACTORY {
+    string id PK
+    string code UK
+    string name UK
+    boolean isActive
+  }
+  RECRUITMENT_ORDER {
+    string id PK
+    string code UK
+    string name
+    string factory "Tên nhà máy, text"
+    string factoryId FK "Nullable"
+    boolean isActive
+  }
+  RECRUITMENT_BATCH {
+    string id PK
+    string orderId FK
+    string code
+    string name
+    string startDate
+    string endDate
+  }
+  RECRUITMENT_TEAM {
+    string id PK
+    string code UK
+    string name
+    boolean isActive
+  }
+  RECRUITER {
+    string id PK
+    string code UK
+    string name
+    string teamId FK "Nullable"
+    boolean isActive
+  }
+  LABOR_STATUS {
+    string id PK
+    string name UK
+    string category
+    boolean isActive
+  }
+  BANK_ACCOUNT {
+    string id PK
+    string workerId FK
+    string bankName
+    string accountNumber
+    string accountHolderName
+    string verificationStatus
+  }
+  BONUS_RECORD {
+    string id PK
+    string workerId FK
+    string assignmentId FK "Nullable"
+    string company "Text snapshot"
+    string month
+    string workerCode "Text snapshot"
+    float bonus1
+    float bonus2
+    float bonus3
+    float bonus4
+    float bonus5
+    float bonus6
+    float bonus7
+    float totalBonus
+    string accountNumber "Snapshot"
+    string bankName "Snapshot"
+    string status
+  }
+  BONUS_POLICY {
+    string id PK
+    string name
+    string factory "Text"
+    string orderId FK "Nullable"
+    string rulesJson
+    boolean isActive
+  }
+  POLICY_ENROLLMENT {
+    string id PK
+    string assignmentId FK
+    string policyId FK
+    string policyName "Snapshot"
+    string factory "Snapshot"
+    string rulesSnapshot
+    string effectiveFrom
+    string effectiveTo
+  }
+  REWARD_STAGE {
+    string id PK
+    string enrollmentId FK
+    int step
+    string label
+    float thresholdDays
+    int amount
+    boolean eligible
+    boolean achieved
+  }
+  REWARD_PAYMENT {
+    string id PK
+    string stageId FK
+    int amount
+    string paidOn
+    string reference UK
+    string confirmedBy
+  }
+  ASSIGNMENT_EVENT {
+    string id PK
+    string assignmentId FK
+    string occurredOn
+    string fromStatus "Text"
+    string toStatus "Text"
+    string operator
+  }
+  AUDIT_LOG {
+    string id PK
+    string module
+    string action
+    string operator
+    string details
+    datetime createdAt
+  }
+  IMPORT_PROFILE {
+    string id PK
+    string name UK
+    string sheetName
+    string mappingJson
+    string syncDirection
+    boolean isActive
+  }
+
+  WORKER ||--o{ WORK_ASSIGNMENT : has
+  WORKER ||--o{ BANK_ACCOUNT : owns
+  WORKER ||--o{ BONUS_RECORD : receives
+  WORK_ASSIGNMENT o|--o{ BONUS_RECORD : links_optional
+  FACTORY o|--o{ RECRUITMENT_ORDER : has_orders
+  RECRUITMENT_ORDER ||--o{ RECRUITMENT_BATCH : contains
+  RECRUITMENT_ORDER o|--o{ WORK_ASSIGNMENT : assigned_to
+  RECRUITMENT_BATCH o|--o{ WORK_ASSIGNMENT : assigned_to
+  RECRUITMENT_ORDER o|--o{ BONUS_POLICY : scopes
+  RECRUITMENT_TEAM o|--o{ RECRUITER : groups
+  RECRUITER o|--o{ WORK_ASSIGNMENT : assigned_recruiter
+  RECRUITMENT_TEAM o|--o{ WORK_ASSIGNMENT : assigned_team
+  WORK_ASSIGNMENT ||--o{ ASSIGNMENT_EVENT : logs
+  WORK_ASSIGNMENT ||--o{ POLICY_ENROLLMENT : enrolls
+  BONUS_POLICY ||--o{ POLICY_ENROLLMENT : applies
+  POLICY_ENROLLMENT ||--o{ REWARD_STAGE : defines
+  REWARD_STAGE ||--o{ REWARD_PAYMENT : pays
