@@ -69,6 +69,7 @@ const server = spawn(
       LOCAL_BUILD_DIR:
         process.env.QA_PRODUCTION === "1" ? ".next-evolution" : ".next-qa",
       DATABASE_URL: "file:" + db,
+      LOCAL_IMPORT_SOURCE_DIR: path.join(root, "source-imports"),
     },
     stdio: ["ignore", "pipe", "pipe"],
   },
@@ -420,6 +421,42 @@ async function json(url, method, data, cookie, expected = 200) {
   assert.equal(imported.summary.successCount, 1);
   workers = await json("/api/workers", "GET", undefined, "");
   assert.equal(workers.data.length, 3);
+  const importedSourceRows = await json(
+    "/api/worker-source-rows?search=QA IMPORT",
+    "GET",
+    undefined,
+    "",
+  );
+  const importedSourceRow = importedSourceRows.data.find(
+    (row) => row.isSourceRow && row.idCard === "000000000003",
+  );
+  assert.ok(importedSourceRow?.sourceId);
+  await req(
+    "/api/workers",
+    "DELETE",
+    {
+      workerId: importedSourceRow.workerId,
+      assignmentId: importedSourceRow.assignments?.[0]?.id,
+      idCard: importedSourceRow.idCard,
+      isSourceRow: true,
+      sourceId: importedSourceRow.sourceId,
+      sourceRow: importedSourceRow.sourceRow,
+    },
+    "",
+  );
+  workers = await json("/api/workers?search=000000000003", "GET", undefined, "");
+  assert.equal(workers.data.length, 1, "deleting a source row must keep its normalized worker");
+  assert.equal(workers.data[0].assignments.length, 1);
+  const sourceRowsAfterDelete = await json(
+    "/api/worker-source-rows?search=QA IMPORT",
+    "GET",
+    undefined,
+    "",
+  );
+  assert.equal(
+    sourceRowsAfterDelete.data.some((row) => row.sourceId === importedSourceRow.sourceId && row.sourceRow === importedSourceRow.sourceRow),
+    false,
+  );
 
   const factory = (
     await json(

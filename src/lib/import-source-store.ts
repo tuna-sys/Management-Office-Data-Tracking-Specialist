@@ -2,7 +2,7 @@ import {splitImportReview} from '@/lib/import-review';
 import {mkdir,writeFile,rename,readdir,readFile,unlink,stat} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import path from 'node:path';
-const directory=path.resolve('.local/source-imports');
+const directory=path.resolve(process.env.LOCAL_IMPORT_SOURCE_DIR || '.local/source-imports');
 const memoryCache=new Map<string,{mtimeMs:number;data:any}>();
 
 export async function saveImportSource(type:string,file:string,sheet:string,rows:any[],warnings:string[],errors:string[]){

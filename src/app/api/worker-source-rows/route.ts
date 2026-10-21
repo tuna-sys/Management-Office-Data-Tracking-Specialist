@@ -214,6 +214,7 @@ export async function GET(request: NextRequest) {
 
         return {
           id: `source-${s.id}-${r.row}`,
+          sourceId: s.id,
           sourceValues: values,
           sourceWarnings: rev.warnings.map((i) => i.message),
           sourceDuplicates: rev.duplicates.map((i) => i.message),

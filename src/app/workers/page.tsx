@@ -427,7 +427,11 @@ export default function WorkersPage() {
       });
       const json = await res.json();
       if (json.success) {
-        message.success("Đã xóa hồ sơ thành công");
+        message.success(
+          record.isSourceRow
+            ? "Đã xóa dòng nguồn; hồ sơ trong hệ thống được giữ nguyên"
+            : "Đã xóa hồ sơ thành công",
+        );
         fetchWorkers();
       } else {
         message.error(json.message || "Không thể xóa hồ sơ");
