@@ -1,3 +1,5 @@
+import { editableReviewFields, editReviewToken } from "@/lib/duplicate-edit-review";
+import { compareDuplicateSides, comparisonState, displayReviewMonth } from "@/lib/duplicate-comparison";
 import { reviewFields, reviewToken, resolveReview } from "@/lib/duplicate-resolution";
 import { sourceConflicts, assertSourceCompatible, fillMissing, assertSourceCard, assertReviewProfile, assertIdentity, assertDailyInterview, sameInterviewDay, sameFactory, resolveBonusAssignment, isActiveAssignment } from "@/lib/duplicate-check";
 import { guard, identity } from "@/lib/local-request";
@@ -82,6 +84,7 @@ export async function GET(request: NextRequest) {
     // =========================================================================
     const mergeInfoAlerts: any[] = [];
     const crossCompanyAlerts: any[] = [];
+    let unchangedCount = 0;
 
     for (const source of sources) {
       for (const row of source.rows || []) {
@@ -141,7 +144,7 @@ export async function GET(request: NextRequest) {
         const dayAssignments = (matchedWorker?.assignments || []).filter((a: any) => sameInterviewDay(a, { interviewDate: rawPv }));
         const matchedAssignment = dayAssignments[0] || null;
         const conflicts = sourceConflicts(matchedWorker, v);
-        const isConflict = conflicts.length > 0 || review.duplicates.some((d: any) => d.kind === "IDENTITY_MISMATCH");
+        let isConflict = conflicts.length > 0 || review.duplicates.some((d: any) => d.kind === "IDENTITY_MISMATCH");
 
         const isCrossCompany = review.duplicates.some(
           (d) => d.kind === "CROSS_COMPANY" || /CHƯA BÁO NGHỈ/i.test(d.message),
@@ -225,21 +228,27 @@ export async function GET(request: NextRequest) {
           continue;
         }
 
-        const matchedBonus = matchedWorker
-          ? (matchedWorker.bonusRecords || []).find(
-              (b: any) =>
-                !rawCompany || matchFactory(b.company || "", rawCompany),
-            ) ||
-            matchedWorker.bonusRecords?.[0] ||
-            null
+        let parsedBonus: ReturnType<typeof parseBonusImportRow> | null = null;
+        if (source.type === "DS_THUONG") {
+          try { parsedBonus = parseBonusImportRow(v); } catch { /* Keep unreadable rows visible. */ }
+        }
+        // Never compare rewards belonging to a different interview or period.
+        const matchedBonus = matchedWorker && parsedBonus && matchedAssignment
+          ? (matchedWorker.bonusRecords || []).find((b: any) =>
+              b.assignmentId === matchedAssignment.id && b.month === parsedBonus!.month &&
+              sameFactory(b.company || "", parsedBonus!.company)) || null
           : null;
-
+        let storedRewards: unknown[] = [];
+        try {
+          const rewards = JSON.parse(matchedBonus?.note || "{}").rewards;
+          if (Array.isArray(rewards)) storedRewards = rewards;
+        } catch { /* Legacy notes may not contain source rewards. */ }
         const dbBonusDetails = matchedBonus
           ? [1, 2, 3, 4, 5, 6, 7]
               .map((n) => {
-                const val = matchedBonus[`bonus${n}`];
+                const val = matchedBonus[`bonus${n}`] || storedRewards[n - 1];
                 return val
-                  ? `L${n}: ${Number(val).toLocaleString("vi-VN")} đ`
+                  ? `L${n}: ${typeof val === "number" ? val.toLocaleString("vi-VN") + " đ" : String(val)}`
                   : null;
               })
               .filter(Boolean)
@@ -259,7 +268,7 @@ export async function GET(request: NextRequest) {
           .map((d) => d.message.replace(/^Dòng \d+:\s*/, ""))
           .join("; ");
 
-        mergeInfoAlerts.push({
+        const alert: any = {
           id: alertId,
           category: isConflict ? "INTERVIEW_CONFLICT" : "MERGE_INFO",
           type: isConflict ? "XUNG ĐỘT LƯỢT TUYỂN — CẦN XÁC MINH" : "BỔ SUNG THÔNG TIN CÒN TRỐNG",
@@ -352,12 +361,74 @@ export async function GET(request: NextRequest) {
             status: rawStatus || "—",
             leaveDate: formatExcelDate(v["Ngày NH"] || v["Ngày nghỉ"] || "") || "—",
             recruiter: rawRecruiter || "—",
-            month: rawMonth || "—",
+            month: source.type === "DS_THUONG" ? rawMonth || "—" : "—",
             totalBonus: rawTotalBonus || "—",
             bonusDetails: rawBonusDetails || "—",
             bankInfo: rawBank || "—",
           },
-        });
+        };
+        const extraRows: Array<{label: string; leftVal: any; rightVal: any}> = [];
+        if (source.type === "DS_TONG") {
+          try {
+            const parsed = parseImportRow(v, true);
+            // Mã NV is already compared against the matched interview, not a historical worker-level code.
+            const extraWorker = { idCardDate: "Ngày cấp", idCardPlace: "Nơi cấp", source: "Nguồn" };
+            const extraAssignment = {
+              contractType: "Loại hợp đồng", leaveReason: "Lý do nghỉ", shuttleBusKtx: "Đón xe / KTX",
+              startDate: "Ngày bắt đầu làm", passedDate: "Ngày đỗ", interviewResult: "Kết quả phỏng vấn",
+              team: "Đội nhóm", expectedTrainingDate: "Ngày đào tạo dự kiến", expectedTrainingStatus: "Tình trạng đào tạo",
+              standardTrainingDate: "Ngày đào tạo chuẩn", onboardingMonth: "Tháng nhận việc", orderId: "Đơn hàng", batchId: "Đợt tuyển",
+            };
+            for (const [labels, current, incoming] of [[extraWorker, matchedWorker, parsed.worker], [extraAssignment, matchedAssignment, parsed.assignment]] as const) {
+              for (const [key, label] of Object.entries(labels)) {
+                const value = (incoming as any)[key];
+                if (value !== undefined && String(value).trim() !== "")
+                  extraRows.push({ label, leftVal: current?.[key] || "—", rightVal: value });
+              }
+            }
+          } catch {
+            // Never hide a row whose full import payload could not be checked.
+            conflicts.push("Dữ liệu nguồn cần kiểm tra trước khi xử lý");
+          }
+        } else if (source.type === "DS_THUONG") {
+          if (!parsedBonus) conflicts.push("Dữ liệu thưởng cần kiểm tra trước khi xử lý");
+          if (parsedBonus?.policy) extraRows.push({ label: "Chính sách thưởng", leftVal: matchedBonus?.policy || "—", rightVal: parsedBonus.policy });
+        }
+        const comparison = compareDuplicateSides(alert.leftSide, alert.rightSide, extraRows);
+        const allConflicts = [...new Set([...conflicts, ...comparison.conflicts])];
+        isConflict = isConflict || allConflicts.length > 0;
+        // Missing profiles, interviews or reward records must remain reviewable.
+        const hasTarget = !!matchedWorker && !!matchedAssignment &&
+          (source.type !== "DS_THUONG" || !!matchedBonus);
+        if (!isConflict && !comparison.additions.length && hasTarget) {
+          unchangedCount++;
+          continue;
+        }
+        alert.category = isConflict ? "INTERVIEW_CONFLICT" : "MERGE_INFO";
+        alert.type = isConflict ? "THÔNG TIN KHÁC NHAU — CẦN XÁC MINH" : "BỔ SUNG THÔNG TIN CÒN TRỐNG";
+        alert.severity = isConflict ? "CRITICAL" : "WARNING";
+        alert.requiresDecision = isConflict;
+        alert.conflicts = allConflicts;
+        alert.extraRows = extraRows;
+        // Existing approval supports leaveReason and reward policy, but not these extra profile fields.
+        // Keep them reviewable without silently discarding a change that approval cannot apply.
+        const unsupportedChanges = extraRows.filter(r =>
+          !["Lý do nghỉ", "Chính sách thưởng"].includes(r.label) &&
+          Object.values(comparisonState(r.label, r.leftVal, r.rightVal, alert.leftSide, alert.rightSide)).some(Boolean));
+        if (unsupportedChanges.length) {
+          alert.canApprove = false;
+          alert.blockedApprovalReason = "Cần đối chiếu và chỉnh tại hồ sơ trước khi duyệt: " + unsupportedChanges.map(r => r.label).join(", ");
+        }
+        alert.leftSide.month = displayReviewMonth(alert.leftSide.month, alert.leftSide.interviewDate);
+        alert.rightSide.month = displayReviewMonth(alert.rightSide.month, alert.rightSide.interviewDate);
+        alert.actionRequired = isConflict
+          ? "Kiểm tra thông tin khác nhau trước khi duyệt dữ liệu mới; lịch sử trước/sau được lưu lại."
+          : "Có thông tin bổ sung; kiểm tra trước khi duyệt.";
+        if (matchedWorker && matchedAssignment && dayAssignments.length === 1) {
+          alert.editableFields = editableReviewFields(matchedWorker, matchedAssignment, v, source.type);
+          alert.editReviewToken = editReviewToken(matchedWorker, matchedAssignment, v, source.type);
+        }
+        mergeInfoAlerts.push(alert);
       }
     }
 
@@ -550,6 +621,7 @@ export async function GET(request: NextRequest) {
         mergeInfoCount: mergeInfoAlerts.filter(a => a.category === "MERGE_INFO").length,
         conflictCount: mergeInfoAlerts.filter(a => a.category === "INTERVIEW_CONFLICT").length,
         crossCompanyCount: crossCompanyAlerts.length,
+        unchangedCount,
       },
       data: allAlerts,
     });
@@ -598,7 +670,7 @@ export async function POST(request: NextRequest) {
       const decision=await prisma.$transaction(tx=>resolveReview(tx,source,incoming,body,actor.username));
       if(decision.removeSource) await resolveImportSourceRow(String(sourceId),Number(row),'DELETE');
       else if(decision.correctedInterviewDate) await correctImportSourceDate(String(sourceId),Number(row),decision.correctedInterviewDate);
-      return NextResponse.json({success:true,message:decision.message,data:{sourceRemoved:decision.removeSource}});
+      return NextResponse.json({success:true,message:decision.message,data:{sourceRemoved:decision.removeSource,...("previewFields" in decision ? {previewFields:decision.previewFields,changeCount:decision.changeCount} : {})}});
     }
 
     if (sourceId && row != null) {
