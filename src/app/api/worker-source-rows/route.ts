@@ -38,7 +38,12 @@ export async function GET(request: NextRequest) {
         include: {
           assignments: {
             include: {
-              events: { where: { note: { startsWith: "Import Excel — source:" } }, orderBy: { createdAt: "desc" }, take: 1, select: { note: true } },
+              events: {
+                where: { note: { startsWith: "Import Excel — source:" } },
+                orderBy: { createdAt: "desc" },
+                take: 1,
+                select: { note: true },
+              },
               bonusRecords: { select: { status: true, approvedAt: true } },
             },
           },
@@ -174,17 +179,33 @@ export async function GET(request: NextRequest) {
         const matchedAssignment =
           worker?.assignments?.find((a: any) => {
             if (!matchFactory(a.interviewFactory || "", factory)) return false;
-            if (pvDate && a.interviewDate && dateKey(a.interviewDate) !== dateKey(pvDate)) return false;
-            if (code && a.employeeCode && String(a.employeeCode).trim() !== code.trim()) return false;
+            if (
+              pvDate &&
+              a.interviewDate &&
+              dateKey(a.interviewDate) !== dateKey(pvDate)
+            )
+              return false;
+            if (
+              code &&
+              a.employeeCode &&
+              String(a.employeeCode).trim() !== code.trim()
+            )
+              return false;
             return true;
           }) ||
           worker?.assignments?.find((a: any) => {
             if (!matchFactory(a.interviewFactory || "", factory)) return false;
-            if (pvDate && a.interviewDate && dateKey(a.interviewDate) === dateKey(pvDate)) return true;
+            if (
+              pvDate &&
+              a.interviewDate &&
+              dateKey(a.interviewDate) === dateKey(pvDate)
+            )
+              return true;
             return false;
           });
 
-        const isDirectApproved = Boolean(r.isApproved) || resolvedIds.has(alertId);
+        const isDirectApproved =
+          Boolean(r.isApproved) || resolvedIds.has(alertId);
         const isExplicitLogRow = parsedApproveLogs.some(
           (l) =>
             l.rowNum === Number(r.row) &&
@@ -193,7 +214,9 @@ export async function GET(request: NextRequest) {
         );
         const isAssignmentApproved = Boolean(
           matchedAssignment?.events?.some((e: any) =>
-            /duyệt.*(trùng|bổ sung|ghi đè|chính thức)|duyệt cảnh báo/i.test(e.note || ""),
+            /duyệt.*(trùng|bổ sung|ghi đè|chính thức)|duyệt cảnh báo/i.test(
+              e.note || "",
+            ),
           ) ||
           matchedAssignment?.bonusRecords?.some(
             (b: any) => b.status === "APPROVED" || Boolean(b.approvedAt),
@@ -236,33 +259,57 @@ export async function GET(request: NextRequest) {
     const pendingDuplicateRows = sourceRows.filter(
       (r) => r.sourceDuplicates.length > 0,
     );
-    const unmergedSourceRows = sourceRows.filter((r) => !r.sourceDuplicates.length);
+    const unmergedSourceRows = sourceRows.filter(
+      (r) => !r.sourceDuplicates.length,
+    );
 
     const scoreCandidateRow = (row: any): number => {
       let score = 0;
       if (row.isApproved) score += 1000;
-      const status = String(row.sourceValues?.["Tình trạng"] || "").toLowerCase().trim();
-      const trainStatus = String(row.sourceValues?.["Tình trạng đào tạo"] || "").toLowerCase().trim();
-      const code = String(row.sourceValues?.["Mã NV"] || "").trim().toLowerCase();
+      const status = String(row.sourceValues?.["Tình trạng"] || "")
+        .toLowerCase()
+        .trim();
+      const trainStatus = String(row.sourceValues?.["Tình trạng đào tạo"] || "")
+        .toLowerCase()
+        .trim();
+      const code = String(row.sourceValues?.["Mã NV"] || "")
+        .trim()
+        .toLowerCase();
 
       // Active / successful recruitment
       if (
-        ["nh", "lv", "đang làm việc", "làm việc", "ok", "hết phí", "đi làm"].some(
-          (s) => status.includes(s) || trainStatus.includes(s),
-        )
+        [
+          "nh",
+          "lv",
+          "đang làm việc",
+          "làm việc",
+          "ok",
+          "hết phí",
+          "đi làm",
+        ].some((s) => status.includes(s) || trainStatus.includes(s))
       ) {
         score += 500;
       }
       // Negative / dropped / failed
       if (
-        ["bỏ đt", "bỏ đào tạo", "trượt", "k đạt", "không đạt", "hủy", "ko đi làm", "nghỉ việc"].some(
-          (s) => status.includes(s) || trainStatus.includes(s),
-        )
+        [
+          "bỏ đt",
+          "bỏ đào tạo",
+          "trượt",
+          "k đạt",
+          "không đạt",
+          "hủy",
+          "ko đi làm",
+          "nghỉ việc",
+        ].some((s) => status.includes(s) || trainStatus.includes(s))
       ) {
         score -= 300;
       }
       // Real employee code
-      if (code && !["bỏ đt", "chưa có mã", "chưa có", "—", "-", ""].includes(code)) {
+      if (
+        code &&
+        !["bỏ đt", "chưa có mã", "chưa có", "—", "-", ""].includes(code)
+      ) {
         score += 200;
       }
       // Later interview date preferred
@@ -284,15 +331,17 @@ export async function GET(request: NextRequest) {
         mainSourceRows.push(r);
         continue;
       }
-      const factory = cleanFactory(
-        r.sourceValues?.["Nhà máy PV"] || "",
-      );
+      const factory = cleanFactory(r.sourceValues?.["Nhà máy PV"] || "");
       const m =
         dateKey(String(r.sourceValues?.["Ngày PV"] || ""))?.slice(0, 7) ||
         dateKey(String(r.sourceValues?.["Ngày NH"] || ""))?.slice(0, 7) ||
-        String(r.sourceValues?.["Tháng nhận việc"] || "").trim().toLowerCase();
+        String(r.sourceValues?.["Tháng nhận việc"] || "")
+          .trim()
+          .toLowerCase();
       const day = dateKey(String(r.sourceValues?.["Ngày PV"] || ""));
-      const groupKey = day ? `${card}|${day}` : `${card}|${factory}|${m}|${r.id}`;
+      const groupKey = day
+        ? `${card}|${day}`
+        : `${card}|${factory}|${m}|${r.id}`;
 
       let list = groupedByWorkerFactoryMonth.get(groupKey);
       if (!list) {
@@ -333,23 +382,36 @@ export async function GET(request: NextRequest) {
     // The recruitment identity is CCCD + interview day; company/code can change after review.
     const sourceKey = (card: string, v: any) => {
       const day = dateKey(String(v["Ngày PV"] || ""));
-      return day && card ? [card.replace(/\s+/g, ""), day].join("|") :
-        [card, String(v["Nhà máy PV"] || ""), String(v["Ngày PV"] || ""), String(v["Mã NV"] || "")].join("|");
+      return day && card
+        ? [card.replace(/\s+/g, ""), day].join("|")
+        : [
+            card,
+            String(v["Nhà máy PV"] || ""),
+            String(v["Ngày PV"] || ""),
+            String(v["Mã NV"] || ""),
+          ].join("|");
     };
     const visibleRecruitments = new Set<string>();
-    const currentSourceRows = mainSourceRows.map(r => {
-      const worker = people.get(r.idCard);
-      const day = dateKey(String(r.sourceValues["Ngày PV"] || ""));
-      const assignment = day ? worker?.assignments.find(a => dateKey(a.interviewDate) === day) : null;
-      if (!worker || !assignment) return r;
-      return { ...r, sourceValues: workerSourceView(worker, assignment, true).values,
-        assignments: [assignmentValues(assignment)] };
-    }).filter(r => {
-      const key = sourceKey(r.idCard, r.sourceValues);
-      if (visibleRecruitments.has(key)) return false;
-      visibleRecruitments.add(key);
-      return true;
-    });
+    const currentSourceRows = mainSourceRows
+      .map((r) => {
+        const worker = people.get(r.idCard);
+        const day = dateKey(String(r.sourceValues["Ngày PV"] || ""));
+        const assignment = day
+          ? worker?.assignments.find((a) => dateKey(a.interviewDate) === day)
+          : null;
+        if (!worker || !assignment) return r;
+        return {
+          ...r,
+          sourceValues: workerSourceView(worker, assignment, true).values,
+          assignments: [assignmentValues(assignment)],
+        };
+      })
+      .filter((r) => {
+        const key = sourceKey(r.idCard, r.sourceValues);
+        if (visibleRecruitments.has(key)) return false;
+        visibleRecruitments.add(key);
+        return true;
+      });
 
     const sourcedKeys = new Set(
       currentSourceRows.map((r) => sourceKey(r.idCard, r.sourceValues)),
@@ -361,7 +423,9 @@ export async function GET(request: NextRequest) {
           const source = workerSourceView(w, a, true);
           const rev = splitImportReview(source.warnings);
           const hasApprovalEvent = a.events?.some((e: any) =>
-            /duyệt.*(trùng|bổ sung|ghi đè|chính thức)|duyệt cảnh báo/i.test(e.note || ""),
+            /duyệt.*(trùng|bổ sung|ghi đè|chính thức)|duyệt cảnh báo/i.test(
+              e.note || "",
+            ),
           );
           const hasApprovedBonus = a.bonusRecords?.some(
             (b: any) => b.status === "APPROVED" || Boolean(b.approvedAt),
@@ -436,9 +500,7 @@ export async function GET(request: NextRequest) {
     for (const r of unmergedSourceRows) {
       const card = r.idCard;
       if (!card) continue;
-      const fac = cleanFactory(
-        r.sourceValues?.["Nhà máy PV"] || "",
-      );
+      const fac = cleanFactory(r.sourceValues?.["Nhà máy PV"] || "");
       const d =
         dateKey(String(r.sourceValues?.["Ngày PV"] || "")) ||
         String(r.sourceValues?.["Ngày PV"] || "");
@@ -463,19 +525,24 @@ export async function GET(request: NextRequest) {
     const rows = [...currentSourceRows, ...canonical].map((r) => {
       const candidateBonuses = bonusRowsByCccd.get(r.idCard);
       let rewardSource = candidateBonuses
-        ? candidateBonuses.filter(
-            (b) =>
-              matchFactory(
-                String(b.values["Công ty"] || ""),
-                String(r.sourceValues["Nhà máy PV"] || ""),
-              ),
+        ? candidateBonuses.filter((b) =>
+            matchFactory(
+              String(b.values["Công ty"] || ""),
+              String(r.sourceValues["Nhà máy PV"] || ""),
+            ),
           )
         : [];
       if (rewardSource.length > 1) {
-        const rowCode = String(r.sourceValues?.["Mã NV"] || "").trim().toLowerCase();
+        const rowCode = String(r.sourceValues?.["Mã NV"] || "")
+          .trim()
+          .toLowerCase();
         const rowDate = dateKey(String(r.sourceValues?.["Ngày PV"] || ""));
         const exactMatches = rewardSource.filter((b) => {
-          const bCode = String(b.values?.["Mã nhân viên"] || b.values?.["Mã NV"] || "").trim().toLowerCase();
+          const bCode = String(
+            b.values?.["Mã nhân viên"] || b.values?.["Mã NV"] || "",
+          )
+            .trim()
+            .toLowerCase();
           const bDate = dateKey(String(b.values?.["Ngày PV"] || ""));
           if (rowCode && bCode && rowCode === bCode) return true;
           if (rowDate && bDate && rowDate === bDate) return true;
@@ -648,11 +715,22 @@ export async function GET(request: NextRequest) {
     const rawPage = Number(p.get("page"));
     const rawPageSize = Number(p.get("pageSize"));
     const paginated = p.has("page") || p.has("pageSize");
-    const pageSize = Number.isFinite(rawPageSize) && rawPageSize > 0 ? Math.min(200, Math.floor(rawPageSize)) : 20;
-    const page = Number.isFinite(rawPage) && rawPage > 0 ? Math.min(Math.floor(rawPage), Math.max(1, Math.ceil(filtered.length / pageSize))) : 1;
+    const pageSize =
+      Number.isFinite(rawPageSize) && rawPageSize > 0
+        ? Math.min(200, Math.floor(rawPageSize))
+        : 20;
+    const page =
+      Number.isFinite(rawPage) && rawPage > 0
+        ? Math.min(
+            Math.floor(rawPage),
+            Math.max(1, Math.ceil(filtered.length / pageSize)),
+          )
+        : 1;
     return NextResponse.json({
       success: true,
-      data: paginated ? filtered.slice((page - 1) * pageSize, page * pageSize) : filtered,
+      data: paginated
+        ? filtered.slice((page - 1) * pageSize, page * pageSize)
+        : filtered,
       filteredTotal: filtered.length,
       page,
       pageSize,
@@ -669,7 +747,10 @@ export async function GET(request: NextRequest) {
       duplicateRows: rows.filter((r) => r.sourceDuplicates.length).length,
     });
   } catch (error) {
-    console.error("worker-source-rows failed", error instanceof Error ? error.message : "Unknown error");
+    console.error(
+      "worker-source-rows failed",
+      error instanceof Error ? error.message : "Unknown error",
+    );
     return NextResponse.json(
       { success: false, message: "Không tải được dữ liệu nguồn" },
       { status: 500 },
