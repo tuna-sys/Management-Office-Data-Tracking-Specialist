@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import type { ColumnsType } from "antd/es/table";
 import { formatDate } from "@/lib/date-format";
+import { comparisonState, displayReviewMonth, isEmptyComparison } from "@/lib/duplicate-comparison";
 import { sameFactory, sameInterviewDay } from "@/lib/duplicate-check";
 
 interface SideData {
@@ -55,9 +56,11 @@ interface DuplicateAlert {
   id: string;
   category: "MERGE_INFO" | "CROSS_COMPANY" | "INTERVIEW_CONFLICT";
   canApprove?: boolean;
+  blockedApprovalReason?: string;
   conflicts?: string[];
   targetAssignmentId?: string | null;
   reviewToken?: string;
+  extraRows?: Array<{label: string; leftVal: string; rightVal: string}>;
   reviewFields?: Array<{key:string;label:string;before:any;after:any}>;
   type: string;
   severity: "CRITICAL" | "HIGH" | "WARNING" | "INFO";
@@ -85,16 +88,22 @@ interface DuplicateAlert {
   rightSide?: SideData;
 }
 
+function displayBonusMonth(side: SideData): string {
+  return displayReviewMonth(side.month, side.interviewDate);
+}
+
 export default function DuplicatesPage() {
   const [duplicates, setDuplicates] = useState<DuplicateAlert[]>([]);
   const [counts, setCounts] = useState<{
     mergeInfoCount: number;
     crossCompanyCount: number;
     conflictCount: number;
+    unchangedCount: number;
   }>({
     mergeInfoCount: 0,
     crossCompanyCount: 0,
     conflictCount: 0,
+    unchangedCount: 0,
   });
   const [loading, setLoading] = useState(false);
   const [typeFilter, setTypeFilter] = useState<string>("ALL");
@@ -117,6 +126,7 @@ export default function DuplicatesPage() {
             mergeInfoCount: json.counts.mergeInfoCount || 0,
             crossCompanyCount: json.counts.crossCompanyCount || 0,
             conflictCount: json.counts.conflictCount || 0,
+            unchangedCount: json.counts.unchangedCount || 0,
           });
         }
       } else {
@@ -452,6 +462,7 @@ export default function DuplicatesPage() {
           <div className="text-xs text-slate-500 font-medium">
             Hiển thị <strong>{filteredDuplicates.length}</strong> /{" "}
             {duplicates.length} trường hợp
+            {counts.unchangedCount > 0 && <span className="block text-xs text-slate-500 mt-1">Đã ẩn {counts.unchangedCount.toLocaleString("vi-VN")} dòng không có thay đổi; giữ nguyên dữ liệu nguồn.</span>}
           </div>
         </div>
       </Card>
@@ -491,7 +502,7 @@ export default function DuplicatesPage() {
           <div className="flex items-center gap-2 text-slate-900">
             <ArrowRightLeft className="w-5 h-5 text-blue-600" />
             <span>
-              {inspectItem?.category === "INTERVIEW_CONFLICT" ? "Xung đột lượt tuyển — cần xác minh" : inspectItem?.category === "MERGE_INFO"
+              {inspectItem?.category === "INTERVIEW_CONFLICT" ? "Thông tin khác nhau — cần xác minh" : inspectItem?.category === "MERGE_INFO"
                 ? "Kiểm tra bổ sung thông tin còn trống"
                 : "Kiểm tra công nhân đang làm công ty này nhưng PV / đi làm công ty khác"}
             </span>
@@ -503,7 +514,7 @@ export default function DuplicatesPage() {
               <Button onClick={()=>setInspectItem(null)}>Đóng</Button>
               <div className="flex gap-2">
                 <Popconfirm title="Xóa dòng nhập mới khỏi hàng chờ?" description="Giữ nguyên hồ sơ và lịch sử đang có." onConfirm={()=>handleAction(inspectItem,"DELETE")}><Button danger loading={actionBusy===`${inspectItem.id}-DELETE`}>Xóa</Button></Popconfirm>
-                <Popconfirm title="Duyệt dữ liệu mới?" description="Lưu lịch sử trước/sau và người duyệt rồi áp dụng dữ liệu mới." onConfirm={()=>handleAction(inspectItem,"APPROVE")}><Button type="primary" loading={actionBusy===`${inspectItem.id}-APPROVE`}>Duyệt</Button></Popconfirm>
+                <Popconfirm title="Duyệt dữ liệu mới?" description="Lưu lịch sử trước/sau và người duyệt rồi áp dụng dữ liệu mới." onConfirm={()=>handleAction(inspectItem,"APPROVE")}><Button type="primary" disabled={inspectItem.canApprove === false} title={inspectItem.blockedApprovalReason} loading={actionBusy===`${inspectItem.id}-APPROVE`}>Duyệt</Button></Popconfirm>
               </div>
             </div>
           ) : inspectItem ? (
@@ -551,7 +562,7 @@ export default function DuplicatesPage() {
                     icon={<Check className="w-4 h-4" />}
                     className="bg-emerald-600 hover:bg-emerald-700"
                   >
-                    {inspectItem.category === "INTERVIEW_CONFLICT" ? "Xung đột lượt tuyển — giữ nguyên hai phía" : inspectItem.category === "MERGE_INFO"
+                    {inspectItem.category === "INTERVIEW_CONFLICT" ? "Thông tin khác nhau — cần xác minh" : inspectItem.category === "MERGE_INFO"
                       ? "Chỉ bổ sung ô trống"
                       : "Duyệt & Chuyển công ty cũ sang Đã nghỉ"}
                   </Button>
@@ -574,12 +585,13 @@ export default function DuplicatesPage() {
               <div className="font-bold text-sm flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
                 <span>
-                  {inspectItem.category === "INTERVIEW_CONFLICT" ? "Xung đột lượt tuyển — cần xác minh" : inspectItem.category === "MERGE_INFO"
+                  {inspectItem.category === "INTERVIEW_CONFLICT" ? "Thông tin khác nhau — cần xác minh" : inspectItem.category === "MERGE_INFO"
                     ? "Trường hợp 1: Bổ sung thông tin còn trống"
                     : "Trường hợp 2: Đang làm công ty này nhưng PV / đi làm ở công ty khác"}
                 </span>
               </div>
               <div>{inspectItem.warning}</div>
+              {inspectItem.blockedApprovalReason && <Alert type="info" showIcon message={inspectItem.blockedApprovalReason} />}
               {inspectItem.category === "INTERVIEW_CONFLICT" && <Alert type="warning" showIcon message="Cần quyết định của người duyệt" description={(inspectItem.conflicts || []).join("; ") + ". Bấm Duyệt để áp dụng dữ liệu mới và lưu lịch sử trước/sau; bấm Xóa để bỏ dòng nhập mới."} />}
               <div className="font-semibold pt-0.5">
                 {inspectItem.category === "INTERVIEW_CONFLICT" ? "Duyệt: áp dụng dữ liệu mới, lưu lịch sử trước/sau và người duyệt. Xóa: chỉ bỏ dòng nhập mới, giữ hồ sơ hiện có." : <>👉 Khi bấm &ldquo;Duyệt&rdquo;:{" "}
@@ -679,19 +691,16 @@ export default function DuplicatesPage() {
               ];
 
               if (
-                inspectItem.category === "MERGE_INFO" &&
-                (left.totalBonus !== "—" ||
-                  right.totalBonus !== "—" ||
-                  left.bonusDetails !== "—" ||
-                  right.bonusDetails !== "—" ||
-                  left.bankInfo !== "—" ||
-                  right.bankInfo !== "—")
+                inspectItem.importType === "DS_THUONG" ||
+                [left.month, right.month, left.totalBonus, right.totalBonus,
+                  left.bonusDetails, right.bonusDetails, left.bankInfo, right.bankInfo]
+                  .some(value => !isEmptyComparison(value))
               ) {
                 baseRows.push(
                   {
                     label: "Tháng thưởng",
-                    leftVal: left.month || "—",
-                    rightVal: right.month || "—",
+                    leftVal: displayBonusMonth(left),
+                    rightVal: displayBonusMonth(right),
                   },
                   {
                     label: "Tổng thưởng",
@@ -710,6 +719,8 @@ export default function DuplicatesPage() {
                   },
                 );
               }
+
+              baseRows.push(...(inspectItem.extraRows || []));
 
               return (
                 <div className="border border-slate-200 rounded-xl overflow-hidden">
@@ -737,15 +748,9 @@ export default function DuplicatesPage() {
                         differentCompanies && r.label === "Mã nhân viên";
                       const dateConflict =
                         sameDayCompanyConflict && r.label === "Ngày phỏng vấn";
-                      const isAdded =
-                        (r.leftVal === "—" || r.leftVal === "— • —") &&
-                        r.rightVal !== "—" &&
-                        r.rightVal !== "— • —";
-                      const isConflict =
-                        dateConflict || (!differentEmployerCode && !isAdded &&
-                        r.leftVal !== "—" &&
-                        r.rightVal !== "—" &&
-                        r.leftVal !== r.rightVal);
+                      const state = comparisonState(r.label, r.leftVal, r.rightVal, left, right);
+                      const isAdded = state.added;
+                      const isConflict = dateConflict || (!differentEmployerCode && state.conflict);
 
                       return (
                         <div
