@@ -1,0 +1,18 @@
+const fs=require('fs'),path=require('path'),ts=require('typescript'),vm=require('vm'),assert=require('assert/strict'),{createRequire}=require('module');
+const root=process.cwd(),scratch=path.join(root,'.local','perf-storage-'+Date.now());fs.mkdirSync(scratch,{recursive:true});
+process.env.DATABASE_URL='file:'+path.join(scratch,'probe.db').replace(/\\/g,'/');process.env.NODE_ENV='test';process.chdir(scratch);
+const modules={};function load(file){const absolute=path.resolve(root,file);if(modules[absolute])return modules[absolute].exports;const m={exports:{}};modules[absolute]=m;const localRequire=createRequire(absolute);vm.runInNewContext(ts.transpileModule(fs.readFileSync(absolute,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020,esModuleInterop:true}}).outputText,{module:m,exports:m.exports,process,Date,Buffer,console,require:n=>n.startsWith('@/')?load('src/'+n.slice(2)+'.ts'):localRequire(n)});return m.exports;}
+(async()=>{const {prisma}=load('src/lib/prisma.ts');let other;try{
+ const cache=load('src/lib/read-cache.ts'),versions=load('src/lib/read-data-version.ts');
+ await prisma.$executeRawUnsafe('CREATE TABLE PerformanceProbe (id INTEGER PRIMARY KEY, value TEXT)');await prisma.$executeRawUnsafe("INSERT INTO PerformanceProbe VALUES (1, 'before')");
+ const first=await versions.readDataVersion();let calls=0;const read=async()=>{calls++;return (await prisma.$queryRawUnsafe('SELECT value FROM PerformanceProbe WHERE id=1'))[0].value;};
+ assert.equal(await cache.cachedRead('probe',first,read),'before');assert.equal(await cache.cachedRead('probe',first,read),'before');assert.equal(calls,1);
+ const epoch=cache.readCacheEpoch();await prisma.$executeRawUnsafe("UPDATE PerformanceProbe SET value='after middleware'");assert.ok(cache.readCacheEpoch()>epoch,'Prisma mutation must invalidate shared cache');
+ const second=await versions.readDataVersion();assert.notEqual(second,first);assert.equal(await cache.cachedRead('probe',second,read),'after middleware');
+ const {PrismaClient}=require(path.join(root,'.generated/client'));other=new PrismaClient({datasources:{db:{url:process.env.DATABASE_URL}}});await other.$executeRawUnsafe("UPDATE PerformanceProbe SET value='external connection'");
+ const third=await versions.readDataVersion();assert.notEqual(third,second,'file version detects writes outside the instrumented client');assert.equal(await cache.cachedRead('probe',third,read),'external connection');
+ const store=load('src/lib/import-source-store.ts');const oldEpoch=cache.readCacheEpoch();const id=await store.saveImportSource('DS_TONG','test.xlsx','DS Tổng',[{row:2,raw:{'Họ và tên':'TEST'}}],[],[]);assert.ok(cache.readCacheEpoch()>oldEpoch);const fourth=await versions.readDataVersion();assert.notEqual(fourth,third);
+ const sourcePath=path.join(scratch,'.local/source-imports',id+'.json');const source=JSON.parse(fs.readFileSync(sourcePath,'utf8'));source.rows[0].values['Họ và tên']='EXTERNAL FILE CHANGE';fs.writeFileSync(sourcePath,JSON.stringify(source));assert.notEqual(await versions.readDataVersion(),fourth,'external source changes must alter version');
+ await prisma.$queryRawUnsafe('PRAGMA journal_mode=WAL');const walBefore=await versions.readDataVersion();await other.$executeRawUnsafe("UPDATE PerformanceProbe SET value='wal connection write'");assert.notEqual(await versions.readDataVersion(),walBefore,'WAL commits must also invalidate cached snapshots');
+ console.log('PASS isolated SQLite/file storage: warm reuse, Prisma write invalidation, external DB/file changes and import-store invalidation; live application data untouched');
+ }finally{if(other)await other.$disconnect();await prisma.$disconnect();}})().catch(e=>{console.error(e);process.exitCode=1});

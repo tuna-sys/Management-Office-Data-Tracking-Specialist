@@ -1,3 +1,5 @@
+import { cachedRead } from "@/lib/read-cache";
+import { readDataVersion } from "@/lib/read-data-version";
 import { splitImportReview } from "@/lib/import-review";
 import { dateKey } from "@/lib/worker-validation";
 import { matchFactory, cleanFactory } from "@/lib/factory-matching";
@@ -14,11 +16,7 @@ import path from "node:path";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: NextRequest) {
-  const denied = await guard(request);
-  if (denied) return denied;
-
-  try {
+async function buildWorkerRows(archived: boolean) {
     const resolvedPath = path.resolve(".local/resolved-duplicates.json");
     const resolvedIds = new Set<string>(
       existsSync(resolvedPath)
@@ -31,7 +29,7 @@ export async function GET(request: NextRequest) {
       prisma.worker.findMany({
         where: {
           archivedAt:
-            request.nextUrl.searchParams.get("archived") === "true"
+            archived
               ? { not: null }
               : null,
         },
@@ -524,6 +522,31 @@ export async function GET(request: NextRequest) {
         ),
       ].sort();
 
+    let pendingDuplicateCount = 0;
+    let systemWarningCount = 0;
+    for (const s of sources) {
+      for (const r of s.rows) {
+        const rawW = r.warnings || [];
+        const rawD = r.duplicates || [];
+        if (!rawW.length && !rawD.length) continue;
+        const rev = splitImportReview([...rawW, ...rawD]);
+        if (rev.duplicates.length > 0) pendingDuplicateCount++;
+        if (rev.warnings.length > 0) systemWarningCount++;
+      }
+    }
+
+    return { rows, options, pendingDuplicateCount, systemWarningCount, unlinkedBonusRows, bonusSourceRows: bonusRows.length, sourceRowCount: mainSourceRows.length,
+      warningRows: rows.filter(r => r.sourceWarnings.length).length, approvedRows: rows.filter(r => r.isApproved).length,
+      returningRows: rows.filter(r => r.isReturning).length, duplicateRows: rows.filter(r => r.sourceDuplicates.length).length };
+}
+
+export async function GET(request: NextRequest) {
+  const denied = await guard(request);
+  if (denied) return denied;
+  try {
+    const archived = request.nextUrl.searchParams.get("archived") === "true";
+    const { rows, options, pendingDuplicateCount, systemWarningCount, unlinkedBonusRows, bonusSourceRows, sourceRowCount,
+      warningRows, approvedRows, returningRows, duplicateRows } = await cachedRead("worker-source-rows:" + archived, await readDataVersion(), () => buildWorkerRows(archived));
     const p = request.nextUrl.searchParams;
 
     // --- TÁCH THAM SỐ CHỌN NHIỀU (MULTI-SELECT) DẠNG MẢNG ---
@@ -631,19 +654,6 @@ export async function GET(request: NextRequest) {
       return true;
     });
 
-    let pendingDuplicateCount = 0;
-    let systemWarningCount = 0;
-    for (const s of sources) {
-      for (const r of s.rows) {
-        const rawW = r.warnings || [];
-        const rawD = r.duplicates || [];
-        if (!rawW.length && !rawD.length) continue;
-        const rev = splitImportReview([...rawW, ...rawD]);
-        if (rev.duplicates.length > 0) pendingDuplicateCount++;
-        if (rev.warnings.length > 0) systemWarningCount++;
-      }
-    }
-
     const rawPage = Number(p.get("page"));
     const rawPageSize = Number(p.get("pageSize"));
     const paginated = p.has("page") || p.has("pageSize");
@@ -658,14 +668,14 @@ export async function GET(request: NextRequest) {
       options,
       pendingDuplicateCount,
       systemWarningCount,
-      unlinkedBonusRows,
-      bonusSourceRows: bonusRows.length,
+      ...(p.get("view") === "list" ? { unlinkedBonusRowCount: unlinkedBonusRows.length } : { unlinkedBonusRows }),
+      bonusSourceRows,
       totalRows: rows.length,
-      sourceRows: mainSourceRows.length,
-      warningRows: rows.filter((r) => r.sourceWarnings.length).length,
-      approvedRows: rows.filter((r) => r.isApproved).length,
-      returningRows: rows.filter((r) => r.isReturning).length,
-      duplicateRows: rows.filter((r) => r.sourceDuplicates.length).length,
+      sourceRows: sourceRowCount,
+      warningRows,
+      approvedRows,
+      returningRows,
+      duplicateRows,
     });
   } catch (error) {
     console.error("worker-source-rows failed", error instanceof Error ? error.message : "Unknown error");

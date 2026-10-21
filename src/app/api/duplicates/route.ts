@@ -1,3 +1,5 @@
+import { cachedRead } from "@/lib/read-cache";
+import { readDataVersion } from "@/lib/read-data-version";
 import { editableReviewFields, editReviewToken } from "@/lib/duplicate-edit-review";
 import { compareDuplicateSides, comparisonState, displayReviewMonth } from "@/lib/duplicate-comparison";
 import { reviewFields, reviewToken, resolveReview } from "@/lib/duplicate-resolution";
@@ -45,11 +47,7 @@ async function addResolvedId(id: string) {
   await writeFile(resolvedFile, JSON.stringify([...set], null, 2), "utf8");
 }
 
-export async function GET(request: NextRequest) {
-  const denied = await guard(request);
-  if (denied) return denied;
-
-  try {
+async function buildDuplicateSnapshot() {
     const [workers, resolvedIds, sources, statuses] = await Promise.all([
       prisma.worker.findMany({
         include: {
@@ -85,6 +83,7 @@ export async function GET(request: NextRequest) {
     const mergeInfoAlerts: any[] = [];
     const crossCompanyAlerts: any[] = [];
     let unchangedCount = 0;
+    const contexts = new Map<string, { worker: any; assignment: any; raw: any; type: string; editable: boolean }>();
 
     for (const source of sources) {
       for (const row of source.rows || []) {
@@ -276,7 +275,7 @@ export async function GET(request: NextRequest) {
           canApprove: true,
           requiresDecision: isConflict,
           targetAssignmentId: matchedAssignment?.id || null,
-          reviewToken: reviewToken(matchedWorker, matchedAssignment, v),
+
           conflicts,
           sourceId: source.id,
           row: row.row,
@@ -424,10 +423,8 @@ export async function GET(request: NextRequest) {
         alert.actionRequired = isConflict
           ? "Kiểm tra thông tin khác nhau trước khi duyệt dữ liệu mới; lịch sử trước/sau được lưu lại."
           : "Có thông tin bổ sung; kiểm tra trước khi duyệt.";
-        if (matchedWorker && matchedAssignment && dayAssignments.length === 1) {
-          alert.editableFields = editableReviewFields(matchedWorker, matchedAssignment, v, source.type);
-          alert.editReviewToken = editReviewToken(matchedWorker, matchedAssignment, v, source.type);
-        }
+        contexts.set(alert.id, { worker: matchedWorker, assignment: matchedAssignment, raw: v, type: source.type,
+          editable: !!matchedWorker && !!matchedAssignment && dayAssignments.length === 1 });
         mergeInfoAlerts.push(alert);
       }
     }
@@ -614,22 +611,50 @@ export async function GET(request: NextRequest) {
 
     const allAlerts = [...mergeInfoAlerts, ...crossCompanyAlerts];
 
-    return NextResponse.json({
-      success: true,
-      totalDuplicates: allAlerts.length,
-      counts: {
-        mergeInfoCount: mergeInfoAlerts.filter(a => a.category === "MERGE_INFO").length,
-        conflictCount: mergeInfoAlerts.filter(a => a.category === "INTERVIEW_CONFLICT").length,
-        crossCompanyCount: crossCompanyAlerts.length,
-        unchangedCount,
-      },
-      data: allAlerts,
-    });
-  } catch (error: any) {
-    return NextResponse.json(
-      { success: false, message: "Không thể xử lý yêu cầu lúc này" },
-      { status: 500 },
-    );
+    return { allAlerts, contexts, counts: {
+      mergeInfoCount: mergeInfoAlerts.filter(a => a.category === "MERGE_INFO").length,
+      conflictCount: mergeInfoAlerts.filter(a => a.category === "INTERVIEW_CONFLICT").length,
+      crossCompanyCount: crossCompanyAlerts.length, unchangedCount,
+    } };
+}
+
+function duplicateDetail(snapshot: Awaited<ReturnType<typeof buildDuplicateSnapshot>>, alert: any) {
+  const context = snapshot.contexts.get(alert.id);
+  if (!context) return alert;
+  const { worker, assignment, raw, type, editable } = context;
+  return { ...alert, reviewToken: reviewToken(worker, assignment, raw), ...(editable ? {
+    editableFields: editableReviewFields(worker, assignment, raw, type),
+    editReviewToken: editReviewToken(worker, assignment, raw, type),
+  } : {}) };
+}
+export async function GET(request: NextRequest) {
+  const denied = await guard(request);
+  if (denied) return denied;
+  try {
+    const p = request.nextUrl?.searchParams;
+    // Legacy export callers retain full data. Interactive lists share the derived snapshot.
+    const snapshot = p?.has("view") || p?.has("id")
+      ? await cachedRead("duplicate-snapshot", await readDataVersion(), buildDuplicateSnapshot)
+      : await buildDuplicateSnapshot();
+    const { allAlerts, counts } = snapshot;
+    if (p?.has("id")) {
+      const alert = allAlerts.find(a => a.id === p.get("id"));
+      return alert ? NextResponse.json({ success: true, data: duplicateDetail(snapshot, alert) })
+        : NextResponse.json({ success: false, message: "Dòng đã thay đổi hoặc đã xử lý; tải lại danh sách" }, { status: 404 });
+    }
+    if (p?.get("view") === "list") {
+      const keyword = (p.get("search") || "").trim().toLocaleLowerCase("vi");
+      const category = p.get("category") || "ALL";
+      const filtered = allAlerts.filter(a => (category === "ALL" || a.category === category) &&
+        (!keyword || [a.fullName, a.idCard, a.phone, a.currentFactory, a.newFactory, a.recruiter, a.warning].join(" ").toLocaleLowerCase("vi").includes(keyword)));
+      const pageSize = Math.min(100, Math.max(1, Math.floor(Number(p.get("pageSize")) || 20)));
+      const page = Math.min(Math.max(1, Math.floor(Number(p.get("page")) || 1)), Math.max(1, Math.ceil(filtered.length / pageSize)));
+      const data = filtered.slice((page - 1) * pageSize, page * pageSize).map(({leftSide, rightSide, reviewToken, editableFields, editReviewToken, extraRows, ...summary}: any) => summary);
+      return NextResponse.json({ success: true, data, totalDuplicates: allAlerts.length, filteredTotal: filtered.length, page, pageSize, counts });
+    }
+    return NextResponse.json({ success: true, data: allAlerts.map(a => duplicateDetail(snapshot, a)), totalDuplicates: allAlerts.length, counts });
+  } catch {
+    return NextResponse.json({ success: false, message: "Không thể tải cảnh báo trùng" }, { status: 500 });
   }
 }
 
