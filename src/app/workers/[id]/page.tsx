@@ -445,10 +445,7 @@ export default function WorkerDetailPage() {
               province: "Quê quán/Tỉnh",
               address: "Địa chỉ",
               code: "Mã hồ sơ",
-              recruiter: "Tuyển dụng",
-              team: "Đội nhóm",
               source: "Nguồn tuyển dụng",
-              interviewFactory: "Nhà máy PV",
               contractType: "Loại hợp đồng",
               shuttleBusKtx: "Đón xe / KTX",
               interviewDate: "Ngày PV",
@@ -475,13 +472,6 @@ export default function WorkerDetailPage() {
               </Form.Item>
             ))}
           </div>
-          <Form.Item name="status" label="Trạng thái">
-            <Select
-              options={statuses
-                .filter((s) => s.isActive)
-                .map((s) => ({ value: s.name, label: s.name }))}
-            />
-          </Form.Item>
           <AssignmentFields form={form} showWorkDays />
           <Form.Item
             name="eventDate"

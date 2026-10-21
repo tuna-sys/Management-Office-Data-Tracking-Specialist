@@ -95,13 +95,49 @@ export async function assignmentRelations(
   assignment: any,
   existing?: any,
 ) {
-  const status = await tx.laborStatus.findUnique({
-    where: { name: assignment.status },
-  });
-  if (!status || (!status.isActive && existing?.status !== assignment.status))
-    throw new DomainError(
-      "Trạng thái chưa có trong danh mục hoặc đã ngừng dùng",
+  const findFactory = async (id: string | null, name: string | null) => {
+    if (id) return tx.factory.findUnique({ where: { id } });
+    if (!name) return null;
+    const rows = await tx.factory.findMany();
+    return rows.find((row: any) => row.name.trim().toLocaleLowerCase("vi") === name.trim().toLocaleLowerCase("vi")) || null;
+  };
+  const interviewFactory = await findFactory(
+    assignment.interviewFactoryId || null,
+    assignment.interviewFactory || null,
+  );
+  if (!interviewFactory || (!interviewFactory.isActive && existing?.interviewFactoryId !== interviewFactory.id && existing?.interviewFactory !== interviewFactory.name))
+    throw new DomainError("Nhà máy phỏng vấn chưa có trong danh mục hoặc đã ngừng dùng");
+  assignment.interviewFactoryId = interviewFactory.id;
+  assignment.interviewFactory = interviewFactory.name;
+
+  if (assignment.workingFactoryId || assignment.workingFactory) {
+    const workingFactory = await findFactory(
+      assignment.workingFactoryId || null,
+      assignment.workingFactory || null,
     );
+    if (!workingFactory || (!workingFactory.isActive && existing?.workingFactoryId !== workingFactory.id && existing?.workingFactory !== workingFactory.name))
+      throw new DomainError("Nhà máy làm việc chưa có trong danh mục hoặc đã ngừng dùng");
+    assignment.workingFactoryId = workingFactory.id;
+    assignment.workingFactory = workingFactory.name;
+  } else {
+    assignment.workingFactoryId = null;
+    assignment.workingFactory = null;
+  }
+
+  const status = assignment.statusId
+    ? await tx.laborStatus.findUnique({ where: { id: assignment.statusId } })
+    : await tx.laborStatus.findUnique({ where: { name: assignment.status } });
+  if (!status || (!status.isActive && existing?.statusId !== status.id && existing?.status !== status.name))
+    throw new DomainError("Trạng thái chưa có trong danh mục hoặc đã ngừng dùng");
+  if (assignment.status && assignment.status !== status.name)
+    throw new DomainError("Tên trạng thái không khớp danh mục trạng thái đã chọn");
+  assignment.statusId = status.id;
+  assignment.status = status.name;
+  if (!assignment.recruiterId && assignment.recruiter) {
+    const candidates = await tx.recruiter.findMany({ include: { team: true } });
+    const matched = candidates.find((r: any) => r.name.trim().toLocaleLowerCase("vi") === assignment.recruiter.trim().toLocaleLowerCase("vi"));
+    if (matched) assignment.recruiterId = matched.id;
+  }
   if (assignment.recruiterId) {
     const recruiter = await tx.recruiter.findUnique({
       where: { id: assignment.recruiterId },
@@ -112,11 +148,14 @@ export async function assignmentRelations(
       (!recruiter.isActive && existing?.recruiterId !== assignment.recruiterId)
     )
       throw new DomainError("Chuyên viên đã ngừng dùng hoặc không tồn tại");
-    if (!existing || existing.recruiterId !== assignment.recruiterId) {
-      assignment.recruiter = recruiter.name;
-      assignment.teamId = recruiter.teamId;
-      assignment.team = recruiter.team?.name || "";
-    }
+    assignment.recruiter = recruiter.name;
+    assignment.teamId = recruiter.teamId;
+    assignment.team = recruiter.team?.name || "";
+  }
+  if (!assignment.teamId && assignment.team) {
+    const teams = await tx.recruitmentTeam.findMany();
+    const matched = teams.find((t: any) => t.name.trim().toLocaleLowerCase("vi") === assignment.team.trim().toLocaleLowerCase("vi"));
+    if (matched) assignment.teamId = matched.id;
   }
   if (assignment.teamId && !assignment.recruiterId) {
     const team = await tx.recruitmentTeam.findUnique({
@@ -138,7 +177,10 @@ export async function assignmentRelations(
     });
     if (!order || (!order.isActive && existing?.orderId !== orderId))
       throw new DomainError("Đơn hàng không tồn tại hoặc đã ngừng tuyển");
-    if (order.factory !== assignment.interviewFactory)
+    if (
+      (order.factoryId && order.factoryId !== interviewFactory.id) ||
+      (!order.factoryId && order.factory !== assignment.interviewFactory)
+    )
       throw new DomainError("Nhà máy PV không khớp đơn hàng");
   }
   if (batchId) {

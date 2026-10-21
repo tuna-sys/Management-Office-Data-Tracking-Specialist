@@ -13,6 +13,7 @@ export async function GET(request: NextRequest) {
       success: true,
       data: await prisma.recruitmentOrder.findMany({
         include: {
+          factoryEntry: true,
           batches: { orderBy: { startDate: "desc" } },
           _count: { select: { assignments: true } },
         },

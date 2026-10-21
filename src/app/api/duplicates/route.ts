@@ -14,7 +14,7 @@ import {
 } from "@/lib/worker-validation";
 import { prisma } from "@/lib/prisma";
 import { matchFactory } from "@/lib/factory-matching";
-import { today } from "@/lib/domain";
+import { assignmentRelations, today } from "@/lib/domain";
 import {
   readImportSources,
   resolveImportSourceRow,
@@ -922,8 +922,10 @@ export async function POST(request: NextRequest) {
               sameFactory(a.interviewFactory, assignment.interviewFactory) && sameInterviewDay(a, assignment),
           );
           await assertReviewProfile(tx, person, worker, assignment, matchedAssignment?.id);
+          const resolvedAssignment = { ...assignment };
+          await assignmentRelations(tx, resolvedAssignment, matchedAssignment || undefined);
           const cleanAssignmentData = Object.fromEntries(
-            Object.entries(assignment).filter(
+            Object.entries(resolvedAssignment).filter(
               ([k, val]) =>
                 !["orderId", "batchId"].includes(k) &&
                 val !== undefined &&
@@ -937,11 +939,11 @@ export async function POST(request: NextRequest) {
               where: { id: matchedAssignment.id },
               data: fillMissing(matchedAssignment, cleanAssignmentData),
             });
-          } else if (assignment.interviewFactory) {
+          } else if (resolvedAssignment.interviewFactory) {
             const created = await tx.workAssignment.create({
               data: {
                 ...cleanAssignmentData,
-                interviewFactory: assignment.interviewFactory,
+                interviewFactory: resolvedAssignment.interviewFactory,
                 workerId: person.id,
               } as any,
             });
@@ -1027,10 +1029,13 @@ export async function POST(request: NextRequest) {
             where: { id: String(currentAssignmentId) },
           });
           if (oldAssign) {
+            const endedStatus = await tx.laborStatus.findUnique({ where: { name: "Đã nghỉ việc" } });
+            if (!endedStatus || !endedStatus.isActive) throw new Error("Trạng thái Đã nghỉ việc chưa có trong danh mục hoặc đã ngừng dùng");
             await tx.workAssignment.update({
               where: { id: oldAssign.id },
               data: {
                 status: "Đã nghỉ việc",
+                statusId: endedStatus.id,
                 leaveDate: oldAssign.leaveDate || leaveDay,
                 leaveReason:
                   oldAssign.leaveReason ||
@@ -1081,6 +1086,7 @@ export async function POST(request: NextRequest) {
             const existingPerson = await tx.worker.findUnique({ where: { id: person.id }, include: { assignments: true } });
             assertIdentity(existingPerson, worker.fullName);
             assertDailyInterview(existingPerson, assignment);
+            await assignmentRelations(tx, assignment);
             const cleanAssignmentData = Object.fromEntries(
               Object.entries(assignment).filter(
                 ([k, val]) =>

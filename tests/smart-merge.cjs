@@ -48,6 +48,9 @@ const dbEvents = [];
 const dbAudits = [];
 
 const mockPrisma = {
+  factory: { findMany: async () => [{ id: 'f-alpha', name: 'ALPHA', code: 'ALPHA', isActive: true }, { id: 'f-beta', name: 'BETA', code: 'BETA', isActive: true }, { id: 'f-luxshare', name: 'LUXSHARE-QC', code: 'LUXSHARE-QC', isActive: true }] },
+  recruiter: { findMany: async () => [] },
+  recruitmentTeam: { findMany: async () => [] },
   worker: {
     findMany: async () => dbWorkers.map(w => ({
       ...w,
@@ -87,7 +90,10 @@ const mockPrisma = {
     }
   },
   laborStatus: {
-    findMany: async () => [{ name: 'Đang làm việc', warnsDuplicate: true, isActive: true }],
+    findMany: async () => [
+      { id: 'status-active', name: 'Đang làm việc', warnsDuplicate: true, isActive: true },
+      { id: 'status-pending', name: 'Đang chờ phỏng vấn', warnsDuplicate: false, isActive: true },
+    ],
     upsert: async () => {}
   },
   assignmentEvent: {

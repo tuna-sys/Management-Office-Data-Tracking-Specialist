@@ -83,6 +83,18 @@ export async function PUT(
           },
         };
       const merged = { ...latest, ...assignment };
+      for (const [nameField, idField] of [
+        ["interviewFactory", "interviewFactoryId"],
+        ["workingFactory", "workingFactoryId"],
+        ["status", "statusId"],
+      ]) {
+        if (
+          assignment[nameField] !== undefined &&
+          assignment[idField] === undefined &&
+          assignment[nameField] !== latest[nameField]
+        )
+          merged[idField] = null;
+      }
       assertDailyInterview(current, merged, latest.id);
       if (
         latest.status !== merged.status &&
@@ -115,6 +127,8 @@ export async function PUT(
         validateWorker({ ...current, ...worker }, merged);
         validateInterview(merged);
         await assignmentRelations(tx, merged, latest);
+        for (const field of ["interviewFactoryId", "workingFactoryId", "statusId"])
+          if (merged[field] !== latest[field]) assignment[field] = merged[field];
         if (body.recruiterId !== undefined || body.teamId !== undefined)
           Object.assign(assignment, {
             recruiter: merged.recruiter,

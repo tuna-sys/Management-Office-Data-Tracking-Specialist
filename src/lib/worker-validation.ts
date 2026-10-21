@@ -35,8 +35,12 @@ export const WORKER_FIELDS = [
 ] as const;
 export const ASSIGNMENT_FIELDS = [
   "interviewFactory",
+  "interviewFactoryId",
   "contractType",
   "status",
+  "statusId",
+  "workingFactory",
+  "workingFactoryId",
   "leaveDate",
   "leaveReason",
   "shuttleBusKtx",

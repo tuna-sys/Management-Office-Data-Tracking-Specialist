@@ -45,6 +45,7 @@ deps["@/lib/prisma"] = {
   prisma: {
     worker: { findMany: async () => [] },
     laborStatus: { findMany: async () => [] },
+    factory: { findMany: async () => [] },
     bonusRecord: { findMany: async () => [] },
     auditLog: { create: async () => ({}) },
   },

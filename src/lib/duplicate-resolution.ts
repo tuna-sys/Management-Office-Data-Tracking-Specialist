@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { dateKey, formatExcelDate, validateWorker } from '@/lib/worker-validation';
 import { assertDailyInterview, assertIdentity, assertSourceCard, sameInterviewDay, sourceConflicts } from '@/lib/duplicate-check';
 import { parseImportRow, inferProvince } from '@/lib/worker-import';
+import { assignmentRelations } from '@/lib/domain';
 type Candidate = {
     key: string;
     label: string;
@@ -80,6 +81,11 @@ export async function resolveReview(tx: any, source: any, row: any, body: any, a
         if (merged.leaveDate && dateKey(merged.leaveDate)! < dateKey(merged.interviewDate)!)
             throw new Error('Ngày nghỉ không được trước ngày phỏng vấn');
         validateWorker({ ...worker, ...workerPatch }, merged, true, true);
+        if (["interviewFactory", "interviewFactoryId", "workingFactory", "workingFactoryId", "status", "statusId"].some((k) => k in assignmentPatch)) {
+            await assignmentRelations(tx, merged, assignment);
+            for (const key of ["interviewFactory", "interviewFactoryId", "workingFactory", "workingFactoryId", "status", "statusId"])
+                if (merged[key] !== assignment[key]) assignmentPatch[key] = merged[key];
+        }
         if (['interviewFactory', 'interviewDate', 'employeeCode'].some(k => k in assignmentPatch) && await tx.policyEnrollment.count({ where: { assignmentId: assignment.id } }))
             throw new Error('Đợt đã áp dụng chính sách: cần xử lý điều chỉnh thưởng trước khi thay thông tin liên kết');
         if (Object.keys(workerPatch).length)
@@ -104,6 +110,7 @@ export async function resolveReview(tx: any, source: any, row: any, body: any, a
                 delete data[key];
         if (data.leaveDate && dateKey(data.leaveDate)! < corrected)
             throw new Error('Ngày nghỉ không được trước ngày PV đã sửa');
+        await assignmentRelations(tx, data);
         created = await tx.workAssignment.create({ data });
         after = { worker: before.worker, assignment: created };
     }
