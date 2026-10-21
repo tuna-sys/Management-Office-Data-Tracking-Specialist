@@ -19,6 +19,7 @@ import { formatDate } from "@/lib/date-format";
 export default function PoliciesPage() {
   const     canWrite = true;
   const [rows, setRows] = useState<any[]>([]),
+    [factories, setFactories] = useState<any[]>([]),
     [orders, setOrders] = useState<any[]>([]),
     [edit, setEdit] = useState<any>(null),
     [open, setOpen] = useState(false),
@@ -34,6 +35,9 @@ export default function PoliciesPage() {
     fetch("/api/orders")
       .then((r) => r.json())
       .then((j) => setOrders(j.data || []));
+    fetch("/api/catalogs?kind=FACTORY")
+      .then((r) => r.json())
+      .then((j) => setFactories(j.data || []));
   }, []);
   function show(row: any) {
     setEdit(row);
@@ -44,6 +48,7 @@ export default function PoliciesPage() {
     } catch {}
     form.setFieldsValue({
       ...row,
+      factoryId: row?.factoryId || row?.factoryEntry?.id || undefined,
       isActive: row?.isActive ?? true,
       rules: rules.length
         ? rules
@@ -114,7 +119,7 @@ export default function PoliciesPage() {
         dataSource={rows}
         columns={[
           { title: "Tên", dataIndex: "name" },
-          { title: "Nhà máy", dataIndex: "factory" },
+          { title: "Nhà máy", render: (_, r) => r.factoryEntry?.name || r.factory || "—" },
           {
             title: "Đơn hàng",
             render: (_, r) => r.order?.name || "Toàn nhà máy",
@@ -194,12 +199,18 @@ export default function PoliciesPage() {
               <Input />
             </Form.Item>
             <Form.Item
-              name="factory"
+              name="factoryId"
               label="Nhà máy/Công ty"
               rules={[{ required: true }]}
             >
-              <Input />
+              <Select showSearch optionFilterProp="label" options={factories.filter((f) => f.isActive).map((f) => ({ value: f.id, label: `${f.code} · ${f.name}` }))} onChange={(id) => {
+                const f = factories.find((x) => x.id === id);
+                const order = orders.find((x) => x.id === form.getFieldValue("orderId"));
+                if (order && order.factoryId && order.factoryId !== id) form.setFieldValue("orderId", undefined);
+                form.setFieldValue("factory", f?.name || "");
+              }} />
             </Form.Item>
+            <Form.Item name="factory" hidden><Input /></Form.Item>
             <Form.Item name="orderId" label="Giới hạn theo đơn hàng">
               <Select
                 allowClear
@@ -207,11 +218,16 @@ export default function PoliciesPage() {
                   .filter((o) => o.isActive)
                   .map((o) => ({
                     value: o.id,
-                    label: `${o.factory} · ${o.name}`,
+                    label: `${o.factoryEntry?.name || o.factory} · ${o.name}`,
                   }))}
                 onChange={(id) => {
                   const o = orders.find((o) => o.id === id);
-                  if (o) form.setFieldValue("factory", o.factory);
+                  if (o) {
+                    form.setFieldsValue({
+                      factory: o.factoryEntry?.name || o.factory,
+                      factoryId: o.factoryId || undefined,
+                    });
+                  }
                 }}
               />
             </Form.Item>

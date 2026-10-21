@@ -25,7 +25,7 @@ assert.throws(() => policy.resolveBonusAssignment({ ...person, assignments: [end
 assert.throws(() => policy.assertSourceCard({ 'Số CCCD': '1099000001' }, '001099000001'), /thiếu chữ số/);
 (async () => {
     let created = 0;
-    const tx = { worker: { findUnique: async () => person }, laborStatus: { findMany: async () => [], findUnique: async () => ({ isActive: true }) }, workAssignment: { create: async () => { created++; return { id: 'new' }; } }, assignmentEvent: { create: async () => ({}) }, auditLog: { create: async () => ({}) } };
+    const tx = { worker: { findUnique: async () => person }, factory: { findMany: async () => [{ id: 'f-alpha', name: 'ALPHA', isActive: true }, { id: 'f-beta', name: 'BETA', isActive: true }] }, laborStatus: { findMany: async () => [], findUnique: async ({ where }) => ({ id: 's-' + (where.name || where.id), name: where.name || 'Đang chờ phỏng vấn', isActive: true }) }, workAssignment: { create: async () => { created++; return { id: 'new' }; } }, assignmentEvent: { create: async () => ({}) }, auditLog: { create: async () => ({}) } };
     const route = load('src/app/api/workers/route.ts', { 'next/server': server, '@/lib/domain': domain, '@/lib/worker-validation': validation, '@/lib/local-request': { guard: async () => null, identity: async () => ({ username: 'QA' }) }, '@/lib/prisma': { prisma: { $transaction: async (fn) => fn(tx) } }, '@/lib/reporting': {} });
     const body = { fullName: 'Nguyễn Văn An', idCard: person.idCard, interviewFactory: 'BETA', interviewDate: '01/10/2026', status: 'Đang chờ phỏng vấn', confirmActiveDuplicate: true };
     const r = await route.POST({ json: async () => body });

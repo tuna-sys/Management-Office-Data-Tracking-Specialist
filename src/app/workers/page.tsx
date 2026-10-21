@@ -1748,7 +1748,6 @@ export default function WorkersPage() {
           layout="vertical"
           onFinish={handleAddWorker}
           initialValues={{
-            interviewFactory: "Luxshare QC",
             contractType: "Thời vụ",
             status: "Đang chờ phỏng vấn",
           }}
@@ -1799,22 +1798,6 @@ export default function WorkersPage() {
               <Input placeholder="Diễn Châu, Nghệ An" />
             </Form.Item>
 
-            <Form.Item name="interviewFactory" label="Nhà Máy Phỏng Vấn">
-              <Select
-                options={FACTORIES.map((f) => ({ label: f, value: f }))}
-              />
-            </Form.Item>
-
-            <Form.Item name="status" label="Tình Trạng">
-              <Select
-                options={STATUSES.map((value) => ({ value, label: value }))}
-              />
-            </Form.Item>
-
-            <Form.Item name="recruiter" label="Chuyên Viên Tuyển Dụng">
-              <Input placeholder="Nguyễn Thu Trang" />
-            </Form.Item>
-
             <Form.Item name="source" label="Nguồn Tuyển Dụng">
               <Input placeholder="Facebook, Zalo, Tự do..." />
             </Form.Item>
@@ -1831,7 +1814,6 @@ export default function WorkersPage() {
               "idCardDate",
               "idCardPlace",
               "province",
-              "team",
               "contractType",
               "shuttleBusKtx",
               "interviewDate",
@@ -1850,7 +1832,6 @@ export default function WorkersPage() {
                       idCardDate: "Ngày cấp",
                       idCardPlace: "Nơi cấp",
                       province: "Tỉnh/Thành",
-                      team: "Đội nhóm",
                       contractType: "Loại hợp đồng",
                       shuttleBusKtx: "Đón xe / KTX",
                       interviewDate: "Ngày PV",
@@ -1902,10 +1883,7 @@ export default function WorkersPage() {
               idCardPlace: "Nơi cấp",
               address: "Địa chỉ",
               province: "Tỉnh/Thành",
-              team: "Đội nhóm",
-              recruiter: "Tuyển dụng",
               source: "Nguồn",
-              interviewFactory: "Nhà máy PV",
               contractType: "Loại hợp đồng",
               shuttleBusKtx: "Đón xe / KTX",
               interviewDate: "Ngày PV",
@@ -1919,12 +1897,6 @@ export default function WorkersPage() {
               </Form.Item>
             ))}
           </div>
-          <Form.Item name="status" label="Tình Trạng Làm Việc">
-            <Select
-              options={STATUSES.map((value) => ({ value, label: value }))}
-            />
-          </Form.Item>
-
           <Form.Item
             noStyle
             shouldUpdate={(prevValues, currentValues) =>

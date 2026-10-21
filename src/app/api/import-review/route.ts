@@ -16,7 +16,7 @@ import {
 } from "@/lib/worker-validation";
 import { parseBonusImportRow, readBonusValue } from "@/lib/bonus-import";
 import { parseImportRow } from "@/lib/worker-import";
-import { today } from "@/lib/domain";
+import { assignmentRelations, today } from "@/lib/domain";
 
 export const dynamic = "force-dynamic";
 
@@ -407,8 +407,10 @@ export async function POST(request: NextRequest) {
         );
         await assertReviewProfile(tx, person, worker, assignment, matchedAssignment?.id);
         if (matchedAssignment && !sameFactory(matchedAssignment.interviewFactory, assignment.interviewFactory)) throw new Error("Trùng lặp nội bộ: cùng ngày nhưng khác nhà máy");
+        const resolvedAssignment = { ...assignment };
+        await assignmentRelations(tx, resolvedAssignment, matchedAssignment || undefined);
         const cleanAssignmentData = Object.fromEntries(
-          Object.entries(assignment).filter(
+          Object.entries(resolvedAssignment).filter(
             ([k, val]) =>
               !["orderId", "batchId"].includes(k) &&
               val !== undefined &&
@@ -422,11 +424,11 @@ export async function POST(request: NextRequest) {
             where: { id: matchedAssignment.id },
             data: fillMissing(matchedAssignment, cleanAssignmentData),
           });
-        } else if (assignment.interviewFactory) {
+        } else if (resolvedAssignment.interviewFactory) {
           const created = await tx.workAssignment.create({
             data: {
               ...cleanAssignmentData,
-              interviewFactory: assignment.interviewFactory,
+              interviewFactory: resolvedAssignment.interviewFactory,
               workerId: person.id,
             } as any,
           });

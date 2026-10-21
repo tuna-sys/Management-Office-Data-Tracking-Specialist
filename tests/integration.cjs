@@ -36,9 +36,23 @@ if (pushed.status !== 0) throw new Error(pushed.stderr || pushed.stdout);
 const fixtureClient = new (require("../.generated/client").PrismaClient)({
   datasources: { db: { url: "file:" + db } },
 });
+let qaFactoryId = "";
 const fixtureReady = require("../scripts/seed-catalogs.cjs")(
   fixtureClient,
-).finally(() => fixtureClient.$disconnect());
+)
+  .then(async () => {
+    const factory = await
+    fixtureClient.factory.upsert({
+      where: { name: "QA TEST FACTORY" },
+      create: {
+        code: "QA-TEST-FACTORY",
+        name: "QA TEST FACTORY",
+      },
+      update: { isActive: true },
+    });
+    qaFactoryId = factory.id;
+  })
+  .finally(() => fixtureClient.$disconnect());
 const server = spawn(
   process.execPath,
   [
@@ -313,6 +327,7 @@ async function json(url, method, data, cookie, expected = 200) {
   const policy = {
     name: "QA POLICY",
     factory: "QA TEST FACTORY",
+    factoryId: qaFactoryId,
     isActive: true,
     rules: Array.from({ length: 7 }, (_, i) => ({
       step: i + 1,
@@ -479,6 +494,7 @@ async function json(url, method, data, cookie, expected = 200) {
       {
         name: "QA V3 POLICY",
         factory: factory.name,
+        factoryId: factory.id,
         orderId: order.id,
         isActive: true,
         effectiveFrom: "2026-10-01",

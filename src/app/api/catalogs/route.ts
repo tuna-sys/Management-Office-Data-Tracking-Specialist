@@ -105,7 +105,9 @@ async function save(r: NextRequest, method: string) {
         if (
           current &&
           current.name !== name &&
-          (await tx.workAssignment.count({ where: { status: current.name } }))
+          (await tx.workAssignment.count({
+            where: { OR: [{ status: current.name }, { statusId: current.id }] },
+          }))
         )
           throw new DomainError(
             "Trạng thái đã dùng: hãy tạo tên mới thay vì đổi lịch sử",

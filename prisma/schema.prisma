@@ -41,9 +41,15 @@ model WorkAssignment {
   workerId               String
   worker                 Worker            @relation(fields: [workerId], references: [id], onDelete: Cascade)
   interviewFactory       String            // Nhà máy PV
+  interviewFactoryId     String?
+  interviewFactoryEntry  Factory?          @relation("AssignmentInterviewFactory", fields: [interviewFactoryId], references: [id], onDelete: Restrict)
   workingFactory         String?           // Nhà máy làm việc
+  workingFactoryId       String?
+  workingFactoryEntry    Factory?          @relation("AssignmentWorkingFactory", fields: [workingFactoryId], references: [id], onDelete: SetNull)
   contractType           String?           // Loại HD
   status                 String            @default("Đang chờ phỏng vấn")
+  statusId               String?
+  statusEntry            LaborStatus?      @relation(fields: [statusId], references: [id], onDelete: Restrict)
   leaveDate              String?           // Ngày NH (Ngày Nghỉ việc)
   leaveReason            String?           // Lý do nghỉ
   shuttleBusKtx          String?           // Đón xe - KTX
@@ -131,6 +137,8 @@ model BonusPolicy {
   id            String             @id @default(cuid())
   name          String             // Tên chính sách
   factory       String             // Nhà máy áp dụng
+  factoryId     String?
+  factoryEntry  Factory?           @relation(fields: [factoryId], references: [id], onDelete: SetNull)
   description   String?
   effectiveFrom String?
   effectiveTo   String?
@@ -255,6 +263,9 @@ model Factory {
   createdAt DateTime           @default(now())
   updatedAt DateTime           @updatedAt
   orders    RecruitmentOrder[]
+  interviewAssignments WorkAssignment[] @relation("AssignmentInterviewFactory")
+  workingAssignments  WorkAssignment[] @relation("AssignmentWorkingFactory")
+  bonusPolicies BonusPolicy[]
 }
 
 model RecruitmentTeam {
@@ -288,6 +299,7 @@ model LaborStatus {
   endsAssignment Boolean  @default(false)
   isActive       Boolean  @default(true)
   updatedAt      DateTime @updatedAt
+  assignments    WorkAssignment[]
 }
 
 model ImportProfile {

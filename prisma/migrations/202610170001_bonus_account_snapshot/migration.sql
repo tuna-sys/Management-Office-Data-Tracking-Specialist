@@ -1,0 +1,4 @@
+-- Historical migration placeholder reconstructed because this directory had no migration.sql.
+-- The target database already contains BonusRecord.accountNumber and BonusRecord.bankName.
+-- The following migration, 202610170002_bonus_record_bank_details, adds these columns
+-- when building a fresh database. Keep this no-op entry for a consistent migration history.

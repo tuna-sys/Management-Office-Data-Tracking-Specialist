@@ -13,7 +13,7 @@ import * as XLSX from "xlsx";
 import { guard, identity } from "@/lib/local-request";
 import { parseImportRow } from "@/lib/worker-import";
 import { parseBonusImportRow, readBonusValue } from "@/lib/bonus-import";
-import { today } from "@/lib/domain";
+import { assignmentRelations, today } from "@/lib/domain";
 import crypto from "node:crypto";
 
 type SheetEntries = {
@@ -330,6 +330,7 @@ export async function POST(request: NextRequest) {
       const statuses = await prisma.laborStatus.findMany({
         where: { isActive: true },
       });
+      const factories = await prisma.factory.findMany({ where: { isActive: true } });
       const statusNamesSet = new Set(statuses.map((s) => s.name));
       const phones = new Map<string, Set<string>>();
       const indexPhone = (w: any) => {
@@ -400,6 +401,27 @@ export async function POST(request: NextRequest) {
           const { worker, assignment } = parseImportRow(raw, true);
           const sourceCard = String(raw["số CCCD"] ?? raw["Số CCCD"] ?? raw["CCCD"] ?? raw["CMT/CCCD"] ?? "").replace(/\s+/g, "");
           if (sourceCard && sourceCard !== worker.idCard) throw new Error("Sai lệch danh tính: CCCD thiếu chữ số; không tự thêm số 0 để gộp hồ sơ");
+          const interviewFactory = factories.find((f) => sameFactory(f.name, assignment.interviewFactory));
+          if (!interviewFactory) throw new Error(`Nhà máy phỏng vấn "${assignment.interviewFactory || ""}" chưa có trong danh mục Factory`);
+          assignment.interviewFactory = interviewFactory.name;
+          assignment.interviewFactoryId = interviewFactory.id;
+          if (assignment.workingFactory) {
+            const workingFactory = factories.find((f) => sameFactory(f.name, assignment.workingFactory));
+            if (!workingFactory) throw new Error(`Nhà máy làm việc "${assignment.workingFactory}" chưa có trong danh mục Factory`);
+            assignment.workingFactory = workingFactory.name;
+            assignment.workingFactoryId = workingFactory.id;
+          }
+          if (assignment.orderId) {
+            const order = await prisma.recruitmentOrder.findUnique({ where: { id: assignment.orderId } });
+            if (!order) throw new Error("Đơn hàng không tồn tại trong danh mục");
+            if (order.factoryId && order.factoryId !== interviewFactory.id) throw new Error("Nhà máy phỏng vấn không khớp nhà máy của đơn hàng");
+            if (assignment.batchId) {
+              const batch = await prisma.recruitmentBatch.findUnique({ where: { id: assignment.batchId } });
+              if (!batch || batch.orderId !== order.id) throw new Error("Đợt tuyển không thuộc đơn hàng đã chọn");
+            }
+          } else if (assignment.batchId) {
+            throw new Error("Cần chọn đơn hàng trước khi chọn đợt tuyển");
+          }
           for (const k of ["orderId", "batchId"])
             if (!assignment[k]) delete assignment[k];
 
@@ -566,6 +588,10 @@ export async function POST(request: NextRequest) {
                     !String(targetAssignId).startsWith("preview-") &&
                     Object.keys(assignmentUpdates).length > 0
                   ) {
+                    const mergedAssignment = { ...matchAssignment, ...assignmentUpdates };
+                    await assignmentRelations(tx, mergedAssignment, matchAssignment);
+                    for (const field of ["interviewFactory", "interviewFactoryId", "workingFactory", "workingFactoryId", "status", "statusId"])
+                      if (mergedAssignment[field] !== matchAssignment[field]) assignmentUpdates[field] = mergedAssignment[field];
                     await tx.workAssignment.update({
                       where: { id: targetAssignId },
                       data: assignmentUpdates,
@@ -753,6 +779,30 @@ export async function POST(request: NextRequest) {
             },
             update: {},
           });
+        }
+
+        if (assignmentsToCreate.length) {
+          const [statusRows, recruiters, teams] = await Promise.all([
+            prisma.laborStatus.findMany(),
+            prisma.recruiter.findMany({ include: { team: true } }),
+            prisma.recruitmentTeam.findMany(),
+          ]);
+          for (const assignment of assignmentsToCreate) {
+          const status = statusRows.find((s) => s.name === assignment.status);
+          if (!status) throw new Error(`Trạng thái "${assignment.status}" chưa được tạo trong danh mục`);
+          assignment.statusId = status.id;
+          if (assignment.recruiter && !assignment.recruiterId) {
+            const recruiter = recruiters.find((r) => r.name.trim().toLocaleLowerCase("vi") === String(assignment.recruiter).trim().toLocaleLowerCase("vi"));
+            if (recruiter) {
+              assignment.recruiterId = recruiter.id;
+              if (!assignment.teamId) assignment.teamId = recruiter.teamId;
+              if (!assignment.team) assignment.team = recruiter.team?.name || "";
+            }
+          }
+          if (assignment.team && !assignment.teamId) {
+            assignment.teamId = teams.find((t) => t.name.trim().toLocaleLowerCase("vi") === String(assignment.team).trim().toLocaleLowerCase("vi"))?.id || null;
+          }
+          }
         }
 
         const workerArr = [...workersToCreate.values()];

@@ -13,7 +13,7 @@ function load(file, deps = {}) {
 }
 const server = { NextResponse: { json: (body, options = {}) => ({ body, status: options.status || 200 }) } };
 const validation = load('src/lib/worker-validation.ts');
-const domain = { ...load('src/lib/domain.ts', { 'next/server': server, '@/lib/worker-validation': validation }), today: () => '2026-10-17' };
+const domain = { ...load('src/lib/domain.ts', { 'next/server': server, '@/lib/worker-validation': validation }), today: () => '2026-10-17', assignmentRelations: async () => {} };
 const auth = { guard: async () => null, identity: async () => ({ username: 'tester' }) };
 const stamp = new Date('2026-10-01T00:00:00Z');
 function route(file, tx) {
