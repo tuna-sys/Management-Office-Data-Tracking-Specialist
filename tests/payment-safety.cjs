@@ -28,7 +28,7 @@ function load(file, deps = {}) {
 const rules = load("src/lib/payment-safety.ts");
 const workerValidation = load("src/lib/worker-validation.ts");
 const server = {
-  "@/lib/auth": {
+  "@/lib/local-request": {
     guard: async () => null,
     identity: async () => ({ username: "Tester", role: "ADMIN" }),
   },

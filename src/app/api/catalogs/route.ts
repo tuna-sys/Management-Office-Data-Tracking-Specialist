@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard, identity } from "@/lib/auth";
+import { guard, identity } from "@/lib/local-request";
 import { text, DomainError, resultError } from "@/lib/domain";
 export const dynamic = "force-dynamic";
 const kinds = ["FACTORY", "TEAM", "RECRUITER", "STATUS", "IMPORT"];
@@ -33,7 +33,7 @@ export async function GET(r: NextRequest) {
   }
 }
 async function save(r: NextRequest, method: string) {
-  const denied = await guard(r, "worker:write");
+  const denied = await guard(r);
   if (denied) return denied;
   try {
     const b = await r.json(),
@@ -133,7 +133,6 @@ async function save(r: NextRequest, method: string) {
           "team",
           "source",
           "interviewFactory",
-          "workingFactory",
           "contractType",
           "status",
           "interviewDate",

@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import AntdRegistry from "@/components/AntdRegistry";
-import AuthGate from "@/components/AuthGate";
 import Navigation from "@/components/Navigation";
 import { ConfigProvider } from "antd";
 import viVN from "antd/locale/vi_VN";
@@ -43,9 +42,7 @@ export default function RootLayout({
               },
             }}
           >
-            <AuthGate>
-              <Navigation>{children}</Navigation>
-            </AuthGate>
+            <Navigation>{children}</Navigation>
           </ConfigProvider>
         </AntdRegistry>
       </body>

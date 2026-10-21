@@ -1,5 +1,6 @@
+import { sourceConflicts, assertSourceCompatible, fillMissing, assertSourceCard, assertReviewProfile, assertIdentity, sameFactory, resolveBonusAssignment } from "@/lib/duplicate-check";
 import { NextRequest, NextResponse } from "next/server";
-import { guard, identity } from "@/lib/auth";
+import { guard, identity } from "@/lib/local-request";
 import {
   readImportSources,
   deleteImportSource,
@@ -60,7 +61,7 @@ export async function GET(request: NextRequest) {
         const rawPhone = v["SĐT"] || v["Số điện thoại"] || "";
         const pk = rawPhone ? phoneKey(String(rawPhone)) : "";
         const rawCompany = String(
-          v["Công ty"] || v["Nhà máy PV"] || v["Nhà máy làm việc"] || "",
+          v["Công ty"] || v["Nhà máy PV"] || "",
         ).trim();
         const rawPv = formatExcelDate(
           v["Ngày PV"] || v["Ngày phỏng vấn"] || "",
@@ -78,8 +79,7 @@ export async function GET(request: NextRequest) {
             (matchedWorker.assignments || []).find(
               (a: any) =>
                 (rawCompany &&
-                  (a.interviewFactory === rawCompany ||
-                    a.workingFactory === rawCompany)) ||
+                  a.interviewFactory === rawCompany) ||
                 (rawPv && dateKey(a.interviewDate) === dateKey(rawPv)),
             ) ||
             matchedWorker.assignments?.[0] ||
@@ -107,7 +107,6 @@ export async function GET(request: NextRequest) {
                 matchedAssignment?.recruiter || matchedWorker.recruiter || "",
               team: matchedAssignment?.team || matchedWorker.team || "",
               interviewFactory: matchedAssignment?.interviewFactory || "",
-              workingFactory: matchedAssignment?.workingFactory || "",
               interviewDate: matchedAssignment?.interviewDate || "",
               status: matchedAssignment?.status || "",
               employeeCode:
@@ -165,7 +164,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const denied = await guard(request, "worker:write");
+  const denied = await guard(request);
   if (denied) return denied;
   const actor = (await identity(request))!;
 
@@ -180,6 +179,14 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "DELETE") {
+      const src = (await readImportSources()).find((s: any) => s.id === String(sourceId));
+      const incoming = src?.rows?.find((r: any) => Number(r.row) === Number(row));
+      if (incoming) {
+        const v = incoming.values || {};
+        const card = normalizeCccd(v["Số CCCD"] || v["số CCCD"] || v.CCCD || "");
+        const person = await prisma.worker.findUnique({where:{idCard:card},include:{assignments:true}});
+        if (sourceConflicts(person, v).length) return NextResponse.json({success:false,code:"INTERVIEW_CONFLICT",message:"Xung đột lượt tuyển: giữ nguyên dòng nguồn để xác minh."},{status:409});
+      }
       const removed = await resolveImportSourceRow(
         String(sourceId),
         Number(row),
@@ -218,12 +225,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const sourceValues = targetRow.values || {};
+    const sourceCard = normalizeCccd(sourceValues["Số CCCD"] || sourceValues["số CCCD"] || sourceValues.CCCD || "");
+    const existingPerson = await prisma.worker.findUnique({where:{idCard:sourceCard},include:{assignments:true}});
+    const conflicts = sourceConflicts(existingPerson, sourceValues);
+    if (conflicts.length) return NextResponse.json({success:false,code:"INTERVIEW_CONFLICT",message:"Xung đột lượt tuyển: " + conflicts.join("; ") + ". Giữ nguyên dữ liệu để xác minh."},{status:409});
+    if (!(targetRow.warnings || []).length && !(targetRow.duplicates || []).length) throw new Error("Dòng đã xử lý hoặc không còn cảnh báo; tải lại danh sách");
     const raw = targetRow.values || {};
     const importType = targetSource.type;
 
+    if (importType === "DS_THUONG") { const denied = await guard(request); if (denied) return denied; }
     await prisma.$transaction(async (tx) => {
       if (importType === "DS_THUONG") {
         const parsed = parseBonusImportRow(raw);
+          assertSourceCard(raw, parsed.idCard);
         const {
           sequence,
           idCard,
@@ -250,29 +265,18 @@ export async function POST(request: NextRequest) {
             data: { idCard, fullName: fullName || "Chưa rõ tên" },
             include: { assignments: true },
           });
-        } else if (fullName && worker.fullName !== fullName) {
-          worker = await tx.worker.update({
-            where: { id: worker.id },
-            data: { fullName },
-            include: { assignments: true },
-          });
         }
-
-        const matchedAssignment =
-          (worker.assignments || []).find(
-            (a: any) =>
-              (a.workingFactory || a.interviewFactory) === company &&
-              (!interviewDate ||
-                dateKey(a.interviewDate) === dateKey(interviewDate)),
-          ) ||
-          worker.assignments?.[0] ||
-          null;
+        assertIdentity(worker, fullName);
+        assertSourceCompatible(worker, raw);
+          const matchedAssignment = resolveBonusAssignment(worker, parsed);
+        if (!matchedAssignment) throw new Error("Chưa có lượt PV khớp; không duyệt liên kết thưởng sang đợt khác");
 
         const existingBonus = await tx.bonusRecord.findFirst({
           where: {
             workerId: worker.id,
             month,
             company,
+            assignmentId: matchedAssignment.id,
           },
         });
 
@@ -292,6 +296,7 @@ export async function POST(request: NextRequest) {
         });
 
         if (existingBonus) {
+          if (existingBonus.status !== "DRAFT") throw new Error("Bản thưởng đã duyệt/khóa; không ghi đè");
           await tx.bonusRecord.update({
             where: { id: existingBonus.id },
             data: {
@@ -367,6 +372,7 @@ export async function POST(request: NextRequest) {
       } else {
         // DS_TONG or other profile row
         const { worker, assignment } = parseImportRow(raw, true);
+        assertSourceCard(raw, worker.idCard);
         let person = await tx.worker.findUnique({
           where: { idCard: worker.idCard },
           include: { assignments: true },
@@ -386,9 +392,11 @@ export async function POST(request: NextRequest) {
             include: { assignments: true },
           });
         } else {
+          assertSourceCompatible(person, raw);
+          assertIdentity(person, worker.fullName);
           await tx.worker.update({
             where: { id: person.id },
-            data: cleanWorkerData,
+            data: fillMissing(person, cleanWorkerData),
           });
         }
 
@@ -397,6 +405,8 @@ export async function POST(request: NextRequest) {
             a.interviewFactory === assignment.interviewFactory &&
             dateKey(a.interviewDate) === dateKey(assignment.interviewDate),
         );
+        await assertReviewProfile(tx, person, worker, assignment, matchedAssignment?.id);
+        if (matchedAssignment && !sameFactory(matchedAssignment.interviewFactory, assignment.interviewFactory)) throw new Error("Trùng lặp nội bộ: cùng ngày nhưng khác nhà máy");
         const cleanAssignmentData = Object.fromEntries(
           Object.entries(assignment).filter(
             ([k, val]) =>
@@ -410,7 +420,7 @@ export async function POST(request: NextRequest) {
         if (matchedAssignment) {
           await tx.workAssignment.update({
             where: { id: matchedAssignment.id },
-            data: cleanAssignmentData,
+            data: fillMissing(matchedAssignment, cleanAssignmentData),
           });
         } else if (assignment.interviewFactory) {
           const created = await tx.workAssignment.create({
@@ -461,7 +471,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const denied = await guard(request, "worker:write");
+  const denied = await guard(request);
   if (denied) return denied;
   try {
     const url = new URL(request.url);

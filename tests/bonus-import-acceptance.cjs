@@ -16,7 +16,7 @@ function load(file, deps = {}) {
     {
       module,
       exports: module.exports,
-      require: (name) => {
+      require: (name) => { if (name === '@/lib/duplicate-check') return require('./load-duplicate-check.js');
         if (!(name in deps)) throw new Error(`Unexpected dependency: ${name}`);
         return deps[name];
       },
@@ -35,6 +35,8 @@ const sourceFormat = load("src/lib/source-format.ts", {
   "@/lib/worker-validation": validation,
 });
 const bonusImport = load("src/lib/bonus-import.ts", {
+  'node:crypto': {default:require('node:crypto')},
+  'node:crypto': {default:require('node:crypto')},
   xlsx: XLSX,
   "@/lib/source-format": sourceFormat,
 });
@@ -101,7 +103,7 @@ const worker = {
       interviewFactory: "Canon",
       workingFactory: "Canon",
       interviewDate: "04/05/2026",
-      employeeCode: "DB-CODE",
+      employeeCode: "CODE-FROM-FILE",
     },
   ],
 };
@@ -115,7 +117,6 @@ const writtenBonuses = [];
 const writtenBanks = [];
 const savedWarnings = [];
 const createdWorkers = [];
-const guardedPermissions = [];
 const prisma = {
   importProfile: { findUnique: async () => null },
   worker: {
@@ -142,6 +143,9 @@ const prisma = {
   auditLog: { create: async () => ({}) },
   $transaction: async (callback) => callback(prisma),
 };
+prisma.worker.createMany = async ({data}) => { createdWorkers.push(...data); return {count:data.length}; };
+prisma.bonusRecord.createMany = async ({data}) => { writtenBonuses.push(...data); return {count:data.length}; };
+prisma.bankAccount.createMany = async ({data}) => { writtenBanks.push(...data); return {count:data.length}; };
 const review = {
   splitImportReview: (items) => ({
     warnings: [],
@@ -172,12 +176,10 @@ const route = load("src/app/api/excel-engine/import/route.ts", {
   },
   "@/lib/prisma": { prisma },
   "@/lib/bonus-import": bonusImport,
+  'node:crypto': {default:require('node:crypto')},
   xlsx: XLSX,
-  "@/lib/auth": {
-    guard: async (_request, permission) => {
-      if (permission) guardedPermissions.push(permission);
-      return null;
-    },
+  "@/lib/local-request": {
+    guard: async () => null,
     identity: async () => ({ username: "QA" }),
   },
   "@/lib/worker-import": { parseImportRow: () => ({}) },
@@ -275,15 +277,14 @@ const makeRequest = (confirm) => ({
   assert.equal(statusSource.rewards[6], "Ko có chính sách thưởng");
   assert.equal(writtenBonuses[2].workerId, "worker-2");
   assert.equal(writtenBonuses[2].assignmentId, null);
-  assert.ok(savedWarnings.some((warning) => warning.includes("chưa gắn đợt")));
+  assert.ok(savedWarnings.some((warning) => warning.includes("chưa liên kết")));
   assert.equal(createdWorkers.length, 1);
   assert.equal(createdWorkers[0].idCard, "000000000003");
   assert.equal(createdWorkers[0].fullName, "Nguyễn Văn A");
-  assert.equal(writtenBonuses[3].workerId, "worker-3");
+  assert.equal(writtenBonuses[3].workerId, createdWorkers[0].id);
   assert.equal(writtenBonuses[3].assignmentId, null);
-  assert.ok(guardedPermissions.includes("worker:write"));
   const bonusListRoute = load("src/app/api/bonuses/route.ts", {
-    "@/lib/auth": {
+    "@/lib/local-request": {
       guard: async () => null,
       identity: async () => ({ username: "QA" }),
     },
@@ -318,9 +319,9 @@ const makeRequest = (confirm) => ({
   });
   assert.equal(listed.body.data.length, 4);
   assert.ok(listed.body.data.some((record) => record.assignmentId === null));
-  assert.equal(writtenBanks.length, 4);
+  assert.equal(writtenBanks.length, 3); // one bank account per worker, not per month
   console.log(
-    "PASS DS_THUONG preview/commit, all 17 columns, numeric/dash/text reward cells retained, leading-zero identifiers, and assignment resolved by company/date without matching source code",
+    "PASS DS_THUONG preview/commit, all 17 columns, numeric/dash/text reward cells retained, leading-zero identifiers, and assignment resolved by exact day/company/code with bank deduplication",
   );
 })().catch((error) => {
   console.error(error);

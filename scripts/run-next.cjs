@@ -4,6 +4,10 @@ const mode = process.argv[2];
 if (!["dev", "build", "start"].includes(mode))
   throw new Error("Invalid Next.js mode");
 const args = [
+  // Trust the Windows certificate store while retaining HTTPS verification.
+  ...(process.platform === "win32" && process.allowedNodeEnvironmentFlags.has("--use-system-ca")
+    ? ["--use-system-ca"]
+    : []),
   path.resolve("node_modules/next/dist/bin/next"),
   mode,
   ...(mode === "build"

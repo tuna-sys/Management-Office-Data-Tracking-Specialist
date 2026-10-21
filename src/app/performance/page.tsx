@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Card, Table, Input, Select, Button, Tag, Progress, Empty, message, Checkbox, Modal, DatePicker, Segmented } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
-import { useIdentity } from '@/components/AuthGate';
+import { provinceName } from '@/lib/province-name';
 import {
   Award,
   TrendingUp,
@@ -96,7 +96,6 @@ const monthOf = (value: string | null | undefined): string => {
 };
 
 export default function PerformanceEvaluationPage() {
-  const user = useIdentity();
   const [data, setData] = useState<any>(null);
   const [orders, setOrders] = useState<any[]>([]);
   const [workers, setWorkers] = useState<any[]>([]);
@@ -366,7 +365,7 @@ export default function PerformanceEvaluationPage() {
   const factoryChartData = useMemo(() => {
     const byFac = new Map<string, any[]>();
     for (const a of filteredAssignments) {
-      const fac = (a.workingFactory || a.interviewFactory || 'Chưa gán').trim() || 'Chưa gán';
+      const fac = (a.interviewFactory || 'Chưa gán').trim() || 'Chưa gán';
       const list = byFac.get(fac) || [];
       list.push(a);
       byFac.set(fac, list);
@@ -1966,7 +1965,7 @@ export default function PerformanceEvaluationPage() {
           const byMonth = new Map<string, { total: number; passed: number; retained10: number }>();
 
           for (const a of allAsgs) {
-            const fac = a.interviewFactory || a.workingFactory || 'Chưa rõ';
+            const fac = a.interviewFactory || 'Chưa rõ';
             const fCur = byFactory.get(fac) || { total: 0, passed: 0, retained10: 0 };
             fCur.total++;
             if (isPassed(a)) fCur.passed++;
@@ -1999,8 +1998,7 @@ export default function PerformanceEvaluationPage() {
                 a.worker?.code,
                 a.worker?.phone,
                 a.interviewFactory,
-                a.workingFactory,
-                a.worker?.province,
+                provinceName(a.worker?.province, a.worker?.address),
                 a.status
               ]
                 .filter(Boolean)
@@ -2175,7 +2173,7 @@ export default function PerformanceEvaluationPage() {
                       width: 120,
                       render: (_: any, r: any) => (
                         <span className="text-xs text-slate-700 truncate block max-w-[115px]">
-                          {r.worker?.province || r.worker?.address || '—'}
+                          {provinceName(r.worker?.province, r.worker?.address) || '—'}
                         </span>
                       )
                     },
@@ -2185,7 +2183,7 @@ export default function PerformanceEvaluationPage() {
                       width: 110,
                       render: (_: any, r: any) => (
                         <span className="font-semibold text-xs text-blue-700">
-                          {r.workingFactory || r.interviewFactory || '—'}
+                          {r.interviewFactory || '—'}
                         </span>
                       )
                     },

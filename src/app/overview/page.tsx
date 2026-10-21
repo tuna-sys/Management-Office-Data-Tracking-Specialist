@@ -17,7 +17,6 @@ import {
   Tooltip,
 } from "antd";
 import OverviewCharts from "@/components/OverviewCharts";
-import { useIdentity } from "@/components/AuthGate";
 import DateField from "@/components/DateField";
 import { formatDate } from "@/lib/date-format";
 import Link from "next/link";
@@ -50,7 +49,6 @@ const pct = (n: number | null | undefined) => (n == null ? "—" : `${n}%`);
 const money = (n: number) => (n || 0).toLocaleString("vi-VN") + " ₫";
 
 export default function OverviewPage() {
-  const user = useIdentity();
   const [data, setData] = useState<any>(null);
   const [orders, setOrders] = useState<any[]>([]);
   const [catalogs, setCatalogs] = useState<any[]>([]);

@@ -2,20 +2,21 @@ const fs = require("fs"),
   ts = require("typescript"),
   vm = require("vm"),
   assert = require("assert/strict");
-const deps = {};
+const deps = {"node:fs":{existsSync:()=>false}, "node:path": require("node:path")};
 function load(f) {
   const m = { exports: {} };
   vm.runInNewContext(
     ts.transpileModule(fs.readFileSync(f, "utf8"), {
       compilerOptions: {
         module: ts.ModuleKind.CommonJS,
-        target: ts.ScriptTarget.ES2020,
+        target: ts.ScriptTarget.ES2020, esModuleInterop: true,
       },
     }).outputText,
     { module: m, exports: m.exports, Date, require: (n) => deps[n] },
   );
   return m.exports;
 }
+deps["@/lib/factory-matching"] = load("src/lib/factory-matching.ts");
 deps["@/lib/import-review"] = load("src/lib/import-review.ts");
 deps["@/lib/worker-validation"] = load("src/lib/worker-validation.ts");
 deps["@/lib/source-format"] = load("src/lib/source-format.ts");
@@ -62,9 +63,9 @@ const sources = [
     ],
   },
 ];
-deps["@/lib/auth"] = { guard: async () => null };
+deps["@/lib/local-request"] = { guard: async () => null };
 deps["@/lib/import-source-store"] = { readImportSources: async () => sources };
-deps["@/lib/prisma"] = { prisma: { worker: { findMany: async () => [] } } };
+deps["@/lib/prisma"] = { prisma: { worker: { findMany: async () => [] }, auditLog: { findMany: async () => [] } } };
 deps["next/server"] = {
   NextResponse: { json: (body, options) => ({ body, ...options }) },
 };

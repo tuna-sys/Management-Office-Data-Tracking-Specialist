@@ -15,15 +15,13 @@ import {
   message,
   Alert,
 } from "antd";
-import { useIdentity } from "@/components/AuthGate";
 import AssignmentFields from "@/components/AssignmentFields";
 import DateField from "@/components/DateField";
 import { formatDate } from "@/lib/date-format";
 
 export default function WorkerDetailPage() {
   const { id } = useParams<{ id: string }>(),
-    user = useIdentity(),
-    canWrite = user?.permissions.includes("worker:write");
+    canWrite = true;
   const [worker, setWorker] = useState<any>(null),
     [edit, setEdit] = useState<any>(null),
     [statuses, setStatuses] = useState<any[]>([]),
@@ -138,7 +136,7 @@ export default function WorkerDetailPage() {
           items={[...(worker.assignments || [])]
             .sort((x: any, y: any) => (x.interviewDate || "").localeCompare(y.interviewDate || ""))
             .map((a: any, idx: number) => {
-              const fac = a.workingFactory || a.interviewFactory || "Chưa rõ công ty";
+              const fac = a.interviewFactory || "Chưa rõ công ty";
               const isFail = a.interviewResult === "FAIL" || (a.status || "").toLowerCase().includes("trượt");
               const isDrop = (a.status || "").toLowerCase().includes("bỏ") || a.interviewResult === "ABANDONED";
               const isWorking = a.status === "Đang làm việc" || a.status === "LV";
@@ -215,7 +213,7 @@ export default function WorkerDetailPage() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span>
                   Lượt {worker.assignments.length - aIdx}:{" "}
-                  <strong>{a.workingFactory || a.interviewFactory}</strong> ·{" "}
+                  <strong>{a.interviewFactory}</strong> ·{" "}
                   {a.order?.name || "Chưa gán đơn hàng"}
                 </span>
                 <div className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
@@ -451,7 +449,6 @@ export default function WorkerDetailPage() {
               team: "Đội nhóm",
               source: "Nguồn tuyển dụng",
               interviewFactory: "Nhà máy PV",
-              workingFactory: "Nhà máy làm việc",
               contractType: "Loại hợp đồng",
               shuttleBusKtx: "Đón xe / KTX",
               interviewDate: "Ngày PV",

@@ -35,7 +35,6 @@ export const WORKER_FIELDS = [
 ] as const;
 export const ASSIGNMENT_FIELDS = [
   "interviewFactory",
-  "workingFactory",
   "contractType",
   "status",
   "leaveDate",
@@ -59,7 +58,7 @@ export const ASSIGNMENT_FIELDS = [
   "teamId",
 ] as const;
 export function phoneKey(value: string) {
-  const digits = value.replace(/[\s().-]/g, "");
+  const digits = value.trim().replace(/[\s().-]/g, "");
   return digits.startsWith("+84") ? "0" + digits.slice(3) : digits;
 }
 export function cleanFields(

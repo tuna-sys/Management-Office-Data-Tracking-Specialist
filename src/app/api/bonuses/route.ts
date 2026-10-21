@@ -1,4 +1,4 @@
-import { guard, identity } from "@/lib/auth";
+import { guard, identity } from "@/lib/local-request";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { canTransition, validAmount, validMonth } from "@/lib/payment-safety";
@@ -17,7 +17,7 @@ function filterValues(params: URLSearchParams, key: string) {
 }
 
 export async function GET(request: NextRequest) {
-  const denied = await guard(request, "read");
+  const denied = await guard(request);
   if (denied) return denied;
   try {
     const { searchParams } = new URL(request.url);
@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
   }
 }
 export async function POST(request: NextRequest) {
-  const denied = await guard(request, "bonus:write");
+  const denied = await guard(request);
   if (denied) return denied;
   try {
     const body = await request.json();
@@ -160,7 +160,6 @@ export async function POST(request: NextRequest) {
       const fallbackBank = worker.bankAccounts[0];
       const resolvedCompany =
         company.trim() ||
-        assignment?.workingFactory ||
         assignment?.interviewFactory ||
         "";
       const resolvedInterviewDate = (
@@ -173,12 +172,17 @@ export async function POST(request: NextRequest) {
         (resolvedInterviewDate && !dateKey(resolvedInterviewDate))
       )
         throw new Error("BONUS_FIELDS_INVALID");
+      const pvKey = dateKey(resolvedInterviewDate);
+      if (!pvKey || (assignment && dateKey(assignment.interviewDate || "") !== pvKey)) throw new Error("BONUS_FIELDS_INVALID");
+      const [year, mon, day] = pvKey.split("-");
+      const interviewDates = [...new Set([resolvedInterviewDate, pvKey, day + "/" + mon + "/" + year])];
       if (
         await tx.bonusRecord.findFirst({
           where: {
             workerId,
             month,
             company: resolvedCompany,
+            interviewDate: { in: interviewDates },
             ...(assignment
               ? {
                   OR: [{ assignmentId: assignment.id }, { assignmentId: null }],
@@ -301,7 +305,7 @@ export async function POST(request: NextRequest) {
   }
 }
 export async function PUT(request: NextRequest) {
-  const denied = await guard(request, "bonus:approve");
+  const denied = await guard(request);
   if (denied) return denied;
   try {
     const body = await request.json();
@@ -401,7 +405,7 @@ export async function PUT(request: NextRequest) {
   }
 }
 export async function PATCH(request: NextRequest) {
-  const denied = await guard(request, "bonus:write");
+  const denied = await guard(request);
   if (denied) return denied;
   let body: any;
   try {
@@ -534,7 +538,7 @@ export async function PATCH(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const denied = await guard(request, "bonus:write");
+  const denied = await guard(request);
   if (denied) return denied;
   let body: any;
   try {

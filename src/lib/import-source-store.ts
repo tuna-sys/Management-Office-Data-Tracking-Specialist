@@ -78,3 +78,13 @@ export async function resolveImportSourceRow(sourceId:string,rowNum:number,mode:
  return {source:data,row:targetRow};
 }
 
+
+export async function correctImportSourceDate(sourceId:string,rowNum:number,interviewDate:string){
+ if(!/^[a-f0-9-]+$/.test(sourceId))throw new Error('Mã nguồn không hợp lệ');
+ const file=path.join(directory,sourceId+'.json');
+ const data=JSON.parse(await readFile(file,'utf8'));
+ const row=(data.rows||[]).find((r:any)=>Number(r.row)===rowNum);
+ if(!row)throw new Error('Không tìm thấy dòng nguồn');
+ row.values={...row.values,'Ngày PV':interviewDate};
+ await writeFile(file+'.tmp',JSON.stringify(data),'utf8');await rename(file+'.tmp',file);memoryCache.delete(sourceId+'.json');
+}

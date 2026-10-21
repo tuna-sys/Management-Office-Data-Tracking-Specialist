@@ -1,4 +1,4 @@
-import { guard, identity } from "@/lib/auth";
+import { guard } from "@/lib/local-request";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { paymentIssue, validMonth } from "@/lib/payment-safety";
@@ -14,18 +14,13 @@ export async function GET(request: NextRequest) {
 
   // Mẫu file mẫu (TEMPLATE) cho phép tải an toàn không chứa dữ liệu nhạy cảm
   if (!type.startsWith("TEMPLATE")) {
-    const denied = await guard(request, "export");
+    const denied = await guard(request);
     if (denied) return denied;
   }
 
   try {
     // 1. Xuất Lệnh Chi Ngân Hàng
     if (type === "PAYMENT_BATCH") {
-      if ((await identity(request))!.role === "HR")
-        return NextResponse.json(
-          { success: false, message: "Nhân sự không có quyền xuất lệnh chi" },
-          { status: 403 },
-        );
       if (!validMonth(month))
         return NextResponse.json(
           { success: false, message: "Cần chọn kỳ tháng hợp lệ" },
@@ -132,7 +127,6 @@ export async function GET(request: NextRequest) {
       const headers = [
         "STT",
         "Nhà máy PV",
-        "Nhà máy làm việc",
         "Loại HD",
         "Tình trạng",
         "Ngày NH",
@@ -159,7 +153,6 @@ export async function GET(request: NextRequest) {
         headers,
         [
           1,
-          "Luxshare QC",
           "Luxshare QC",
           "Thời vụ",
           "Đang làm việc",
@@ -190,7 +183,6 @@ export async function GET(request: NextRequest) {
         [
           1,
           "Luxshare QC",
-          "Luxshare QC",
           "Thời vụ",
           "Đang làm việc",
           "",
@@ -216,7 +208,6 @@ export async function GET(request: NextRequest) {
         [
           2,
           "Canon",
-          "Canon Quế Võ",
           "Thời vụ",
           "Đang làm việc",
           "",
@@ -242,7 +233,6 @@ export async function GET(request: NextRequest) {
         [
           3,
           "Goertek",
-          "Goertek Vina",
           "Thời vụ",
           "Đã nghỉ việc",
           "28/12/2025",
@@ -268,7 +258,6 @@ export async function GET(request: NextRequest) {
         [
           4,
           "Fushan",
-          "Fushan Technology",
           "Thời vụ",
           "Đã nghỉ việc",
           "30/12/2025",
@@ -294,7 +283,6 @@ export async function GET(request: NextRequest) {
         [
           5,
           "Foxconn",
-          "Foxconn Đình Trám",
           "Thời vụ",
           "Đang làm việc",
           "",
@@ -320,7 +308,6 @@ export async function GET(request: NextRequest) {
         [
           6,
           "Amphenol",
-          "Amphenol Vina",
           "Thời vụ",
           "Đã nghỉ việc",
           "15/12/2025",
@@ -346,7 +333,6 @@ export async function GET(request: NextRequest) {
         [
           7,
           "LG",
-          "LG Display",
           "Thời vụ",
           "Đạt phỏng vấn",
           "",
@@ -574,7 +560,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // 6. Xuất Dữ Liệu Hồ Sơ Thực Tế (DS_TONG & Tháng cũ) đúng thứ tự 22 cột chuẩn
+    // 6. Xuất dữ liệu hồ sơ thực tế (DS_TONG & Tháng cũ), chỉ dùng nhà máy PV.
     if (type === "WORKERS") {
       const currentWorkers = await prisma.worker.findMany({
         where: { archivedAt: null },
@@ -601,7 +587,6 @@ export async function GET(request: NextRequest) {
         return {
           STT: idx + 1,
           "Nhà máy PV": a?.interviewFactory || "",
-          "Nhà máy làm việc": a?.workingFactory || a?.interviewFactory || "",
           "Loại HD": a?.contractType || "Thời vụ",
           "Tình trạng": a?.status || "Đang làm việc",
           "Ngày NH": a?.leaveDate || "",

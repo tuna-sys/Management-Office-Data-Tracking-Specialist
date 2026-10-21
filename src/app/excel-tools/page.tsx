@@ -12,23 +12,21 @@ import {
   Segmented,
   Tabs,
   Popconfirm,
-  Input,
+  Collapse,
   Checkbox,
+  Modal,
 } from "antd";
 import {
   FileSpreadsheet,
   UploadCloud,
   Download,
   CheckCircle2,
-  AlertTriangle,
   Coins,
   CreditCard,
   Users,
   Sparkles,
-  Trash2,
-  Link2,
-  Globe,
   Layers,
+  Trash2,
 } from "lucide-react";
 import GoogleSheetSyncCard from "@/components/GoogleSheetSyncCard";
 
@@ -38,66 +36,29 @@ export default function ExcelToolsPage() {
   const [profiles, setProfiles] = useState<any[]>([]);
   const [profileId, setProfileId] = useState("");
   const [importMode, setImportMode] = useState<string>("AUTO");
-  const [sourceMethod, setSourceMethod] = useState<"FILE" | "GOOGLE_SHEET">(
-    "FILE",
-  );
-  const [googleSheetUrl, setGoogleSheetUrl] = useState("");
+  const [inputTab, setInputTab] = useState("GOOGLE_SHEET");
   const [uploading, setUploading] = useState(false);
-  const [clearing, setClearing] = useState(false);
   const [smartMerge, setSmartMerge] = useState(true);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [result, setResult] = useState<any>(null);
-
-  const handleGoogleSheetFetch = async () => {
-    const url = googleSheetUrl.trim();
-    if (!url) {
-      message.warning("Vui lòng nhập đường link Google Sheets");
-      return;
-    }
-    try {
-      setUploading(true);
-      setResult(null);
-      setPendingFile(null);
-      const formData = new FormData();
-      formData.append("googleSheetUrl", url);
-      formData.append("importType", importMode);
-      formData.append("smartMerge", smartMerge ? "true" : "false");
-      if (profileId) formData.append("profileId", profileId);
-
-      const res = await fetch("/api/excel-engine/import", {
-        method: "POST",
-        body: formData,
-      });
-      const json = await res.json();
-      if (json.success) {
-        setResult(json);
-        message.info(
-          `Đã kiểm tra Google Sheet (${json.detectedTypeName || "Excel"}); chưa ghi dữ liệu. Xem kết quả rồi xác nhận.`,
-        );
-      } else {
-        message.error(json.message || "Lỗi đọc bảng tính từ Google Sheets");
-      }
-    } catch {
-      message.error("Lỗi kết nối khi tải Google Sheet");
-    } finally {
-      setUploading(false);
-    }
-  };
+  const [clearOpen, setClearOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   const handleClearImportedData = async () => {
+    setClearing(true);
     try {
-      setClearing(true);
-      const res = await fetch("/api/excel-engine/clear", { method: "POST" });
-      const json = await res.json();
-      if (json.success) {
-        message.success(json.message);
-        setResult(null);
-        setPendingFile(null);
-      } else {
-        message.error(json.message || "Lỗi dọn dẹp dữ liệu");
+      const response = await fetch("/api/excel-engine/clear", { method: "POST" });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        message.error(data.message || "Không thể xóa dữ liệu đã nhập");
+        return;
       }
+      message.success(data.message);
+      setResult(null);
+      setPendingFile(null);
+      setClearOpen(false);
     } catch {
-      message.error("Không thể kết nối đến máy chủ để dọn dẹp dữ liệu");
+      message.error("Không nhận được kết quả xóa. Hãy kiểm tra dữ liệu trước khi thử lại.");
     } finally {
       setClearing(false);
     }
@@ -144,16 +105,12 @@ export default function ExcelToolsPage() {
   };
 
   const commitImport = async () => {
-    if (!pendingFile && !googleSheetUrl) return;
+    if (!pendingFile) return;
 
     setUploading(true);
     try {
       const data = new FormData();
-      if (sourceMethod === "GOOGLE_SHEET" && googleSheetUrl) {
-        data.append("googleSheetUrl", googleSheetUrl.trim());
-      } else if (pendingFile) {
-        data.append("file", pendingFile);
-      }
+      data.append("file", pendingFile);
       data.append("confirm", "true");
       data.append("smartMerge", smartMerge ? "true" : "false");
       data.append("importType", result?.detectedType || importMode);
@@ -192,7 +149,7 @@ export default function ExcelToolsPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
             <FileSpreadsheet className="w-6 h-6 text-emerald-600" />
-            Bộ Máy Xử Lý & Nạp Excel Đa Năng (Excel Engine)
+            Nhập và đồng bộ dữ liệu
           </h1>
           <p className="text-xs text-slate-500 mt-1">
             Hỗ trợ tự động nhận diện và nạp cả 3 loại bảng:{" "}
@@ -200,17 +157,37 @@ export default function ExcelToolsPage() {
             <b>Đối soát STK Ngân hàng</b>.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-            <Sparkles className="w-3.5 h-3.5" /> Auto-Detect 3 Trong 1
-          </span>
-        </div>
-      </div>
-      
-      {/* Khối Tự Động Đồng Bộ Google Sheets (Hỗ trợ quy mô 100.000 dòng) */}
-      <GoogleSheetSyncCard />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      </div>
+
+      {/* Khối Tự Động Đồng Bộ Google Sheets (Hỗ trợ quy mô 100.000 dòng) */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <Tabs className="min-w-0 flex-1" activeKey={inputTab} onChange={setInputTab} items={[{ key: "GOOGLE_SHEET", label: "Google Sheets" }, { key: "FILE", label: "Tải file Excel" }]} />
+        <Button danger icon={<Trash2 className="h-4 w-4" />} disabled={uploading || clearing} onClick={() => setClearOpen(true)}>
+          Xóa dữ liệu đã nhập
+        </Button>
+      </div>
+      <Modal
+        title="Xóa dữ liệu đã nhập trên toàn hệ thống"
+        open={clearOpen}
+        onCancel={() => { if (!clearing) setClearOpen(false); }}
+        onOk={handleClearImportedData}
+        okText="Xóa dữ liệu đã nhập"
+        cancelText="Hủy"
+        confirmLoading={clearing}
+        closable={!clearing}
+        maskClosable={!clearing}
+        keyboard={!clearing}
+        cancelButtonProps={{ disabled: clearing }}
+        okButtonProps={{ danger: true }}
+      >
+        <Alert type="warning" showIcon message="Áp dụng cho tất cả nguồn nhập, không chỉ Sheet đang chọn." />
+        <p className="mt-3">Xóa dữ liệu đã nhập và các bản ghi liên quan trong ứng dụng. File Excel và Google Sheets gốc được giữ nguyên. Hệ thống tạo bản sao lưu trước khi xóa.</p>
+        <p className="mt-3">Tắt tự động đồng bộ và chờ các lần nhập hoàn tất để tránh dữ liệu được nạp lại.</p>
+      </Modal>
+      <div hidden={inputTab !== "GOOGLE_SHEET"}><GoogleSheetSyncCard /></div>
+
+      <div hidden={inputTab !== "FILE"}>
         {/* Khối Nhập File Excel Đa Năng */}
         <Card
           title={
@@ -219,28 +196,9 @@ export default function ExcelToolsPage() {
               Nạp File Dữ Liệu Excel (.xlsx)
             </span>
           }
-          extra={
-            <Popconfirm
-              title="Xác nhận xóa dữ liệu đã import"
-              description="Hệ thống sẽ tự động sao lưu dự phòng (.db). Bạn có chắc muốn xóa toàn bộ hồ sơ, đợt tuyển và thưởng đã nạp từ Excel để nạp lại từ đầu không?"
-              okText="Xóa sạch dữ liệu"
-              cancelText="Hủy"
-              okButtonProps={{ danger: true }}
-              onConfirm={handleClearImportedData}
-            >
-              <Button
-                danger
-                icon={<Trash2 className="w-3.5 h-3.5" />}
-                loading={clearing}
-                size="small"
-                className="font-semibold shadow-xs"
-              >
-                Xóa dữ liệu đã import
-              </Button>
-            </Popconfirm>
-          }
           className="shadow-sm border-slate-200"
         >
+          <details className="mb-4"><summary className="cursor-pointer text-sm font-semibold text-slate-600">Tùy chọn nâng cao</summary>
           {/* Chế độ chọn loại file */}
           <div className="mb-4">
             <div className="text-xs font-semibold text-slate-600 mb-1.5">
@@ -304,38 +262,6 @@ export default function ExcelToolsPage() {
             />
           )}
 
-          {/* Chọn nguồn nạp: File máy tính hoặc Google Sheets */}
-          <div className="mb-4">
-            <div className="text-xs font-semibold text-slate-600 mb-1.5">
-              Hình thức nạp dữ liệu:
-            </div>
-            <Segmented
-              block
-              value={sourceMethod}
-              onChange={(val) => {
-                setSourceMethod(val as "FILE" | "GOOGLE_SHEET");
-                setPendingFile(null);
-                setResult(null);
-              }}
-              options={[
-                {
-                  label: "Tải file từ máy tính (.xlsx)",
-                  value: "FILE",
-                  icon: (
-                    <FileSpreadsheet className="w-3.5 h-3.5 inline mr-1 text-emerald-600" />
-                  ),
-                },
-                {
-                  label: "Link Google Sheets",
-                  value: "GOOGLE_SHEET",
-                  icon: (
-                    <Globe className="w-3.5 h-3.5 inline mr-1 text-blue-600" />
-                  ),
-                },
-              ]}
-            />
-          </div>
-
           {/* Tùy chọn Bổ sung thông tin còn thiếu (Smart Merge) */}
           <div className="mb-4 p-3 bg-slate-50 rounded-xl border border-slate-200">
             <div className="flex items-center justify-between">
@@ -363,7 +289,8 @@ export default function ExcelToolsPage() {
             </p>
           </div>
 
-          {sourceMethod === "FILE" ? (
+          </details>
+
             <Dragger
               name="file"
               multiple={false}
@@ -384,40 +311,7 @@ export default function ExcelToolsPage() {
                 hoặc <b>STK ngân hàng</b>. Tối đa 50 MB / 50.000 dòng.
               </p>
             </Dragger>
-          ) : (
-            <div className="p-5 bg-blue-50/60 border-2 border-dashed border-blue-300 rounded-xl space-y-3">
-              <div className="flex items-center gap-2 text-blue-900 font-bold text-sm">
-                <Globe className="w-5 h-5 text-blue-600" />
-                Đọc Trực Tiếp Từ Google Sheets (Bảng tính trực tuyến)
-              </div>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Dán đường link Google Sheets của bạn vào bên dưới. Bảng tính chỉ
-                cần được bật quyền chia sẻ:{" "}
-                <b>"Bất kỳ ai có đường liên kết đều có thể xem"</b>.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <Input
-                  placeholder="https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit..."
-                  value={googleSheetUrl}
-                  onChange={(e) => setGoogleSheetUrl(e.target.value)}
-                  disabled={uploading}
-                  size="large"
-                  allowClear
-                  className="rounded-lg"
-                />
-                <Button
-                  type="primary"
-                  size="large"
-                  loading={uploading}
-                  onClick={handleGoogleSheetFetch}
-                  className="bg-blue-600 hover:bg-blue-500 font-bold shrink-0 shadow-sm"
-                  icon={<Link2 className="w-4 h-4" />}
-                >
-                  Đọc Dữ Liệu
-                </Button>
-              </div>
-            </div>
-          )}
+
 
           {/* Kết quả sau khi nạp */}
           {result && (
@@ -517,9 +411,7 @@ export default function ExcelToolsPage() {
                 tự động điền bù thông tin trống); {result.pendingDuplicateCount ?? 0} dòng
                 trùng lặp (lệch thông tin hoặc đang làm cty khác) được tách riêng chờ duyệt.
               </p>
-              {result.preview &&
-                (pendingFile ||
-                  (sourceMethod === "GOOGLE_SHEET" && googleSheetUrl)) && (
+              {result.preview && pendingFile && (
                   <Popconfirm
                     title="Xác nhận nạp dữ liệu vào hệ thống"
                     description={
@@ -597,6 +489,8 @@ export default function ExcelToolsPage() {
           )}
         </Card>
 
+      </div>
+      <Collapse items={[{ key: "exports", label: "Mẫu Excel và xuất dữ liệu", children: (<>
         {/* Tải File Mẫu Chuẩn & Xuất Dữ Liệu */}
         <Card
           title="Tải File Mẫu Chuẩn & Xuất Dữ Liệu"
@@ -608,11 +502,11 @@ export default function ExcelToolsPage() {
               <div>
                 <h4 className="font-bold text-blue-900 text-sm flex items-center gap-1.5">
                   <FileSpreadsheet className="w-4 h-4 text-blue-600" />
-                  1. Mẫu File DS_TONG (22 Cột Chuẩn & 4 Sheet)
+                  1. Mẫu File DS_TONG (4 Sheet)
                 </h4>
                 <p className="text-xs text-blue-700 mt-0.5">
                   Gồm 4 sheet: `DS_TONG`, `Tháng cũ`, `Cảnh báo trùng lặp`,
-                  `Link` (Cột A đến W).
+                  `Link`. Chỉ sử dụng nhà máy phỏng vấn.
                 </p>
               </div>
               <a href="/api/excel-engine/export?type=TEMPLATE_DS_TONG">
@@ -673,7 +567,7 @@ export default function ExcelToolsPage() {
                   Xuất Toàn Bộ Dữ Liệu Hồ Sơ Thực Tế (`DS_TONG`)
                 </h4>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Xuất tất cả hồ sơ hiện có theo đúng thứ tự 22 cột chuẩn của
+                  Xuất tất cả hồ sơ hiện có theo thứ tự cột của
                   sheet `DS_TONG`
                 </p>
               </div>
@@ -701,39 +595,9 @@ export default function ExcelToolsPage() {
               </a>
             </div>
 
-            {/* Dọn dẹp dữ liệu đã import */}
-            <div className="p-3.5 rounded-xl bg-rose-50/70 border border-rose-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div>
-                <h4 className="font-bold text-rose-900 text-sm flex items-center gap-1.5">
-                  <Trash2 className="w-4 h-4 text-rose-600" />
-                  Dọn Dẹp Dữ Liệu Đã Import (Làm sạch CSDL)
-                </h4>
-                <p className="text-xs text-rose-700 mt-0.5">
-                  Xóa các hồ sơ lao động, đợt tuyển và bảng thưởng nạp từ Excel
-                  để nạp lại từ đầu. Hệ thống tự động tạo bản sao lưu (.db) dự
-                  phòng trước khi xóa.
-                </p>
-              </div>
-              <Popconfirm
-                title="Xác nhận dọn dẹp dữ liệu nạp từ Excel"
-                description="Hệ thống sẽ tự động sao lưu dữ liệu trước khi dọn. Bạn có chắc chắn muốn xóa dữ liệu đã import để nạp lại không?"
-                okText="Đồng ý dọn dẹp"
-                cancelText="Hủy"
-                okButtonProps={{ danger: true }}
-                onConfirm={handleClearImportedData}
-              >
-                <Button
-                  danger
-                  loading={clearing}
-                  icon={<Trash2 className="w-4 h-4" />}
-                >
-                  Dọn Dẹp Dữ Liệu Import
-                </Button>
-              </Popconfirm>
-            </div>
           </div>
         </Card>
-      </div>
+      </>) }]} />
     </div>
   );
 }

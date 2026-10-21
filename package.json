@@ -13,10 +13,10 @@
     "db:migrate:status": "prisma migrate status",
     "db:seed": "prisma db seed",
     "postinstall": "prisma generate",
-    "auth:setup": "node scripts/create-user.cjs",
-    "test": "node tests/payment-safety.cjs && node --test tests/business-rules.cjs",
+    "test": "node tests/local-request.cjs && node tests/payment-safety.cjs && node --test tests/business-rules.cjs && node tests/duplicate-policy.cjs && node tests/duplicate-regression.cjs && node tests/duplicate-conflicts.cjs && node tests/reviewer-decisions.cjs && node tests/current-worker-row.cjs",
     "test:integration": "node tests/integration.cjs",
-    "dev:local": "node scripts/run-next.cjs dev"
+    "dev:local": "node scripts/run-next.cjs dev",
+    "test:duplicates": "node tests/duplicate-policy.cjs && node tests/duplicate-regression.cjs && node tests/smart-merge.cjs && node tests/duplicate-conflicts.cjs && node tests/reviewer-decisions.cjs && node tests/current-worker-row.cjs"
   },
   "dependencies": {
     "@ant-design/cssinjs": "^1.23.0",

@@ -23,7 +23,6 @@ const mappings: Record<string, string[]> = {
   recruiter: ["Tuyển dụng", "Tuyển Dụng"],
   source: ["Nguồn"],
   interviewFactory: ["Nhà máy PV", "Công ty"],
-  workingFactory: ["Nhà máy làm việc"],
   contractType: ["Loại HD", "Loại HĐ"],
   status: ["Tình trạng", "TT"],
   leaveDate: ["Ngày NH"],
@@ -98,18 +97,8 @@ export function parseImportRow(
     body[field] = String(v).trim();
   }
   if (!body.province && body.address) {
-    const parts = body.address
-      .split(/[,-]/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (parts.length > 0) {
-      const lastPart = parts[parts.length - 1]
-        .replace(/^(tỉnh|thành phố|tp\.?|t\.p)\s+/i, "")
-        .trim();
-      if (lastPart && lastPart.length >= 2 && !/^\d+$/.test(lastPart)) {
-        body.province = lastPart;
-      }
-    }
+    const inferred = inferProvince(body.address);
+    if (inferred) body.province = inferred;
   }
   if (body.onboardingMonth)
     body.onboardingMonth = sourceMonth(
@@ -160,4 +149,11 @@ export function parseImportRow(
     assignment.leaveReason = "";
   }
   return { worker, assignment };
+}
+
+// Same extraction for import and comparison; the full address is kept separately.
+export function inferProvince(address: string): string {
+  const parts = String(address || "").split(/[,-]/).map(s => s.trim()).filter(Boolean);
+  const last = (parts[parts.length - 1] || "").replace(/^(tỉnh|thành phố|tp\.?|t\.p)\s+/i, "").trim();
+  return last.length >= 2 && !/^\d+$/.test(last) ? last : "";
 }

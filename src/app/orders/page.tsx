@@ -15,13 +15,11 @@ import {
   Tag,
   Space,
 } from "antd";
-import { useIdentity } from "@/components/AuthGate";
 import DateField from "@/components/DateField";
 import { formatDate } from "@/lib/date-format";
 
 export default function OrdersPage() {
-  const user = useIdentity();
-  const canWrite = user?.permissions.includes("worker:write");
+  const canWrite = true;
 
   const [orders, setOrders] = useState<any[]>([]);
   const [factories, setFactories] = useState<any[]>([]);

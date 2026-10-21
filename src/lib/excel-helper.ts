@@ -3,7 +3,6 @@ import * as XLSX from "xlsx";
 export interface RawWorkerRow {
   STT?: any;
   "Nhà máy PV"?: string;
-  "Nhà máy làm việc"?: string;
   "Loại HD"?: string;
   "Tình trạng "?: string;
   "Tình trạng"?: string;

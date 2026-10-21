@@ -8,7 +8,7 @@ function load(file, deps = {}) {
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
   }).outputText, { module: m, exports: m.exports, Date, URLSearchParams,
-    require: n => { if (!(n in deps)) throw Error(`Unexpected dependency ${n}`); return deps[n]; } });
+    require: n => { if (n === '@/lib/duplicate-check') return require('./load-duplicate-check.js'); if (n === '@/lib/province-name') return load('src/lib/province-name.ts'); if (!(n in deps)) throw Error(`Unexpected dependency ${n}`); return deps[n]; } });
   return m.exports;
 }
 const server = { NextResponse: { json: (body, options = {}) => ({ body, status: options.status || 200 }) } };
@@ -17,7 +17,7 @@ const domain = { ...load('src/lib/domain.ts', { 'next/server': server, '@/lib/wo
 const auth = { guard: async () => null, identity: async () => ({ username: 'tester' }) };
 const stamp = new Date('2026-10-01T00:00:00Z');
 function route(file, tx) {
-  return load(file, { 'next/server': server, '@/lib/domain': domain, '@/lib/auth': auth,
+  return load(file, { 'next/server': server, '@/lib/domain': domain, '@/lib/local-request': auth,
     '@/lib/worker-validation': validation, '@/lib/reporting': {},
     '@/lib/prisma': { prisma: { $transaction: fn => fn(tx) } } });
 }

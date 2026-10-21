@@ -18,7 +18,7 @@ function load(f) {
       exports: m.exports,
       Buffer,
       Date,
-      require: (n) => {
+      require: (n) => { if (n === '@/lib/duplicate-check') return require('./load-duplicate-check.js');
         if (!(n in deps)) throw Error(n);
         return deps[n];
       },
@@ -32,7 +32,7 @@ deps["@/lib/source-format"] = load("src/lib/source-format.ts");
 deps["@/lib/bonus-import"] = load("src/lib/bonus-import.ts");
 deps["@/lib/factory-matching"] = load("src/lib/factory-matching.ts");
 deps["@/lib/worker-import"] = load("src/lib/worker-import.ts");
-deps["@/lib/auth"] = {
+deps["@/lib/local-request"] = {
   guard: async () => null,
   identity: async () => ({ username: "QA" }),
 };
@@ -45,6 +45,8 @@ deps["@/lib/prisma"] = {
   prisma: {
     worker: { findMany: async () => [] },
     laborStatus: { findMany: async () => [] },
+    bonusRecord: { findMany: async () => [] },
+    auditLog: { create: async () => ({}) },
   },
 };
 deps["next/server"] = {
@@ -57,6 +59,7 @@ deps["@/lib/import-source-store"] = {
     return "qa-source";
   },
 };
+deps['node:crypto'] = {default:require('node:crypto')};
 const route = load("src/app/api/excel-engine/import/route.ts");
 const book = X.utils.book_new();
 X.utils.book_append_sheet(
@@ -81,9 +84,9 @@ const request = (commit) => ({
 });
 (async () => {
   let r = await route.POST(request(false));
-  assert.equal(r.body.summary.readyCount, 1);
-  assert.equal(r.body.summary.errorCount, 0);
-  assert.ok(r.body.warnings.length);
+  assert.equal(r.body.summary.readyCount, 0);
+  assert.equal(r.body.summary.errorCount, 1);
+  assert.ok(r.body.normalizationErrors.length);
   assert.equal(saved, null);
   r = await route.POST(request(true));
   assert.equal(r.body.sourceRowsSaved, 1);

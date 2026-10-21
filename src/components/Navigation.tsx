@@ -1,6 +1,5 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { useIdentity } from '@/components/AuthGate';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -13,7 +12,6 @@ import {
   Truck,
   FileSpreadsheet,
   History,
-  Shield,
   Coins,
   CreditCard,
   Award,
@@ -25,7 +23,6 @@ import {
   ShieldAlert,
   Menu,
   X,
-  LogOut,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -70,7 +67,6 @@ const navGroups: NavGroup[] = [
       { href: '/excel-tools', label: 'Bộ máy Excel Engine', icon: FileSpreadsheet },
       { href: '/catalogs', label: 'Danh mục cấu hình', icon: Layers },
       { href: '/audit', label: 'Lịch sử thay đổi', icon: History },
-      { href: '/permissions', label: 'Phân quyền & Tài khoản', icon: Shield },
     ],
   },
 ];
@@ -90,12 +86,10 @@ const TAB_TITLES: Record<string, { title: string; subtitle?: string }> = {
   '/excel-tools': { title: 'Bộ máy Excel Engine', subtitle: 'Nhập xuất dữ liệu DS_TONG, lệnh chi ngân hàng và cảnh báo trùng' },
   '/catalogs': { title: 'Danh mục cấu hình', subtitle: 'Thiết lập danh mục nhà máy, team và trạng thái lao động' },
   '/audit': { title: 'Lịch sử thay đổi', subtitle: 'Nhật ký kiểm toán toàn bộ thao tác thêm, sửa, xóa, duyệt' },
-  '/permissions': { title: 'Phân quyền & Tài khoản', subtitle: 'Quản lý vai trò người dùng và bảo mật hệ thống' },
 };
 
 export default function Navigation({ children }: { children?: React.ReactNode }) {
   const pathname = usePathname();
-  const user = useIdentity();
   const [isOpenMobile, setIsOpenMobile] = useState(false);
   const [isOtherModulesOpen, setIsOtherModulesOpen] = useState(false);
 
@@ -108,14 +102,6 @@ export default function Navigation({ children }: { children?: React.ReactNode })
     subtitle: 'Hệ thống Quản trị Lao động Tri Thức Việt 2026',
   };
 
-  const handleLogout = async () => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST' });
-      window.location.assign('/');
-    } catch {
-      window.location.assign('/');
-    }
-  };
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
@@ -156,9 +142,7 @@ export default function Navigation({ children }: { children?: React.ReactNode })
         {/* Navigation list */}
         <div className="flex-1 overflow-y-auto px-3 py-4 text-xs font-medium text-slate-600">
           {navGroups.map((group) => {
-            const visibleItems = user
-              ? group.items
-              : group.items.filter((i) => i.href === '/lookup');
+            const visibleItems = group.items;
 
             if (visibleItems.length === 0) return null;
 
@@ -259,14 +243,14 @@ export default function Navigation({ children }: { children?: React.ReactNode })
             {/* Right side: Sync info & Profile */}
             <div className="flex items-center gap-3 text-xs shrink-0">
               {/* Nút Nhập dữ liệu thật (Excel/CSV) dẫn tới Excel Engine */}
-              <Link
+              {pathname !== "/excel-tools" && <Link
                 href="/excel-tools"
                 className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 shadow-xs transition"
                 title="Mở bộ máy xử lý và nạp file Excel"
               >
                 <CheckCircle2 className="h-4 w-4" />
                 <span>Nhập Excel/CSV</span>
-              </Link>
+              </Link>}
 
               {/* Sync status */}
               <div className="hidden items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 xl:flex">
@@ -281,26 +265,7 @@ export default function Navigation({ children }: { children?: React.ReactNode })
                 <span className="font-medium text-emerald-600">Đã kết nối CSDL</span>
               </div>
 
-              {/* User profile */}
-              {user ? (
-                <div className="flex items-center gap-2.5 pl-2 border-l border-slate-200">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 font-bold text-blue-700 text-xs">
-                    {user.username.slice(0, 3).toUpperCase()}
-                  </div>
-                  <div className="hidden sm:block text-left">
-                    <div className="text-xs font-semibold text-slate-800">{user.username}</div>
-                    <div className="text-[10px] text-slate-400">{user.role}</div>
-                  </div>
-                  {!user.localAutoView&&<button
-                    onClick={handleLogout}
-                    className="ml-1 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"
-                    title="Đăng xuất"
-                  >
-                    <LogOut className="h-4 w-4" />
-                  </button>}
-                </div>
-              ) : (null
-              )}
+              <span className="text-xs text-slate-500">Dùng trên máy này</span>
             </div>
           </div>
         </header>

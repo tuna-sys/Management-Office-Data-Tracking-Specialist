@@ -1,4 +1,4 @@
-import { guard, identity } from "@/lib/auth";
+import { guard, identity } from "@/lib/local-request";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 // Hàm chuẩn hóa chuỗi tiếng Việt so sánh tên
@@ -13,7 +13,7 @@ function normalizeName(str: string): string {
     .replace(/\s+/g, " ");
 }
 export async function GET(request: NextRequest) {
-  const denied = await guard(request, "read");
+  const denied = await guard(request);
   if (denied) return denied;
   try {
     const { searchParams } = new URL(request.url);
@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
   }
 }
 export async function POST(request: NextRequest) {
-  const denied = await guard(request, "bank:write");
+  const denied = await guard(request);
   if (denied) return denied;
   try {
     const body = await request.json();
@@ -148,7 +148,7 @@ export async function POST(request: NextRequest) {
   }
 }
 export async function PUT(request: NextRequest) {
-  const denied = await guard(request, "bank:write");
+  const denied = await guard(request);
   if (denied) return denied;
   let body: any;
   try {

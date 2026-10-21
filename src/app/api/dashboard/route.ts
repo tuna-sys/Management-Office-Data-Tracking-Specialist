@@ -1,6 +1,7 @@
-import { guard, identity } from "@/lib/auth";
+import { guard, identity } from "@/lib/local-request";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { provinceName } from "@/lib/province-name";
 export const dynamic = "force-dynamic";
 const FACTORIES = [
   "Luxshare QC",
@@ -14,7 +15,7 @@ const FACTORIES = [
   "LG",
 ];
 export async function GET(request: NextRequest) {
-  const denied = await guard(request, "read");
+  const denied = await guard(request);
   if (denied) return denied;
   try {
     const workers = await prisma.worker.findMany({
@@ -91,7 +92,7 @@ export async function GET(request: NextRequest) {
       if (status === "Đang làm việc") recruiterMap[rec].working++;
       // Tỉnh thành
       const prov =
-        w.province || w.address?.split(",").pop()?.trim() || "Chưa ghi nhận";
+        provinceName(w.province, w.address) || "Chưa ghi nhận";
       provinceMap[prov] = (provinceMap[prov] || 0) + 1;
     }
     // Tổng tiền thưởng
