@@ -25,6 +25,7 @@ import {
   FilePlus2,
   Building2,
 } from "lucide-react";
+import DuplicateReviewEditor, { type EditableField } from "./DuplicateReviewEditor";
 import type { ColumnsType } from "antd/es/table";
 import { formatDate } from "@/lib/date-format";
 import { comparisonState, displayReviewMonth, isEmptyComparison } from "@/lib/duplicate-comparison";
@@ -60,6 +61,8 @@ interface DuplicateAlert {
   conflicts?: string[];
   targetAssignmentId?: string | null;
   reviewToken?: string;
+  editReviewToken?: string;
+  editableFields?: EditableField[];
   extraRows?: Array<{label: string; leftVal: string; rightVal: string}>;
   reviewFields?: Array<{key:string;label:string;before:any;after:any}>;
   type: string;
@@ -513,6 +516,7 @@ export default function DuplicatesPage() {
             <div className="flex items-center justify-between gap-2">
               <Button onClick={()=>setInspectItem(null)}>Đóng</Button>
               <div className="flex gap-2">
+                <DuplicateReviewEditor key={inspectItem.id} item={inspectItem} onSaved={async () => { setInspectItem(null); await fetchDuplicates(); }} />
                 <Popconfirm title="Xóa dòng nhập mới khỏi hàng chờ?" description="Giữ nguyên hồ sơ và lịch sử đang có." onConfirm={()=>handleAction(inspectItem,"DELETE")}><Button danger loading={actionBusy===`${inspectItem.id}-DELETE`}>Xóa</Button></Popconfirm>
                 <Popconfirm title="Duyệt dữ liệu mới?" description="Lưu lịch sử trước/sau và người duyệt rồi áp dụng dữ liệu mới." onConfirm={()=>handleAction(inspectItem,"APPROVE")}><Button type="primary" disabled={inspectItem.canApprove === false} title={inspectItem.blockedApprovalReason} loading={actionBusy===`${inspectItem.id}-APPROVE`}>Duyệt</Button></Popconfirm>
               </div>

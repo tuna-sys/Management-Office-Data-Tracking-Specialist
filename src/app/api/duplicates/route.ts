@@ -1,3 +1,4 @@
+import { editableReviewFields, editReviewToken } from "@/lib/duplicate-edit-review";
 import { compareDuplicateSides, comparisonState, displayReviewMonth } from "@/lib/duplicate-comparison";
 import { reviewFields, reviewToken, resolveReview } from "@/lib/duplicate-resolution";
 import { sourceConflicts, assertSourceCompatible, fillMissing, assertSourceCard, assertReviewProfile, assertIdentity, assertDailyInterview, sameInterviewDay, sameFactory, resolveBonusAssignment, isActiveAssignment } from "@/lib/duplicate-check";
@@ -423,6 +424,10 @@ export async function GET(request: NextRequest) {
         alert.actionRequired = isConflict
           ? "Kiểm tra thông tin khác nhau trước khi duyệt dữ liệu mới; lịch sử trước/sau được lưu lại."
           : "Có thông tin bổ sung; kiểm tra trước khi duyệt.";
+        if (matchedWorker && matchedAssignment && dayAssignments.length === 1) {
+          alert.editableFields = editableReviewFields(matchedWorker, matchedAssignment, v, source.type);
+          alert.editReviewToken = editReviewToken(matchedWorker, matchedAssignment, v, source.type);
+        }
         mergeInfoAlerts.push(alert);
       }
     }
@@ -665,7 +670,7 @@ export async function POST(request: NextRequest) {
       const decision=await prisma.$transaction(tx=>resolveReview(tx,source,incoming,body,actor.username));
       if(decision.removeSource) await resolveImportSourceRow(String(sourceId),Number(row),'DELETE');
       else if(decision.correctedInterviewDate) await correctImportSourceDate(String(sourceId),Number(row),decision.correctedInterviewDate);
-      return NextResponse.json({success:true,message:decision.message,data:{sourceRemoved:decision.removeSource}});
+      return NextResponse.json({success:true,message:decision.message,data:{sourceRemoved:decision.removeSource,...("previewFields" in decision ? {previewFields:decision.previewFields,changeCount:decision.changeCount} : {})}});
     }
 
     if (sourceId && row != null) {

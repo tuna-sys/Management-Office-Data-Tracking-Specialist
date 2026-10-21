@@ -1,3 +1,4 @@
+import { resolveEditedReview } from "@/lib/duplicate-edit-review";
 import { parseBonusImportRow } from "@/lib/bonus-import";
 import { createHash } from 'node:crypto';
 import { dateKey, formatExcelDate, validateWorker } from '@/lib/worker-validation';
@@ -34,6 +35,7 @@ export function reviewFields(worker: any, a: any, raw: any): Candidate[] {
     return values.filter(([, , value]) => value != null && String(value).trim() !== '').map(([key, label, value]) => ({ key, label, before: key.startsWith('worker.') ? worker?.[key.split('.')[1]] : a?.[key.split('.')[1]], after: String(value).trim() })).filter(f => String(f.before || '') !== f.after);
 }
 export async function resolveReview(tx: any, source: any, row: any, body: any, actor: string) {
+    if (["EDIT_AND_APPROVE", "PREVIEW_EDIT"].includes(body.resolution)) return resolveEditedReview(tx, source, row, body, actor);
     const simpleApprove = body.resolution === 'APPROVE_SOURCE';
     const simpleDiscard = body.resolution === 'DISCARD_SOURCE';
     const originalDecision = body.resolution;
