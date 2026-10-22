@@ -47,13 +47,13 @@ export async function getGoogleSyncConfig(): Promise<GoogleSyncConfig> {
     const raw = await fs.readFile(CONFIG_FILE_PATH, "utf-8");
     const data = JSON.parse(raw);
     if (!Array.isArray(data.sources)) data.sources = [];
-    if (typeof data.autoSyncEnabled !== "boolean") data.autoSyncEnabled = true;
+    if (typeof data.autoSyncEnabled !== "boolean") data.autoSyncEnabled = false;
     if (typeof data.syncIntervalSeconds !== "number") data.syncIntervalSeconds = 60;
     return data;
   } catch {
     // Default fallback configuration
     const defaultConfig: GoogleSyncConfig = {
-      autoSyncEnabled: true,
+      autoSyncEnabled: false,
       syncIntervalSeconds: 60,
       activeSourceId: "",
       sources: [],
@@ -69,9 +69,8 @@ export async function saveGoogleSyncConfig(cfg: GoogleSyncConfig): Promise<void>
 }
 
 /**
- * Kiểm tra xem Google Sheet có thay đổi dữ liệu hay không một cách siêu nhẹ
- * bằng cách tải CSV qua Google Visualization API (GViz) và tính hàm băm MD5.
- * Không tải cả file 100.000 dòng .xlsx và không ghi CSDL nếu chưa có thay đổi.
+ * Kiểm tra thay đổi khi bật quét ngầm (tùy chọn).
+ * Đồng bộ ngay (~100.000 dòng) bỏ qua bước này để không tải CSV rồi mới tải xlsx.
  */
 export async function checkGoogleSheetChange(
   spreadsheetId: string,
@@ -137,36 +136,38 @@ export async function executeGoogleSync(
 
   // Cập nhật trạng thái đang đồng bộ
   source.lastStatus = "SYNCING";
-  source.lastMessage = "Đang kiểm tra và đồng bộ...";
+  source.lastMessage = force
+    ? "Đang tải và nạp dữ liệu (bộ lớn có thể mất vài phút)..."
+    : "Đang kiểm tra và đồng bộ...";
   await saveGoogleSyncConfig(cfg);
 
   try {
-    // BƯỚC 1: Kiểm tra thay đổi siêu nhẹ (Lightweight hash check)
+    // BƯỚC 1: Hash CSV chỉ khi quét ngầm. Đồng bộ ngay (force) tải thẳng xlsx.
     let isChanged = true;
     let newHash = "";
 
-    try {
-      const checkResult = await checkGoogleSheetChange(spreadsheetId, source.lastHash);
-      isChanged = checkResult.changed;
-      newHash = checkResult.newHash;
-    } catch (checkErr: any) {
-      console.warn("[GoogleSync] Lỗi kiểm tra GViz hash, sẽ chuyển sang tải trực tiếp:", checkErr?.message);
-      // Nếu GViz bị lỗi, ta vẫn cho phép tải trọn vẹn để không chặn người dùng
-      isChanged = true;
-    }
+    if (!force) {
+      try {
+        const checkResult = await checkGoogleSheetChange(spreadsheetId, source.lastHash);
+        isChanged = checkResult.changed;
+        newHash = checkResult.newHash;
+      } catch (checkErr: any) {
+        console.warn("[GoogleSync] Lỗi kiểm tra GViz hash, sẽ chuyển sang tải trực tiếp:", checkErr?.message);
+        isChanged = true;
+      }
 
-    // Nếu không ép buộc và dữ liệu không thay đổi
-    if (!force && !isChanged && source.lastHash) {
-      source.lastStatus = "NO_CHANGE";
-      source.lastSyncAt = new Date().toISOString();
-      source.lastMessage = "Đã quét ngầm: Bảng tính không có thay đổi mới.";
-      await saveGoogleSyncConfig(cfg);
-      return {
-        success: true,
-        changed: false,
-        message: "Bảng tính không có thay đổi mới.",
-        summary: source.lastSummary,
-      };
+      if (!isChanged && source.lastHash) {
+        source.lastStatus = "NO_CHANGE";
+        source.lastSyncAt = new Date().toISOString();
+        source.lastMessage = "Đã quét ngầm: Bảng tính không có thay đổi mới.";
+        await saveGoogleSyncConfig(cfg);
+        return {
+          success: true,
+          changed: false,
+          message: "Bảng tính không có thay đổi mới.",
+          summary: source.lastSummary,
+        };
+      }
     }
 
     // BƯỚC 2: Có thay đổi hoặc ép buộc đồng bộ -> Nạp dữ liệu vào hệ thống

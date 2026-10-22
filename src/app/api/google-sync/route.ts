@@ -7,6 +7,8 @@ import {
   GoogleSheetSource,
 } from "@/lib/google-sync-engine";
 
+export const maxDuration = 600;
+
 export async function GET() {
   try {
     const config = await getGoogleSyncConfig();

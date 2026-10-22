@@ -1,8 +1,27 @@
 {
   "autoSyncEnabled": false,
   "syncIntervalSeconds": 60,
-  "activeSourceId": "gs-1792546600495",
+  "activeSourceId": "gs-1792634143866",
   "sources": [
+    {
+      "id": "gs-1792634143866",
+      "name": "Bảng tính 1elkqbD8",
+      "url": "https://docs.google.com/spreadsheets/d/1elkqbD8flR-13Df3K88uSGBpWavJ-Xs1LbJIMkMouQo/edit?gid=0#gid=0",
+      "spreadsheetId": "1elkqbD8flR-13Df3K88uSGBpWavJ-Xs1LbJIMkMouQo",
+      "smartMerge": true,
+      "importType": "AUTO",
+      "lastStatus": "SUCCESS",
+      "lastMessage": "Đồng bộ thành công 61.345 dòng (bổ sung 0 dòng).",
+      "createdAt": "2026-10-22T01:55:43.866Z",
+      "lastSyncAt": "2026-10-22T01:58:30.511Z",
+      "lastSummary": {
+        "totalRows": 61382,
+        "successCount": 61345,
+        "mergedCount": 0,
+        "duplicateCount": 37,
+        "newWorkerCount": 50327
+      }
+    },
     {
       "id": "gs-1792546600495",
       "name": "Bảng tính 1X-JvXlV",

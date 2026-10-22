@@ -308,7 +308,7 @@ export default function ExcelToolsPage() {
               </p>
               <p className="text-xs text-slate-500 mt-1">
                 Hệ thống tự động phát hiện: <b>DS_TONG</b>, <b>DS_THUONG</b>,
-                hoặc <b>STK ngân hàng</b>. Tối đa 50 MB / 50.000 dòng.
+                hoặc <b>STK ngân hàng</b>. Tối đa 50 MB / 100.000 dòng.
               </p>
             </Dragger>
 

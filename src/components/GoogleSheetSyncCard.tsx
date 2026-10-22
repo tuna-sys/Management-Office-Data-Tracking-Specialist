@@ -176,7 +176,7 @@ export default function GoogleSheetSyncCard({ onSyncCompleted }: Props) {
           name: newName.trim(),
           importType,
           smartMerge,
-          autoSync: config?.autoSyncEnabled ?? true,
+          autoSync: config?.autoSyncEnabled ?? false,
         }),
       });
       const data = await res.json();
@@ -290,14 +290,14 @@ export default function GoogleSheetSyncCard({ onSyncCompleted }: Props) {
                 Nguồn Google Sheets
               </span>
               <div className="text-[11px] text-slate-500 font-normal">
-                Quản lý nguồn và theo dõi kết quả đồng bộ
+                Tối đa 100.000 dòng. Lần đầu nạp đủ bộ có thể mất vài phút; không quét hash mỗi 60 giây.
               </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-600 font-medium">Tự động quét ngầm (60s):</span>
+            <span className="text-xs text-slate-600 font-medium">Tự động quét ngầm:</span>
             <Switch
-              checked={config?.autoSyncEnabled ?? true}
+              checked={config?.autoSyncEnabled ?? false}
               onChange={handleToggleAuto}
               checkedChildren="BẬT"
               unCheckedChildren="TẮT"
