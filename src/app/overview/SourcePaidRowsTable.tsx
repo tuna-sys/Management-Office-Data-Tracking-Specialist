@@ -35,7 +35,7 @@ export default function SourcePaidRowsTable({ filters, search }: { filters: Reco
     columns={[
       { title: "Người lao động", dataIndex: "name" }, { title: "Số CCCD", dataIndex: "idCard" },
       { title: "Công ty", dataIndex: "company" }, { title: "Tháng thưởng", dataIndex: "month" },
-      { title: "Đã chi trả", dataIndex: "paid", render: amount => (amount || 0).toLocaleString("vi-VN") + " ₫" },
+      { title: "Tiền trong danh sách", dataIndex: "paid", render: amount => (amount || 0).toLocaleString("vi-VN") + " ₫" },
       { title: "Ngày PV ghi nhận", dataIndex: "interviewDate" }, { title: "Chính sách thưởng", dataIndex: "policy" },
       { title: "Chi tiết các lần thưởng 1 → 7", dataIndex: "sourceRewards" },
     ]} />;

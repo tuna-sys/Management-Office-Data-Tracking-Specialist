@@ -40,6 +40,7 @@ export default function ExcelToolsPage() {
   const [uploading, setUploading] = useState(false);
   const [smartMerge, setSmartMerge] = useState(true);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [pendingSheet, setPendingSheet] = useState<any>(null);
   const [result, setResult] = useState<any>(null);
   const [clearOpen, setClearOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
@@ -74,6 +75,8 @@ export default function ExcelToolsPage() {
     try {
       setUploading(true);
       setPendingFile(null);
+      setPendingSheet(null);
+      setResult(null);
       const formData = new FormData();
       formData.append("file", file);
       formData.append("importType", importMode);
@@ -97,7 +100,7 @@ export default function ExcelToolsPage() {
         onError(new Error(json.message));
       }
     } catch (err: any) {
-      message.error("Lỗi tải file lên máy chủ");
+      message.error(`Không thể tải file: ${err?.message || "Kiểm tra kết nối và thử lại."}`);
       onError(err);
     } finally {
       setUploading(false);
@@ -105,26 +108,27 @@ export default function ExcelToolsPage() {
   };
 
   const commitImport = async () => {
-    if (!pendingFile) return;
+    if (!pendingFile && !pendingSheet) return;
 
     setUploading(true);
     try {
       const data = new FormData();
-      data.append("file", pendingFile);
+      if (pendingFile) data.append("file", pendingFile);
       data.append("confirm", "true");
       data.append("smartMerge", smartMerge ? "true" : "false");
       data.append("importType", result?.detectedType || importMode);
 
       if (profileId) data.append("profileId", profileId);
 
-      const r = await fetch("/api/excel-engine/import", {
-        method: "POST",
-        body: data,
-      });
+      if (result?.previewFingerprint) data.append("previewFingerprint", result.previewFingerprint);
+      const r = pendingSheet
+        ? await fetch("/api/google-sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...pendingSheet, action: "commit", confirm: true }) })
+        : await fetch("/api/excel-engine/import", { method: "POST", body: data });
       const j = await r.json();
       if (j.success) {
         setResult(j);
         setPendingFile(null);
+        setPendingSheet(null);
         const newWorkerMessage =
           j.detectedType === "DS_THUONG"
             ? ` Đã tạo ${j.summary?.newWorkerCount || 0} hồ sơ lao động mới.`
@@ -141,6 +145,9 @@ export default function ExcelToolsPage() {
       setUploading(false);
     }
   };
+
+  const duplicateMessages = new Set((result?.review?.duplicates || []).map((issue: any) => issue.message));
+  const invalidRows = (result?.normalizationErrors || result?.errors || []).filter((text: string) => !duplicateMessages.has(text)).map((text: string, index: number) => ({ key: index, row: /^Dòng (\d+):/.exec(text)?.[1] || "—", message: text }));
 
   return (
     <div className="space-y-6">
@@ -185,7 +192,7 @@ export default function ExcelToolsPage() {
         <p className="mt-3">Xóa dữ liệu đã nhập và các bản ghi liên quan trong ứng dụng. File Excel và Google Sheets gốc được giữ nguyên. Hệ thống tạo bản sao lưu trước khi xóa.</p>
         <p className="mt-3">Tắt tự động đồng bộ và chờ các lần nhập hoàn tất để tránh dữ liệu được nạp lại.</p>
       </Modal>
-      <div hidden={inputTab !== "GOOGLE_SHEET"}><GoogleSheetSyncCard /></div>
+      <div hidden={inputTab !== "GOOGLE_SHEET"}><GoogleSheetSyncCard onPreview={(data) => { setResult(data); setPendingFile(null); setPendingSheet(data.previewSource || null); }} /></div>
 
       <div hidden={inputTab !== "FILE"}>
         {/* Khối Nhập File Excel Đa Năng */}
@@ -308,11 +315,16 @@ export default function ExcelToolsPage() {
               </p>
               <p className="text-xs text-slate-500 mt-1">
                 Hệ thống tự động phát hiện: <b>DS_TONG</b>, <b>DS_THUONG</b>,
-                hoặc <b>STK ngân hàng</b>. Tối đa 50 MB / 50.000 dòng.
+                hoặc <b>STK ngân hàng</b>. Tối đa 50 MB / 100.000 dòng mỗi Sheet.
               </p>
             </Dragger>
 
 
+
+        </Card>
+
+      </div>
+      <Card title="Kết quả quét và ghi dữ liệu" hidden={!result}>
           {/* Kết quả sau khi nạp */}
           {result && (
             <div className="mt-6 space-y-4">
@@ -363,7 +375,7 @@ export default function ExcelToolsPage() {
                       color: "text-slate-800",
                     },
                     {
-                      label: result.preview ? "Sẵn sàng nạp" : "Đã ghi hồ sơ",
+                      label: result.preview ? "Hợp lệ, sẵn sàng ghi" : "Đã ghi hồ sơ",
                       value: result.preview
                         ? result.summary?.readyCount
                         : result.summary?.successCount,
@@ -411,7 +423,7 @@ export default function ExcelToolsPage() {
                 tự động điền bù thông tin trống); {result.pendingDuplicateCount ?? 0} dòng
                 trùng lặp (lệch thông tin hoặc đang làm cty khác) được tách riêng chờ duyệt.
               </p>
-              {result.preview && pendingFile && (
+              {result.preview && (pendingFile || pendingSheet) && (
                   <Popconfirm
                     title="Xác nhận nạp dữ liệu vào hệ thống"
                     description={
@@ -434,11 +446,15 @@ export default function ExcelToolsPage() {
                       loading={uploading}
                       className="bg-emerald-600 hover:bg-emerald-500 font-bold shadow-md text-white"
                     >
-                      Xác nhận nạp {result.summary?.readyCount || 0} dòng và
+                      Ghi {result.summary?.readyCount || 0} bản ghi vào danh sách và
                       tách {result.summary?.duplicateCount || 0} dòng trùng
                     </Button>
                   </Popconfirm>
                 )}
+
+              <Alert type={result.preview ? "info" : "success"} showIcon message={result.preview ? "Đã quét xong, chưa ghi dữ liệu. Kiểm tra các nhóm bên dưới rồi bấm Ghi bản ghi vào danh sách." : `Đã lưu ${result.sourceRowsSaved || 0} dòng nguồn; ghi/cập nhật ${result.normalizedSaved || 0} bản ghi nghiệp vụ; ${result.pendingDuplicateCount || 0} dòng chờ rà soát trùng.`} />
+              {result.preview && result.readyRows?.length > 0 && <div className="space-y-2"><h4 className="font-semibold text-emerald-700">Dòng hợp lệ — xem trước tối đa 50 dòng</h4><Table size="small" rowKey={(row: any) => String(row.row) + row.idCard} dataSource={result.readyRows} pagination={{ pageSize: 10 }} scroll={{ x: 650 }} columns={[{ title: "Dòng", dataIndex: "row" }, { title: "Họ tên", dataIndex: "fullName" }, { title: "CCCD", dataIndex: "idCard" }, { title: "Nhà máy phỏng vấn", dataIndex: "factory" }]} /></div>}
+              {invalidRows.length > 0 && <div className="space-y-2"><h4 className="font-semibold text-red-700">Dòng không hợp lệ — cần sửa</h4><Table size="small" rowKey="key" dataSource={invalidRows} pagination={{ pageSize: 10 }} columns={[{ title: "Dòng", dataIndex: "row", width: 90 }, { title: "Lý do", dataIndex: "message" }]} /></div>}
 
               {(result.summary?.duplicateCount || 0) > 0 && (
                 <div className="space-y-2 pt-2">
@@ -487,9 +503,7 @@ export default function ExcelToolsPage() {
               )}
             </div>
           )}
-        </Card>
-
-      </div>
+      </Card>
       <Collapse items={[{ key: "exports", label: "Mẫu Excel và xuất dữ liệu", children: (<>
         {/* Tải File Mẫu Chuẩn & Xuất Dữ Liệu */}
         <Card

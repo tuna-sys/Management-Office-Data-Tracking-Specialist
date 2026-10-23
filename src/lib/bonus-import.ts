@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { sourceMonth, sourceRewardAmount } from "@/lib/source-format";
+import { sourceMonth, sourceBonusAmounts, sourceRewardParts, sourceRewardText } from "@/lib/source-format";
 
 const columns: Record<string, string[]> = {
   sequence: ["STT"],
@@ -36,6 +36,8 @@ export function readBonusValue(
   row: Record<string, unknown>,
   field: string,
 ): unknown {
+  const stage = /^bonus([1-7])$/.exec(field);
+  if (stage) return sourceRewardParts(row, Number(stage[1])).value;
   const aliases = columns[field];
   if (!aliases) return undefined;
   const accepted = new Set(aliases.map(normalizeHeader));
@@ -71,60 +73,12 @@ function stringValue(value: unknown) {
   return String(value ?? "").trim();
 }
 
-function parseBonusAmount(value: unknown, label: string) {
-  const source = stringValue(value);
-  if (!source || /^[-–—]$/.test(source)) return { amount: 0 };
-
-  let amount: number;
-  try {
-    amount = sourceRewardAmount(value);
-  } catch (error: any) {
-    if (error?.message === "Tiền thưởng không hợp lệ") throw error;
-    const match =
-      /([0-9]+(?:[.,][0-9]+)?)\s*(triệu|tr|million|m|nghìn|ngàn|k)(?=\s|$|[^\p{L}])/iu.exec(
-        source,
-      );
-    if (!match)
-      return {
-        amount: 0,
-        warning: `${label}: giữ nguyên nội dung nguồn; không suy ra được số tiền từ “${source}”.`,
-      };
-    const numericValue = Number(match[1].replace(",", "."));
-    const multiplier = /^(triệu|tr|million|m)$/i.test(match[2])
-      ? 1_000_000
-      : 1_000;
-    amount = Math.round(numericValue * multiplier);
-  }
-
-  if (!Number.isSafeInteger(amount) || amount < 0)
-    throw new Error(`${label}: số tiền vượt giới hạn an toàn`);
-  return { amount };
-}
-
 export function parseBonusImportRow(raw: Record<string, unknown>) {
   const interviewDate = formatBonusDate(readBonusValue(raw, "interviewDate"));
   const month = formatBonusMonth(readBonusValue(raw, "month"), interviewDate);
   if (!month) throw new Error("Thiếu tháng thưởng");
 
-  const bonusResults = Array.from({ length: 7 }, (_, index) =>
-    parseBonusAmount(
-      readBonusValue(raw, `bonus${index + 1}`),
-      `Thưởng lần ${index + 1}`,
-    ),
-  );
-  const bonuses = bonusResults.map((result) => result.amount);
-  const amountWarnings = bonusResults.flatMap((result) =>
-    result.warning ? [result.warning] : [],
-  );
-  const totalCell = readBonusValue(raw, "totalBonus");
-  let totalBonus = bonuses.reduce((sum, amount) => sum + amount, 0);
-  if (totalCell !== undefined && totalCell !== null && totalCell !== "") {
-    const totalResult = parseBonusAmount(totalCell, "Tổng thưởng");
-    if (totalResult.warning) amountWarnings.push(totalResult.warning);
-    else totalBonus = totalResult.amount;
-  }
-  if (!Number.isSafeInteger(totalBonus) || totalBonus < 0)
-    throw new Error("Tổng thưởng vượt giới hạn số nguyên an toàn");
+  const { bonuses, totalBonus, amountWarnings } = sourceBonusAmounts(raw);
 
   return {
     sequence: stringValue(readBonusValue(raw, "sequence")),
@@ -139,6 +93,8 @@ export function parseBonusImportRow(raw: Record<string, unknown>) {
     accountNumber: stringValue(readBonusValue(raw, "accountNumber")),
     bankName: stringValue(readBonusValue(raw, "bankName")),
     bonuses,
+    rewardDetails: Array.from({ length: 7 }, (_, i) => sourceRewardParts(raw, i + 1)),
+    rewardTexts: Array.from({ length: 7 }, (_, i) => sourceRewardText(raw, i + 1)),
     totalBonus,
     amountWarnings,
   };

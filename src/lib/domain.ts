@@ -105,24 +105,16 @@ export async function assignmentRelations(
     assignment.interviewFactoryId || null,
     assignment.interviewFactory || null,
   );
-  if (!interviewFactory || (!interviewFactory.isActive && existing?.interviewFactoryId !== interviewFactory.id && existing?.interviewFactory !== interviewFactory.name))
-    throw new DomainError("Nhà máy phỏng vấn chưa có trong danh mục hoặc đã ngừng dùng");
-  assignment.interviewFactoryId = interviewFactory.id;
-  assignment.interviewFactory = interviewFactory.name;
+  if (assignment.interviewFactoryId && !interviewFactory)
+    throw new DomainError("Nhà máy phỏng vấn đã chọn không tồn tại");
+  if (interviewFactory && !interviewFactory.isActive && existing?.interviewFactoryId !== interviewFactory.id && existing?.interviewFactory !== interviewFactory.name)
+    throw new DomainError("Nhà máy phỏng vấn đã ngừng dùng");
+  assignment.interviewFactoryId = interviewFactory?.id || null;
+  assignment.interviewFactory = interviewFactory?.name || text(assignment.interviewFactory, "nhà máy phỏng vấn");
 
-  if (assignment.workingFactoryId || assignment.workingFactory) {
-    const workingFactory = await findFactory(
-      assignment.workingFactoryId || null,
-      assignment.workingFactory || null,
-    );
-    if (!workingFactory || (!workingFactory.isActive && existing?.workingFactoryId !== workingFactory.id && existing?.workingFactory !== workingFactory.name))
-      throw new DomainError("Nhà máy làm việc chưa có trong danh mục hoặc đã ngừng dùng");
-    assignment.workingFactoryId = workingFactory.id;
-    assignment.workingFactory = workingFactory.name;
-  } else {
-    assignment.workingFactoryId = null;
-    assignment.workingFactory = null;
-  }
+  // Working factory is optional source information, never an identity/eligibility condition.
+  assignment.workingFactory = String(assignment.workingFactory || "").trim() || null;
+  assignment.workingFactoryId = null;
 
   const status = assignment.statusId
     ? await tx.laborStatus.findUnique({ where: { id: assignment.statusId } })
@@ -178,7 +170,7 @@ export async function assignmentRelations(
     if (!order || (!order.isActive && existing?.orderId !== orderId))
       throw new DomainError("Đơn hàng không tồn tại hoặc đã ngừng tuyển");
     if (
-      (order.factoryId && order.factoryId !== interviewFactory.id) ||
+      (order.factoryId && order.factoryId !== assignment.interviewFactoryId) ||
       (!order.factoryId && order.factory !== assignment.interviewFactory)
     )
       throw new DomainError("Nhà máy PV không khớp đơn hàng");

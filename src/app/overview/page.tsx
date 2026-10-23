@@ -473,22 +473,10 @@ export default function OverviewPage() {
   const abandonedCount = recSummary.abandoned || 0;
   const unknownInterview = recSummary.unknownInterview || 0;
 
-  // ĐỒNG BỘ DÒNG TIỀN THƯỞNG:
-  // Nếu công ty có số tiền thực tế đã chi trả từ file nguồn DS_THUONG (sourcePaid.total),
-  // tổng hợp đầy đủ số tiền thực tế đã trả của cả nguồn Excel và phiếu chi nội bộ!
+  // DS_THUONG records represent payments already made under the source business rules.
   const sourcePaidMoney = sourcePaid?.total || 0;
-  const internalPaidMoney = rewSummary.paid || 0;
-  const paidMoney =
-    sourcePaidMoney > 0
-      ? sourcePaidMoney + internalPaidMoney
-      : internalPaidMoney;
-  const earnedMoney = rewSummary.earned > 0 ? rewSummary.earned : paidMoney;
-  const outstandingMoney =
-    rewSummary.outstanding > 0 ? rewSummary.outstanding : 0;
-  const payRate =
-    earnedMoney > 0
-      ? Math.min(100, Math.round((paidMoney / earnedMoney) * 100))
-      : 100;
+  const paidMoney = sourcePaidMoney;
+  const earnedMoney = rewSummary.earned || 0;
 
   return (
     <div className="overview-page min-w-0 space-y-6 pb-12">
@@ -1015,7 +1003,7 @@ export default function OverviewPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {/* Tiền Đạt Mốc */}
             <Link href="/rewards" className="block group">
               <div className="p-4 rounded-xl bg-white border border-purple-100 shadow-xs group-hover:border-purple-300 group-hover:shadow-md transition-all h-full flex flex-col justify-between">
@@ -1040,9 +1028,9 @@ export default function OverviewPage() {
                     </span>
                   ) : (
                     <span className="text-purple-600 font-medium">
-                      Hạch toán từ{" "}
+                      Chưa có mốc thưởng được xác nhận; {" "}
                       {(sourcePaid?.rowCount ?? sourcePaid?.rows?.length ?? 0).toLocaleString("vi-VN")}{" "}
-                      lượt chi thưởng DS_THUONG
+                      dòng trong danh sách DS_THUONG
                     </span>
                   )}
                   <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-purple-600 transition" />
@@ -1067,49 +1055,14 @@ export default function OverviewPage() {
                   </div>
                 </div>
                 <div className="mt-2 text-xs text-slate-500 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <Tag color="green" className="text-[11px] font-semibold m-0">
-                      {payRate}% Đã giải ngân
-                    </Tag>
-                    {sourcePaidMoney > 0 && (
-                      <span className="text-emerald-700 font-medium">
-                        (Đồng bộ file DS_THUONG)
-                      </span>
-                    )}
-                  </div>
+                  <span className="text-emerald-700 font-medium">
+                    Đã chi trả theo danh sách DS_THUONG
+                  </span>
                   <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-emerald-600 transition" />
                 </div>
               </div>
             </Link>
 
-            {/* Còn Phải Trả */}
-            <Link href="/rewards" className="block group">
-              <div className="p-4 rounded-xl bg-white border border-amber-100 shadow-xs group-hover:border-amber-300 group-hover:shadow-md transition-all h-full flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs font-semibold text-slate-500 group-hover:text-amber-700 transition">
-                      Dư Nợ Còn Phải Trả
-                    </span>
-                    <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center group-hover:bg-amber-600 group-hover:text-white transition">
-                      <Clock className="w-4 h-4" />
-                    </div>
-                  </div>
-                  <div className="text-2xl font-black text-amber-700 tracking-tight">
-                    {money(outstandingMoney)}
-                  </div>
-                </div>
-                <div className="mt-2 text-xs text-slate-500 flex items-center justify-between">
-                  {outstandingMoney > 0 ? (
-                    <span className="text-amber-600 font-medium">
-                      Cần chuẩn bị kế hoạch thanh toán
-                    </span>
-                  ) : (
-                    <span className="text-slate-400">Không có dư nợ quá hạn</span>
-                  )}
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-amber-600 transition" />
-                </div>
-              </div>
-            </Link>
           </div>
         </div>
       )}
@@ -1124,10 +1077,10 @@ export default function OverviewPage() {
                   <Coins className="w-5 h-5 text-amber-600" />
                   <div>
                     <span className="font-bold text-base text-slate-800">
-                      Đối Chiếu Chi Thưởng Thực Tế Theo File DS_THUONG Gốc
+                      Đối Chiếu Tiền Trong Danh Sách DS_THUONG
                     </span>
                     <span className="text-xs text-slate-500 block font-normal">
-                      Số liệu giải ngân các lần thưởng 1 → 7 nạp trực tiếp từ
+                      Số tiền các lần thưởng 1 → 7 đọc từ
                       bảng tính của công ty
                     </span>
                   </div>
@@ -1137,7 +1090,7 @@ export default function OverviewPage() {
                     color="cyan"
                     className="text-sm font-bold px-3 py-1 rounded-lg"
                   >
-                    Tổng tiền đã chi: {money(sourcePaid.total)}
+                    Tổng tiền trong danh sách: {money(sourcePaid.total)}
                   </Tag>
                   <Link
                     href="/bonuses"
@@ -1156,11 +1109,12 @@ export default function OverviewPage() {
             <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3.5 mb-4 text-xs space-y-2">
               <div className="font-bold text-blue-900 flex items-center gap-1.5 text-sm">
                 <CheckCircle2 className="w-4 h-4 text-blue-600" />
-                Toàn bộ số tiền thưởng {money(sourcePaid.total)} đã được ghi nhận và đồng bộ đầy đủ vào hệ thống
+                Tổng tiền đọc được từ danh sách nguồn: {money(sourcePaid.total)}. Chưa xác nhận đã chi trả.
+                {(sourcePaid.pending || 0) > 0 && <p className="text-xs font-normal mt-2">{sourcePaid.pending.toLocaleString("vi-VN")} dòng còn ô cần đối chiếu. Tổng vẫn cộng các khoản đọc được; ô chưa nhận diện chưa được cộng.</p>}
               </div>
               <p className="text-slate-600 m-0 leading-relaxed">
-                • <b>Số lượt nhận thưởng</b>: Tổng số lượt chi thưởng tương ứng với các lao động nhận thưởng tại từng nhà máy.
-                <br />• <b>Thực tế đã chi trả</b>: Toàn bộ số tiền thưởng đã được hạch toán đầy đủ và chính xác cho người lao động.
+                • <b>Số dòng thưởng</b>: Số dòng trong danh sách, không phải số giao dịch thanh toán.
+                <br />• <b>Xác nhận chi trả</b>: Chỉ ghi nhận từ phiếu chi hợp lệ; nhập file không tự xác nhận thanh toán.
               </p>
               <div className="pt-2 border-t border-blue-200/70 flex flex-wrap items-center justify-between gap-2">
                 <span className="text-slate-600">
@@ -1192,7 +1146,7 @@ export default function OverviewPage() {
                       ),
                     },
                     {
-                      title: "Số lượt nhận thưởng",
+                      title: "Số dòng thưởng",
                       dataIndex: "rows",
                       key: "rows",
                       render: (n: number) => (
@@ -1202,7 +1156,7 @@ export default function OverviewPage() {
                       ),
                     },
                     {
-                      title: "Thực tế đã chi trả",
+                      title: "Tiền trong danh sách",
                       dataIndex: "paid",
                       key: "paid",
                       render: (n: number) => (
@@ -1217,14 +1171,14 @@ export default function OverviewPage() {
                         n > 0 ? (
                           <Tag color="error">{n} dòng</Tag>
                         ) : (
-                          <Tag color="cyan">Hợp lệ 100%</Tag>
+                          <Tag color="cyan">Đọc được số tiền</Tag>
                         ),
                     },
                   ]),
                 },
                 {
                   key: "sourceRows",
-                  label: `Danh Sách Chi Tiết Từng Lượt Nhận Thưởng (${sourcePaid.rowCount ?? sourcePaid.rows?.length ?? 0})`,
+                  label: `Danh Sách Chi Tiết Dòng Thưởng (${sourcePaid.rowCount ?? sourcePaid.rows?.length ?? 0})`,
                   children: <SourcePaidRowsTable filters={appliedFilters} search={tableSearch} />,
                 },
               ]}
@@ -1422,21 +1376,9 @@ export default function OverviewPage() {
                     items={[
                       {
                         key: "bCompanies",
-                        label: `Theo Công Ty / Nhà Máy (${(data.rewards.companies || sourcePaid?.companies)?.length || 0})`,
+                        label: `Theo Công Ty / Nhà Máy (${data.rewards.companies?.length || 0})`,
                         children: renderTable(
-                          data.rewards.companies &&
-                            data.rewards.companies.length > 0
-                            ? data.rewards.companies
-                            : (sourcePaid?.companies || []).map((c: any) => ({
-                                name: c.name,
-                                applications: c.rows,
-                                eligible: c.rows,
-                                achieved: c.rows,
-                                achieveRate: 100,
-                                earned: c.paid,
-                                paid: c.paid,
-                                outstanding: 0,
-                              })),
+                          data.rewards.companies || [],
                           rewardColumns,
                         ),
                       },

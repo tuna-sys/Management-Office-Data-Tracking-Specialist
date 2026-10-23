@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard, identity } from "@/lib/local-request";
 import { deleteImportSource } from "@/lib/import-source-store";
-import { copyFile, mkdir } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
@@ -63,9 +63,9 @@ export async function POST(request: NextRequest) {
       `before-clear-excel-${timestamp}.db`,
     );
 
-    if (existsSync(dbFilePath)) {
-      await copyFile(dbFilePath, backupFile);
-    }
+    if (!existsSync(dbFilePath)) throw new Error("Không tìm thấy database để sao lưu.");
+    // VACUUM INTO includes committed WAL contents in a consistent standalone backup.
+    await prisma.$executeRawUnsafe("VACUUM INTO '" + backupFile.replace(/'/g, "''") + "'");
 
     // 2. Thu thập và xóa dữ liệu nạp từ Excel
     // 2. Thu thập và xóa dữ liệu nạp từ Excel
@@ -80,6 +80,13 @@ export async function POST(request: NextRequest) {
         SELECT DISTINCT assignmentId FROM AssignmentEvent 
         WHERE note LIKE 'Import Excel%' OR note LIKE '%cảnh báo trùng%'
       `);
+
+        await tx.$executeRawUnsafe(`CREATE TEMP TABLE TempImportWorkers (id TEXT PRIMARY KEY)`);
+        await tx.$executeRawUnsafe(`
+          INSERT OR IGNORE INTO TempImportWorkers (id)
+          SELECT workerId FROM WorkAssignment WHERE id IN (SELECT id FROM TempImportAssignments)
+          UNION SELECT workerId FROM BonusRecord WHERE note LIKE '%SOURCE_EXCEL_ACTUAL_PAID%'
+        `);
 
         // 2. Xóa các khoản thanh toán & mốc thưởng chính sách (RewardPayment -> RewardStage -> PolicyEnrollment)
         await tx.$executeRawUnsafe(`
@@ -121,12 +128,12 @@ export async function POST(request: NextRequest) {
         );
         await tx.$executeRawUnsafe(`
         INSERT OR IGNORE INTO TempOrphanWorkers (id)
-        SELECT id FROM Worker WHERE id NOT IN (SELECT DISTINCT workerId FROM WorkAssignment WHERE workerId IS NOT NULL)
+        SELECT id FROM Worker WHERE id IN (SELECT id FROM TempImportWorkers)
+        AND id NOT IN (SELECT DISTINCT workerId FROM WorkAssignment WHERE workerId IS NOT NULL)
+        AND id NOT IN (SELECT DISTINCT workerId FROM BonusRecord WHERE workerId IS NOT NULL)
       `);
         const deletedBanks = await tx.$executeRawUnsafe(`
         DELETE FROM BankAccount WHERE workerId IN (SELECT id FROM TempOrphanWorkers)
-           OR checkResult LIKE '%Tự động tạo từ danh sách thưởng%' 
-           OR checkResult LIKE '%Đối soát%'
       `);
 
         // 7. Xóa worker không còn đợt tuyển
@@ -139,6 +146,7 @@ export async function POST(request: NextRequest) {
           `DROP TABLE IF EXISTS TempImportAssignments`,
         );
         await tx.$executeRawUnsafe(`DROP TABLE IF EXISTS TempOrphanWorkers`);
+        await tx.$executeRawUnsafe(`DROP TABLE IF EXISTS TempImportWorkers`);
 
         // Ghi audit log
         await tx.auditLog.create({

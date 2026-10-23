@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guard } from "@/lib/local-request";
+import { POST as previewImport } from "@/app/api/excel-engine/import/route";
 import {
   getGoogleSyncConfig,
   saveGoogleSyncConfig,
-  executeGoogleSync,
   extractSpreadsheetId,
-  GoogleSheetSource,
 } from "@/lib/google-sync-engine";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const denied = await guard(req);
+  if (denied) return denied;
   try {
     const config = await getGoogleSyncConfig();
     const activeSource = config.sources.find((s) => s.id === config.activeSourceId) || config.sources[0] || null;
@@ -25,6 +27,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const denied = await guard(req);
+  if (denied) return denied;
   try {
     const body = await req.json();
     const action = body.action || "sync-now";
@@ -81,9 +85,7 @@ export async function POST(req: NextRequest) {
 
       // Đặt làm nguồn kích hoạt
       config.activeSourceId = source.id;
-      if (typeof autoSync === "boolean") {
-        config.autoSyncEnabled = autoSync;
-      }
+      config.autoSyncEnabled = false;
 
       await saveGoogleSyncConfig(config);
 
@@ -121,7 +123,7 @@ export async function POST(req: NextRequest) {
     // 4. Bật / Tắt tự động quét
     if (action === "toggle-auto") {
       const { enabled, intervalSeconds } = body;
-      if (typeof enabled === "boolean") config.autoSyncEnabled = enabled;
+      config.autoSyncEnabled = false;
       if (typeof intervalSeconds === "number" && intervalSeconds >= 10) {
         config.syncIntervalSeconds = intervalSeconds;
       }
@@ -135,26 +137,30 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 5. Đồng bộ ngay (Sync now - ép buộc đồng bộ kể cả khi chưa đổi hash hoặc kiểm tra hash)
-    if (action === "sync-now") {
-      const { sourceId, force } = body;
-      const result = await executeGoogleSync(sourceId, force !== false);
-      const updatedConfig = await getGoogleSyncConfig();
-      return NextResponse.json({
-        ...result,
-        config: updatedConfig,
-      });
+    // Manual reading never confirms an import or writes source snapshots.
+    if (action === "sync-now" || action === "preview" || action === "commit") {
+      const source = config.sources.find((s) => s.id === (body.sourceId || config.activeSourceId)) || config.sources[0];
+      const url = String(body.googleSheetUrl || source?.url || "").trim();
+      if (!extractSpreadsheetId(url)) return NextResponse.json({ success: false, message: "Nhập link Google Sheets hợp lệ để đọc." }, { status: 400 });
+      const committing = action === "commit";
+      if (committing && body.confirm !== true) return NextResponse.json({ success: false, message: "Cần xác nhận trước khi ghi bản ghi." }, { status: 400 });
+      const form = new FormData();
+      form.append("googleSheetUrl", url);
+      form.append("confirm", committing ? "true" : "false");
+      if (body.previewFingerprint) form.append("previewFingerprint", body.previewFingerprint);
+      form.append("smartMerge", (body.smartMerge ?? source?.smartMerge) === false ? "false" : "true");
+      form.append("importType", body.importType || source?.importType || "AUTO");
+      const target = new URL("/api/excel-engine/import", req.url);
+      const response = await previewImport(new NextRequest(target, {
+        method: "POST",
+        headers: { host: target.host, origin: target.origin },
+        body: form,
+      }));
+      const result = await response.json();
+      return NextResponse.json({ ...result, changed: committing && result.success, config, previewSource: { googleSheetUrl: url, importType: body.importType || source?.importType || "AUTO", smartMerge: (body.smartMerge ?? source?.smartMerge) !== false, previewFingerprint: result.previewFingerprint }, message: result.success ? (committing ? `Đã ghi ${result.normalizedSaved || 0} bản ghi nghiệp vụ.` : "Đã quét xong; xem kết quả rồi xác nhận ghi bản ghi.") : result.message }, { status: response.status });
     }
-
-    // 6. Quét ngầm định kỳ (Auto poll - kiểm tra hash trước, chỉ nạp khi có đổi)
     if (action === "poll-auto-sync") {
-      const { sourceId } = body;
-      const result = await executeGoogleSync(sourceId, false);
-      const updatedConfig = await getGoogleSyncConfig();
-      return NextResponse.json({
-        ...result,
-        config: updatedConfig,
-      });
+      return NextResponse.json({ success: false, message: "Tự động đồng bộ đã tắt. Bấm Đồng bộ để đọc thủ công." }, { status: 400 });
     }
 
     return NextResponse.json({ success: false, message: "Action không hợp lệ" }, { status: 400 });

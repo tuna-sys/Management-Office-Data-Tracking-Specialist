@@ -1,0 +1,12 @@
+const fs=require('fs'),vm=require('vm'),ts=require('typescript'),X=require('xlsx'),crypto=require('crypto'),assert=require('assert/strict');
+const m={exports:{}};
+const source=fs.readFileSync('src/app/api/excel-engine/import/route.ts','utf8')+'\nexport {workbookDataFingerprint};';
+vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020,esModuleInterop:true}}).outputText,{module:m,exports:m.exports,require:n=>n==='xlsx'?X:n==='node:crypto'?crypto:{},Buffer});
+const build=date=>{const b=X.utils.book_new();X.utils.book_append_sheet(b,X.utils.aoa_to_sheet([['Họ tên','Tiền thưởng L1'],['QA',500000]]),'DS_THUONG');b.Props={CreatedDate:new Date(date),ModifiedDate:new Date(date)};return b;};
+const first=X.write(build('2026-01-01'),{type:'buffer',bookType:'xlsx'}),second=X.write(build('2026-02-01'),{type:'buffer',bookType:'xlsx'});
+assert.notEqual(crypto.createHash('sha256').update(first).digest('hex'),crypto.createHash('sha256').update(second).digest('hex'));
+const a=X.read(first,{type:'buffer'}),b=X.read(second,{type:'buffer'}),fingerprint=m.exports.workbookDataFingerprint;
+assert.equal(fingerprint(a),fingerprint(b),'metadata changes must not invalidate a preview');
+b.Sheets.DS_THUONG['!ref']='A1:D20';b.Sheets.DS_THUONG.B2.w='display only';assert.equal(fingerprint(a),fingerprint(b),'empty padding/display metadata do not change imported values');
+b.Sheets.DS_THUONG.B2.v=600000;assert.notEqual(fingerprint(a),fingerprint(b),'changed amount must invalidate preview');
+console.log('PASS different XLSX bytes/same cells accepted; changed amount rejected; empty padding and metadata ignored');

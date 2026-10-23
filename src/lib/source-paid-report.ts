@@ -3,7 +3,7 @@ import {
   normalizeCccd,
   formatExcelDate,
 } from "@/lib/worker-validation";
-import { sourceHeader, sourceRewardAmount } from "@/lib/source-format";
+import { sourceHeader, sourceBonusAmounts, sourceRewardParts, sourceRewardText } from "@/lib/source-format";
 import { splitImportReview } from "@/lib/import-review";
 const norm = (v: unknown) =>
   String(v ?? "")
@@ -29,8 +29,8 @@ export function sourcePaidReport(
         ]),
       );
       if (
-        !Array.from({ length: 7 }, (_, i) => `Thưởng lần ${i + 1}`).some(
-          (k) => k in v,
+        !Array.from({ length: 7 }, (_, i) => sourceRewardParts(v, i + 1)).some(
+          (part) => part.split || part.value !== undefined,
         )
       )
         continue;
@@ -46,7 +46,7 @@ export function sourcePaidReport(
         pv = formatExcelDate(v["Ngày PV"]),
         code = String(v["Mã nhân viên"] || v["Mã NV"] || "").trim();
       const rewards = Array.from({ length: 7 }, (_, i) =>
-        String(v[`Thưởng lần ${i + 1}`] ?? "").trim(),
+        sourceRewardText(v, i + 1),
       );
       const key =
         card && company
@@ -68,13 +68,16 @@ export function sourcePaidReport(
           (!code || String(a.employeeCode || worker.code || "") === code),
       );
       let paid = 0;
+      let amountInvalid = false;
       const warnings: string[] = [];
-      for (const reward of rewards)
-        try {
-          paid += sourceRewardAmount(reward);
-        } catch {
-          warnings.push("Có nội dung tiền chưa đọc được; cần đối chiếu");
-        }
+      try {
+        const amounts = sourceBonusAmounts(v);
+        paid = amounts.totalBonus;
+        warnings.push(...amounts.amountWarnings);
+      } catch {
+        amountInvalid = true;
+        warnings.push("Có nội dung tiền chưa đọc được; cần đối chiếu");
+      }
       unique.set(key, {
         id: `source-${source.id}-${r.row}`,
         key,
@@ -87,6 +90,7 @@ export function sourcePaidReport(
         workerCode: code,
         policy: String(v["Chính sách"] || ""),
         paid,
+        amountInvalid,
         sourceRewards: rewards.join(" · "),
         sourceFile: source.file,
         sourceRow: r.row,
@@ -212,7 +216,7 @@ export function sourcePaidReport(
           : r.linked
             ? "Đã liên kết hồ sơ"
             : "Nguồn Excel — chưa liên kết đợt",
-      counted: !r.conflicting && !r.warnings.length,
+      counted: !r.conflicting && !r.amountInvalid,
     }));
   const groups = new Map<string, any>();
   for (const r of rows) {
@@ -225,7 +229,7 @@ export function sourcePaidReport(
     };
     g.rows++;
     if (r.counted) g.paid += r.paid;
-    else g.pending++;
+    if (!r.counted || r.warnings.length) g.pending++;
     if (!r.linked) g.unlinked++;
     groups.set(r.company, g);
   }
@@ -234,7 +238,7 @@ export function sourcePaidReport(
     rows,
     companies: [...groups.values()],
     unlinked: rows.filter((r) => !r.linked).length,
-    pending: rows.filter((r) => !r.counted).length,
+    pending: rows.filter((r) => !r.counted || r.warnings.length).length,
     skippedDuplicates,
   };
 }

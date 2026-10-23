@@ -119,3 +119,18 @@ assert.equal(deduped.total, 500000);
 console.log(
   "PASS company/date filters with no assignment, repeated import not double counted, conflicting amounts excluded from total",
 );
+
+const splitMoney = {"Công ty":"QA", "Số CCCD":"000000000091", "Họ tên":"QA", "Ngày PV":"01/10/2026", "Tháng":"T10.2026", "Tiền thưởng L1":"2tr", "Tiền thưởng L2":"Ck - 500k - Đã chốt 16/09", "Tiền thưởng L3":"Xét 1 tháng - 2tr - 25/10", "Tên thưởng L3":"7 công", "Lý do L3":"25/10", "Tổng thưởng":999};
+const expectedSplit = deps["@/lib/source-format"].sourceBonusAmounts(splitMoney).totalBonus;
+assert.equal(expectedSplit,4500000);
+const consistent = report([{id:"split-shorthand",type:"DS_THUONG",file:"QA.xlsx",rows:[{row:2,values:splitMoney}]}],[],[],new URLSearchParams());
+assert.equal(consistent.total,expectedSplit);
+assert.equal(consistent.pending,0);
+console.log("PASS report/import use same parser for tr/k and embedded dates/work days; source amount never establishes payment");
+const partial = { ...splitMoney, "Tiền thưởng L2":"Chờ đối chiếu", "Tiền thưởng L3":"" };
+const partialResult=report([{id:"partial",type:"DS_THUONG",file:"QA.xlsx",rows:[{row:2,values:partial}]}],[],[],new URLSearchParams());
+assert.equal(partialResult.total,2000000);
+assert.equal(partialResult.pending,1);
+assert.equal(partialResult.rows[0].counted,true);
+assert.ok(partialResult.rows[0].warnings.length>0);
+console.log("PASS partial unreadable reward keeps recognized amounts and a visible warning");

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Card,
   Input,
@@ -60,10 +60,10 @@ interface GoogleSyncConfig {
 }
 
 interface Props {
-  onSyncCompleted?: (summary?: any) => void;
+  onPreview?: (result: any) => void;
 }
 
-export default function GoogleSheetSyncCard({ onSyncCompleted }: Props) {
+export default function GoogleSheetSyncCard({ onPreview }: Props) {
   const [config, setConfig] = useState<GoogleSyncConfig | null>(null);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -72,9 +72,6 @@ export default function GoogleSheetSyncCard({ onSyncCompleted }: Props) {
   const [importType, setImportType] = useState("AUTO");
   const [smartMerge, setSmartMerge] = useState(true);
   const [editing, setEditing] = useState(false);
-  const [secondsLeft, setSecondsLeft] = useState(60);
-
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchConfig = async () => {
     try {
@@ -104,59 +101,6 @@ export default function GoogleSheetSyncCard({ onSyncCompleted }: Props) {
     fetchConfig();
   }, []);
 
-  // Đếm ngược và tự động quét ngầm mỗi chu kỳ (mặc định 60s)
-  useEffect(() => {
-    if (!config?.autoSyncEnabled || !config?.activeSourceId) {
-      if (timerRef.current) clearInterval(timerRef.current);
-      return;
-    }
-
-    const intervalSec = config.syncIntervalSeconds || 60;
-    setSecondsLeft(intervalSec);
-
-    timerRef.current = setInterval(async () => {
-      setSecondsLeft((prev) => {
-        if (prev <= 1) {
-          // Kích hoạt quét ngầm
-          triggerPollSync();
-          return intervalSec;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [config?.autoSyncEnabled, config?.activeSourceId, config?.syncIntervalSeconds]);
-
-  // Quét ngầm nhẹ nhàng (chỉ kiểm tra hash, nếu có đổi mới nạp dữ liệu)
-  const triggerPollSync = async () => {
-    if (syncing) return;
-    try {
-      const res = await fetch("/api/google-sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "poll-auto-sync",
-          sourceId: config?.activeSourceId,
-        }),
-      });
-      const data = await res.json();
-      if (data.config) {
-        setConfig(data.config);
-      }
-      if (data.success && data.changed) {
-        message.success(
-          `Google Sheets: Đã tự động cập nhật ${data.summary?.totalRows || ""} dòng dữ liệu mới!`,
-        );
-        if (onSyncCompleted) onSyncCompleted(data.summary);
-      }
-    } catch {
-      // background poll error is silent
-    }
-  };
-
   // Lưu nguồn Google Sheet
   const handleSaveSource = async (syncImmediately = false) => {
     const url = newUrl.trim();
@@ -176,7 +120,7 @@ export default function GoogleSheetSyncCard({ onSyncCompleted }: Props) {
           name: newName.trim(),
           importType,
           smartMerge,
-          autoSync: config?.autoSyncEnabled ?? true,
+          autoSync: false,
         }),
       });
       const data = await res.json();
@@ -217,7 +161,7 @@ export default function GoogleSheetSyncCard({ onSyncCompleted }: Props) {
       }
       if (data.success) {
         message.success(data.message || "Đồng bộ thành công!");
-        if (onSyncCompleted) onSyncCompleted(data.summary);
+        if (onPreview) onPreview(data);
       } else {
         message.error(data.message || "Đồng bộ thất bại");
       }
@@ -225,28 +169,6 @@ export default function GoogleSheetSyncCard({ onSyncCompleted }: Props) {
       message.error("Lỗi kết nối khi đồng bộ");
     } finally {
       setSyncing(false);
-      setSecondsLeft(config?.syncIntervalSeconds || 60);
-    }
-  };
-
-  // Chuyển đổi trạng thái tự động quét 1 phút
-  const handleToggleAuto = async (checked: boolean) => {
-    try {
-      const res = await fetch("/api/google-sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "toggle-auto",
-          enabled: checked,
-        }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setConfig(data.config);
-        message.info(data.message);
-      }
-    } catch {
-      message.error("Không thể thay đổi trạng thái tự động quét");
     }
   };
 
@@ -294,16 +216,7 @@ export default function GoogleSheetSyncCard({ onSyncCompleted }: Props) {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-600 font-medium">Tự động quét ngầm (60s):</span>
-            <Switch
-              checked={config?.autoSyncEnabled ?? true}
-              onChange={handleToggleAuto}
-              checkedChildren="BẬT"
-              unCheckedChildren="TẮT"
-              className="bg-slate-300"
-            />
-          </div>
+
         </div>
       }
     >
@@ -315,12 +228,6 @@ export default function GoogleSheetSyncCard({ onSyncCompleted }: Props) {
         <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
           <div className="text-xs font-bold text-slate-700 flex items-center justify-between">
             <span>Dán đường link Google Sheets của bạn:</span>
-            {config?.autoSyncEnabled && activeSource?.url && (
-              <span className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5 animate-pulse" />
-                Lần quét tự động tiếp theo: {secondsLeft}s
-              </span>
-            )}
           </div>
 
           <div className="flex flex-col sm:flex-row gap-2">
@@ -337,11 +244,11 @@ export default function GoogleSheetSyncCard({ onSyncCompleted }: Props) {
               type="primary"
               size="large"
               loading={syncing}
-              onClick={() => handleSaveSource(false)}
+              onClick={() => handleSaveSource(true)}
               className="bg-emerald-600 hover:bg-emerald-500 font-bold shrink-0 shadow-sm"
               icon={<RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} />}
             >
-              Lưu nguồn
+              Đồng bộ
             </Button>
           </div>
 
@@ -425,7 +332,7 @@ export default function GoogleSheetSyncCard({ onSyncCompleted }: Props) {
                   className="font-semibold text-xs border-slate-300 hover:border-emerald-500"
                   icon={<RefreshCw className={`w-3 h-3 text-emerald-600 ${syncing ? "animate-spin" : ""}`} />}
                 >
-                  Đồng bộ ngay
+                  Đồng bộ
                 </Button>
               </div>
             </div>

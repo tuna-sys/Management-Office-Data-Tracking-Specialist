@@ -39,7 +39,7 @@ const raw = {
   "Tháng nhận việc": "Tháng 05",
 };
 const result = parser.parseImportRow(raw, true);
-assert.equal(result.assignment.workingFactory, undefined, "legacy working factory must not be imported");
+assert.equal(result.assignment.workingFactory, "B", "working factory is optional source information");
 assert.equal(result.assignment.contractType, "CTV");
 assert.equal(result.assignment.leaveDate, "không rõ");
 assert.equal(result.worker.phone, "khôngrõ");

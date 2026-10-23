@@ -16,6 +16,8 @@ import { parseBonusImportRow, readBonusValue } from "@/lib/bonus-import";
 import { assignmentRelations, today } from "@/lib/domain";
 import crypto from "node:crypto";
 
+const MAX_IMPORT_ROWS = 100_000;
+
 type SheetEntries = {
   sheetName: string;
   headers: string[];
@@ -41,6 +43,8 @@ const headerKeywordsByType: Record<string, string[]> = {
   ],
   DS_THUONG: [
     "thưởng lần 1",
+    "tiền thưởng l1",
+    "tên thưởng l1",
     "tổng thưởng",
     "chính sách",
     "số cccd",
@@ -115,14 +119,19 @@ function extractSheetData(
 
   if (headerRowIndex === -1) return null;
 
-  const entries = matrix
-    .slice(headerRowIndex + 1)
-    .map((values, index) => ({
-      row: headerRowIndex + index + 2,
+  const entries: SheetEntries["entries"] = [];
+  for (let index = headerRowIndex + 1; index < matrix.length; index++) {
+    const values = matrix[index];
+    if (!values.some((v) => String(v ?? "").trim() !== "")) continue;
+    if (entries.length >= MAX_IMPORT_ROWS) {
+      throw new Error(`Sheet "${targetSheetName}" vượt quá 100.000 dòng dữ liệu.`);
+    }
+    entries.push({
+      row: index + 1,
       raw: Object.fromEntries(headers.map((h, i) => [h, values[i]])),
       values,
-    }))
-    .filter((e) => e.values.some((v) => String(v ?? "").trim() !== ""));
+    });
+  }
 
   return {
     sheetName: targetSheetName,
@@ -131,12 +140,70 @@ function extractSheetData(
   };
 }
 
+// Read only enough rows to identify the header, preserving blank-row handling.
+function readHeaderRows(sheet: XLSX.WorkSheet): any[][] {
+  if (!sheet["!ref"]) return [];
+  const bounds = XLSX.utils.decode_range(sheet["!ref"]);
+  const rows: any[][] = [];
+  for (let start = bounds.s.r; start <= bounds.e.r && rows.length < 6; start += 64) {
+    const chunk = XLSX.utils.sheet_to_json<any[]>(sheet, {
+      header: 1, defval: "", blankrows: false,
+      range: { s: { r: start, c: bounds.s.c }, e: { r: Math.min(start + 63, bounds.e.r), c: bounds.e.c } },
+    });
+    rows.push(...chunk.slice(0, 6 - rows.length));
+  }
+  return rows;
+}
+
+function readyRowSample(entries: SheetEntries["entries"], errors: string[]) {
+  const blocked = new Set(errors.map((message) => Number(/^Dòng (\d+):/.exec(message)?.[1] || 0)));
+  return entries.filter((entry) => !blocked.has(entry.row)).slice(0, 50).map((entry) => ({
+    row: entry.row,
+    fullName: entry.raw["Họ tên"] || entry.raw["Họ và tên"] || entry.raw["Tên chủ tài khoản"] || "",
+    idCard: String(entry.raw["Số CCCD"] || entry.raw["số CCCD"] || entry.raw["CCCD"] || entry.raw["CMT/CCCD"] || ""),
+    factory: entry.raw["Nhà máy PV"] || entry.raw["Công ty"] || "",
+  }));
+}
+
+// Compare imported cell values, not ZIP timestamps, styles or document metadata.
+function workbookDataFingerprint(book: XLSX.WorkBook): string {
+  const hash = crypto.createHash("sha256");
+  hash.update("workbook-cells-v1");
+  for (const name of book.SheetNames) {
+    hash.update(JSON.stringify(["sheet", name]));
+    const sheet = book.Sheets[name];
+    if (!sheet?.["!ref"]) continue;
+    const range = XLSX.utils.decode_range(sheet["!ref"]);
+    for (let row = range.s.r; row <= range.e.r; row++) {
+      const values: Array<[number, unknown]> = [];
+      for (let column = range.s.c; column <= range.e.c; column++) {
+        const cell = sheet[XLSX.utils.encode_cell({ r: row, c: column })];
+        if (cell && cell.v !== undefined && cell.v !== null && cell.v !== "") {
+          values.push([column, cell.v]);
+        }
+      }
+      if (values.length) hash.update(JSON.stringify([row, values]));
+    }
+  }
+  return "cells-v1:" + hash.digest("hex");
+}
+
 export async function POST(request: NextRequest) {
   const denied = await guard(request);
   if (denied) return denied;
 
   try {
     const form = await request.formData();
+    const commit = form.get("confirm") === "true";
+    if (commit && typeof prisma.$queryRawUnsafe === "function") {
+      const required: Record<string, string[]> = { WorkAssignment: ["interviewFactoryId", "workingFactoryId", "statusId"], BonusPolicy: ["factoryId"], BonusRecord: ["accountNumber", "bankName"] };
+      for (const [table, fields] of Object.entries(required)) {
+        const columns = await prisma.$queryRawUnsafe<Array<{ name: string }>>(`PRAGMA table_info("${table}")`);
+        if (fields.some((field) => !columns.some((column) => column.name === field))) {
+          return NextResponse.json({ success: false, message: "Chưa thể ghi: cấu trúc database chưa đồng bộ với phiên bản ứng dụng. Kết quả quét chưa được lưu; cần đồng bộ database trước." }, { status: 409 });
+        }
+      }
+    }
     const googleSheetUrl = String(form.get("googleSheetUrl") || "").trim();
     const file = form.get("file");
 
@@ -172,7 +239,7 @@ export async function POST(request: NextRequest) {
             {
               success: false,
               message:
-                'Không thể tải bảng tính từ Google Sheets. Vui lòng đảm bảo bảng tính đã được mở quyền "Bất kỳ ai có đường liên kết đều có thể xem".',
+                `Google Sheets trả mã ${gRes.status}; chưa tải được file bằng truy cập không đăng nhập. Kiểm tra đúng link và quyền xem, hoặc tải file .xlsx để xem trước.`,
             },
             { status: 400 },
           );
@@ -211,14 +278,17 @@ export async function POST(request: NextRequest) {
       fileName = file.name;
     }
 
-    const commit = form.get("confirm") === "true";
+    const book = XLSX.read(fileBuffer, { type: "buffer" });
+    const previewFingerprint = workbookDataFingerprint(book);
+    if (commit && form.get("previewFingerprint") && form.get("previewFingerprint") !== previewFingerprint) {
+      return NextResponse.json({ success: false, message: String(form.get("previewFingerprint")).startsWith("cells-v1:") ? "Dữ liệu trong các ô đã thay đổi sau lần quét. Hãy quét lại trước khi xác nhận ghi." : "Cơ chế kiểm tra nguồn đã cập nhật. Bấm Đồng bộ để quét lại một lần trước khi ghi." }, { status: 409 });
+    }
     const smartMerge = form.get("smartMerge") !== "false";
     const actor = (await identity(request))!;
     const requestedType = String(
       form.get("importType") || "AUTO",
     ).toUpperCase();
 
-    const book = XLSX.read(fileBuffer, { type: "buffer" });
     const sheetNames = book.SheetNames;
     if (!sheetNames.length) {
       return NextResponse.json(
@@ -239,11 +309,7 @@ export async function POST(request: NextRequest) {
     for (const sName of sheetNames) {
       const s = book.Sheets[sName];
       if (!s) continue;
-      const m = XLSX.utils.sheet_to_json<any[]>(s, {
-        header: 1,
-        defval: "",
-        blankrows: false,
-      });
+      const m = readHeaderRows(s);
       let h: string[] = [];
       for (const row of m.slice(0, 6)) {
         const rowStr = (row || [])
@@ -289,6 +355,7 @@ export async function POST(request: NextRequest) {
 
       if (
         hStr.includes("thưởng lần 1") ||
+        hStr.includes("tiền thưởng l1") ||
         (hStr.includes("chính sách") && hStr.includes("tổng thưởng")) ||
         (sNorm.includes("thuong") && !hStr.includes("nhà máy pv"))
       ) {
@@ -402,19 +469,15 @@ export async function POST(request: NextRequest) {
           const sourceCard = String(raw["số CCCD"] ?? raw["Số CCCD"] ?? raw["CCCD"] ?? raw["CMT/CCCD"] ?? "").replace(/\s+/g, "");
           if (sourceCard && sourceCard !== worker.idCard) throw new Error("Sai lệch danh tính: CCCD thiếu chữ số; không tự thêm số 0 để gộp hồ sơ");
           const interviewFactory = factories.find((f) => sameFactory(f.name, assignment.interviewFactory));
-          if (!interviewFactory) throw new Error(`Nhà máy phỏng vấn "${assignment.interviewFactory || ""}" chưa có trong danh mục Factory`);
-          assignment.interviewFactory = interviewFactory.name;
-          assignment.interviewFactoryId = interviewFactory.id;
-          if (assignment.workingFactory) {
-            const workingFactory = factories.find((f) => sameFactory(f.name, assignment.workingFactory));
-            if (!workingFactory) throw new Error(`Nhà máy làm việc "${assignment.workingFactory}" chưa có trong danh mục Factory`);
-            assignment.workingFactory = workingFactory.name;
-            assignment.workingFactoryId = workingFactory.id;
-          }
+          // Source imports use interview-factory text for identity; catalog links are optional.
+          assignment.interviewFactory = interviewFactory?.name || assignment.interviewFactory;
+          assignment.interviewFactoryId = interviewFactory?.id || null;
+          assignment.workingFactory = assignment.workingFactory || null;
+          assignment.workingFactoryId = null;
           if (assignment.orderId) {
             const order = await prisma.recruitmentOrder.findUnique({ where: { id: assignment.orderId } });
             if (!order) throw new Error("Đơn hàng không tồn tại trong danh mục");
-            if (order.factoryId && order.factoryId !== interviewFactory.id) throw new Error("Nhà máy phỏng vấn không khớp nhà máy của đơn hàng");
+            if (order.factoryId && order.factoryId !== interviewFactory?.id) throw new Error("Nhà máy phỏng vấn không khớp nhà máy của đơn hàng");
             if (assignment.batchId) {
               const batch = await prisma.recruitmentBatch.findUnique({ where: { id: assignment.batchId } });
               if (!batch || batch.orderId !== order.id) throw new Error("Đợt tuyển không thuộc đơn hàng đã chọn");
@@ -881,6 +944,7 @@ export async function POST(request: NextRequest) {
       }
 
       const review = splitImportReview([...warnings, ...errors]);
+      errorCount = splitImportReview(errors).warningRows;
       const sourceId = commit
         ? await saveImportSource(
             "DS_TONG",
@@ -1152,8 +1216,8 @@ export async function POST(request: NextRequest) {
                           accountNumber: cleanAcc,
                           bankName: cleanBank || "Chưa xác định",
                           accountHolderName: fullName,
-                          isNameVerified: true,
-                          verificationStatus: "VERIFIED",
+                          isNameVerified: false,
+                          verificationStatus: "UNVERIFIED",
                         },
                       });
                     }
@@ -1208,9 +1272,8 @@ export async function POST(request: NextRequest) {
                 ? month
                 : parsed.monthOriginal || month,
             sourceValues: raw,
-            rewards: Array.from({ length: 7 }, (_, i) =>
-              String(readBonusValue(raw, `bonus${i + 1}`) ?? ""),
-            ),
+            rewards: parsed.rewardTexts,
+            rewardDetails: parsed.rewardDetails,
             paymentDate: null,
             reference: null,
           });
@@ -1256,8 +1319,8 @@ export async function POST(request: NextRequest) {
                   accountNumber: cleanAcc,
                   bankName: cleanBank || "Chưa xác định",
                   accountHolderName: fullName || worker?.fullName || "Người lao động",
-                  isNameVerified: true,
-                  verificationStatus: "VERIFIED",
+                  isNameVerified: false,
+                  verificationStatus: "UNVERIFIED",
                 });
               }
             }
@@ -1313,6 +1376,7 @@ export async function POST(request: NextRequest) {
       }
 
       const review = splitImportReview([...warnings, ...errors]);
+      errorCount = splitImportReview(errors).warningRows;
       const sourceId = commit
         ? await saveImportSource(
             "DS_THUONG",
@@ -1418,6 +1482,7 @@ export async function POST(request: NextRequest) {
         pendingDuplicateCount: combinedReview.duplicateRows,
         success: true,
         preview: !commit,
+        previewFingerprint,
         detectedType: "COMBINED",
         detectedTypeName: `Đồng bộ Liên kết 2 Sheet (${foundTongSheet} + ${foundBonusSheet})`,
         sheetUsed: `${foundTongSheet} (${tongRes.entries.length} dòng) + ${foundBonusSheet} (${bonusRes.entries.length} dòng)`,
@@ -1435,6 +1500,7 @@ export async function POST(request: NextRequest) {
           rehireCount: tongRes.rehireCount,
           mergedCount: totalMerged,
         },
+        readyRows: [...readyRowSample(tongRes.entries, tongRes.errors), ...readyRowSample(bonusRes.entries, bonusRes.errors)].slice(0, 50),
         normalizationErrors: combinedErrors,
         errors: combinedErrors,
         warnings: combinedWarnings,
@@ -1490,9 +1556,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!sheetData.entries.length || sheetData.entries.length > 50000) {
+    if (!sheetData.entries.length || sheetData.entries.length > MAX_IMPORT_ROWS) {
       return NextResponse.json(
-        { success: false, message: "File cần từ 1 đến 50.000 dòng dữ liệu" },
+        { success: false, message: "File cần từ 1 đến 100.000 dòng dữ liệu" },
         { status: 400 },
       );
     }
@@ -1522,6 +1588,7 @@ export async function POST(request: NextRequest) {
         pendingDuplicateCount: res.review.duplicateRows,
         success: true,
         preview: !commit,
+        previewFingerprint,
         detectedType: "DS_THUONG",
         detectedTypeName: "Bảng thưởng các lần 1 → 7 (DS_THUONG)",
         sheetUsed: res.targetSheetName,
@@ -1537,6 +1604,7 @@ export async function POST(request: NextRequest) {
           rehireCount: 0,
           mergedCount: res.mergedCount,
         },
+        readyRows: readyRowSample(res.entries, res.errors),
         normalizationErrors: res.errors,
         errors: res.errors,
         warnings: res.review.warnings.map((i) => i.message),
@@ -1555,6 +1623,7 @@ export async function POST(request: NextRequest) {
         pendingDuplicateCount: res.review.duplicateRows,
         success: true,
         preview: !commit,
+        previewFingerprint,
         detectedType: "DS_TONG",
         detectedTypeName: "Hồ sơ nhân sự tổng (DS_TONG)",
         sheetUsed: res.targetSheetName,
@@ -1569,6 +1638,7 @@ export async function POST(request: NextRequest) {
           rehireCount: res.rehireCount,
           mergedCount: res.mergedCount,
         },
+        readyRows: readyRowSample(res.entries, res.errors),
         normalizationErrors: res.errors,
         errors: res.errors,
         warnings: res.review.warnings.map((i) => i.message),
@@ -1625,7 +1695,7 @@ export async function POST(request: NextRequest) {
           statusSTK.toLowerCase().includes("hợp lệ") ||
           checkResult.toLowerCase().includes("khớp") ||
           !warningMsg;
-        const verificationStatus = isMatch ? "VALID" : "UNVERIFIED";
+        const verificationStatus = "UNVERIFIED";
 
         let worker = workerMap.get(idCard);
         if (
@@ -1656,7 +1726,7 @@ export async function POST(request: NextRequest) {
                 accountNumber,
                 accountHolderName,
                 bankName,
-                isNameVerified: isMatch,
+                isNameVerified: false,
                 verificationStatus,
                 warningMessage: warningMsg || null,
                 checkedBy: checkedBy || null,
@@ -1689,6 +1759,7 @@ export async function POST(request: NextRequest) {
     }
 
     const review = splitImportReview([...warnings, ...errors]);
+      errorCount = splitImportReview(errors).warningRows;
     const sourceId = commit
       ? await saveImportSource(
           detectedType,
@@ -1709,6 +1780,7 @@ export async function POST(request: NextRequest) {
       pendingDuplicateCount: review.duplicateRows,
       success: true,
       preview: !commit,
+        previewFingerprint,
       detectedType: "BANK_ACCOUNTS",
       detectedTypeName: "Đối soát số tài khoản ngân hàng (STK)",
       sheetUsed: targetSheetName,
@@ -1722,6 +1794,7 @@ export async function POST(request: NextRequest) {
         cleanCount: entries.length - review.reviewRows,
         rehireCount: 0,
       },
+      readyRows: readyRowSample(entries, errors),
       normalizationErrors: errors,
       errors,
       warnings: review.warnings.map((i) => i.message),

@@ -573,11 +573,9 @@ export default function BonusesPage() {
 
       {/* Filter & Summary Bar */}
       <Card className="shadow-sm border-slate-200">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-bold text-slate-700">
-              Chọn Kỳ Tháng:
-            </span>
+        <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,1fr)_minmax(260px,340px)] 2xl:items-start">
+          <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="min-w-0"><label className="mb-1.5 block text-xs font-semibold text-slate-700">Kỳ tháng</label>
             <Select
               mode="multiple"
               allowClear
@@ -587,12 +585,18 @@ export default function BonusesPage() {
                 setCurrentPage(1);
               }}
               placeholder="Tất cả tháng"
-              className="w-48"
+              className="w-full min-w-0"
+              aria-label="Lọc kỳ tháng"
+              maxTagCount="responsive"
+              popupMatchSelectWidth={false}
+              dropdownStyle={{ minWidth: 240 }}
               options={[
                 { label: "Tất cả tháng", value: ALL_FILTER },
                 ...MONTHS.map((m) => ({ label: m, value: m })),
               ]}
             />
+            </div>
+            <div className="min-w-0"><label className="mb-1.5 block text-xs font-semibold text-slate-700">Nhà máy phỏng vấn</label>
             <Select
               mode="multiple"
               allowClear
@@ -601,10 +605,16 @@ export default function BonusesPage() {
                 setSelectedCompany(values.includes(ALL_FILTER) ? [] : values);
                 setCurrentPage(1);
               }}
-              placeholder="Tất cả công ty"
-              className="w-56"
+              placeholder="Tất cả nhà máy"
+              className="w-full min-w-0"
+              aria-label="Lọc nhà máy phỏng vấn"
+              maxTagCount="responsive"
+              showSearch
+              optionFilterProp="label"
+              popupMatchSelectWidth={false}
+              dropdownStyle={{ minWidth: 260 }}
               options={[
-                { label: "Tất cả công ty", value: ALL_FILTER },
+                { label: "Tất cả nhà máy", value: ALL_FILTER },
                 ...companyOptions.map((factory) => ({
                   label: factory,
                   value: factory,
@@ -612,6 +622,8 @@ export default function BonusesPage() {
               ]}
             />
 
+            </div>
+            <div className="min-w-0"><label className="mb-1.5 block text-xs font-semibold text-slate-700">Số CCCD</label>
             {/* Bộ lọc theo Căn cước (CCCD) */}
             <Input
               placeholder="Lọc theo số CCCD..."
@@ -623,9 +635,12 @@ export default function BonusesPage() {
                 setCurrentPage(1);
               }}
               onPressEnter={fetchBonuses}
-              className="w-44 sm:w-48"
+              className="w-full"
+              aria-label="Lọc số CCCD"
             />
 
+            </div>
+            <div className="min-w-0"><label className="mb-1.5 block text-xs font-semibold text-slate-700">Mã nhân viên</label>
             {/* Bộ lọc theo Mã nhân viên */}
             <Input
               placeholder="Lọc theo Mã NV..."
@@ -637,26 +652,28 @@ export default function BonusesPage() {
                 setCurrentPage(1);
               }}
               onPressEnter={fetchBonuses}
-              className="w-40 sm:w-44"
+              className="w-full"
+              aria-label="Lọc mã nhân viên"
             />
 
+            </div>
             {hasActiveFilters && (
               <Button
                 size="middle"
                 onClick={handleResetFilters}
                 icon={<RotateCcw className="w-3.5 h-3.5" />}
-                className="text-xs text-slate-500 hover:text-red-600 hover:border-red-300"
+                className="col-span-full justify-self-start text-xs text-slate-500 hover:text-red-600 hover:border-red-300"
               >
                 Đặt lại
               </Button>
             )}
           </div>
 
-          <div className="flex items-center gap-4 bg-amber-50 px-4 py-2.5 rounded-xl border border-amber-200 shrink-0">
+          <div className="flex min-w-0 items-center gap-3 bg-amber-50 px-4 py-3 rounded-xl border border-amber-200">
             <Coins className="w-5 h-5 text-amber-600" />
             <div>
               <div className="text-[11px] text-amber-700 font-semibold uppercase">
-                Tổng số tiền trong danh sách{" "}
+                Tổng tiền theo bộ lọc{" "}
                 {selectedMonth.length
                   ? selectedMonth.join(", ")
                   : "tất cả tháng"}

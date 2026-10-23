@@ -65,6 +65,15 @@ const tx = (order = null, batch = null) => ({
   const wrongBatch = { interviewFactoryId: factory.id, interviewFactory: factory.name, status: status.name, orderId: "order-1", batchId: batch.id, interviewDate: "2026-10-10" };
   await assert.rejects(() => assignmentRelations(tx({ id: "order-1", factoryId: factory.id, factory: factory.name, isActive: true }, batch), wrongBatch), /không thuộc đơn hàng/);
 
+  const optionalWorking = { interviewFactoryId: factory.id, interviewFactory: factory.name, workingFactory: "Nhà máy làm việc ghi tự do", status: status.name };
+  await assignmentRelations(tx(), optionalWorking);
+  assert.equal(optionalWorking.workingFactory, "Nhà máy làm việc ghi tự do");
+  assert.equal(optionalWorking.workingFactoryId, null);
+  const sourceFactory = { interviewFactory: "Nhà máy PV ngoài danh mục", status: status.name };
+  await assignmentRelations(tx(), sourceFactory);
+  assert.equal(sourceFactory.interviewFactory, "Nhà máy PV ngoài danh mục");
+  assert.equal(sourceFactory.interviewFactoryId, null);
+  assert.equal(sourceFactory.workingFactory, null);
   console.log("PASS relation resolver maps catalog IDs and rejects status, factory/order, and batch/order mismatches");
 })().catch((error) => {
   console.error(error);

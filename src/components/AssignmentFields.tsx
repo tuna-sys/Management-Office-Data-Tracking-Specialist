@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Form, Input, Select, InputNumber } from "antd";
+import { Form, Input, Select, InputNumber, AutoComplete } from "antd";
 import DateField from "@/components/DateField";
 import { formatDate } from "@/lib/date-format";
 export default function AssignmentFields({
@@ -19,7 +19,6 @@ export default function AssignmentFields({
     recruiterId = Form.useWatch("recruiterId", form),
     result = Form.useWatch("interviewResult", form),
     interviewFactory = Form.useWatch("interviewFactory", form),
-    workingFactory = Form.useWatch("workingFactory", form),
     status = Form.useWatch("status", form);
   useEffect(() => {
     Promise.all([
@@ -45,11 +44,7 @@ export default function AssignmentFields({
       const id = findId(interviewFactory);
       if (id) form.setFieldValue("interviewFactoryId", id);
     }
-    if (!form.getFieldValue("workingFactoryId") && workingFactory) {
-      const id = findId(workingFactory);
-      if (id) form.setFieldValue("workingFactoryId", id);
-    }
-  }, [factories, form, interviewFactory, workingFactory]);
+  }, [factories, form, interviewFactory]);
   useEffect(() => {
     if (!statuses.length || !status || form.getFieldValue("statusId")) return;
     const match = statuses.find((s) => s.name === status);
@@ -58,22 +53,19 @@ export default function AssignmentFields({
   const order = orders.find((o) => o.id === orderId);
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <Form.Item name="interviewFactory" hidden><Input /></Form.Item>
-      <Form.Item name="workingFactory" hidden><Input /></Form.Item>
+      <Form.Item name="interviewFactoryId" hidden><Input /></Form.Item>
+      <Form.Item name="workingFactoryId" hidden><Input /></Form.Item>
       <Form.Item name="status" hidden><Input /></Form.Item>
       <Form.Item name="recruiter" hidden><Input /></Form.Item>
       <Form.Item name="team" hidden><Input /></Form.Item>
-      <Form.Item name="interviewFactoryId" label="Nhà máy phỏng vấn" rules={[{ required: true, message: "Chọn nhà máy phỏng vấn" }]}>
-        <Select showSearch optionFilterProp="label" options={factories.filter((f) => f.isActive).map((f) => ({ value: f.id, label: `${f.code} · ${f.name}` }))} onChange={(id) => {
-          const f = factories.find((x) => x.id === id);
-          form.setFieldsValue({ interviewFactory: f?.name || "", interviewFactoryId: id || "" });
+      <Form.Item name="interviewFactory" label="Nhà máy phỏng vấn" rules={[{ required: true, whitespace: true, message: "Nhập nhà máy phỏng vấn" }]}>
+        <AutoComplete options={factories.filter((f) => f.isActive).map((f) => ({ value: f.name, label: f.name }))} filterOption={(value, option) => String(option?.value || "").toLocaleLowerCase("vi").includes(value.toLocaleLowerCase("vi"))} onChange={(name) => {
+          const match = factories.find((f) => f.name.trim().toLocaleLowerCase("vi") === name.trim().toLocaleLowerCase("vi"));
+          form.setFieldValue("interviewFactoryId", match?.id || "");
         }} />
       </Form.Item>
-      <Form.Item name="workingFactoryId" label="Nhà máy làm việc">
-        <Select allowClear showSearch optionFilterProp="label" options={factories.filter((f) => f.isActive).map((f) => ({ value: f.id, label: `${f.code} · ${f.name}` }))} onChange={(id) => {
-          const f = factories.find((x) => x.id === id);
-          form.setFieldsValue({ workingFactory: f?.name || "", workingFactoryId: id || "" });
-        }} />
+      <Form.Item name="workingFactory" label="Nhà máy làm việc (không bắt buộc)">
+        <Input allowClear placeholder="Có thì ghi nhận, không có để trống" onChange={() => form.setFieldValue("workingFactoryId", "")} />
       </Form.Item>
       <Form.Item name="statusId" label="Tình trạng làm việc" rules={[{ required: true, message: "Chọn tình trạng" }]}>
         <Select showSearch optionFilterProp="label" options={statuses.filter((s) => s.isActive).map((s) => ({ value: s.id, label: s.name }))} onChange={(id) => {

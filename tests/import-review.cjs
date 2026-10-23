@@ -21,6 +21,8 @@ deps["@/lib/import-review"] = load("src/lib/import-review.ts");
 deps["@/lib/worker-validation"] = load("src/lib/worker-validation.ts");
 deps["@/lib/source-format"] = load("src/lib/source-format.ts");
 deps["@/lib/worker-source-view"] = load("src/lib/worker-source-view.ts");
+deps["@/lib/read-cache"] = { cachedRead: async (_key, _version, load) => load() };
+deps["@/lib/read-data-version"] = { readDataVersion: async () => "QA" };
 const split = deps["@/lib/import-review"].splitImportReview;
 const review = split([
   "Dòng 2: SĐT không hợp lệ",

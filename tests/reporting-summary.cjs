@@ -2,6 +2,13 @@ const assert = require("node:assert/strict"),
   fs = require("node:fs"),
   ts = require("typescript"),
   vm = require("node:vm");
+function loadProvince() {
+  const value = { exports: {} };
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync("src/lib/province-name.ts", "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+  }).outputText, { module: value, exports: value.exports });
+  return value.exports;
+}
 const m = { exports: {} };
 vm.runInNewContext(
   ts.transpileModule(fs.readFileSync("src/lib/reporting.ts", "utf8"), {
@@ -16,7 +23,7 @@ vm.runInNewContext(
     Date,
     URLSearchParams,
     require: (name) =>
-      name === "@/lib/domain"
+      name === "@/lib/province-name" ? loadProvince() : name === "@/lib/domain"
         ? { monthOf: (v) => (v ? v.slice(0, 7) : ""), today: () => "" }
         : { dateKey: (v) => v || null },
   },
