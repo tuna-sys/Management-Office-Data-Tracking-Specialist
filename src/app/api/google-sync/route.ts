@@ -149,6 +149,7 @@ export async function POST(req: NextRequest) {
       const form = new FormData();
       form.append("googleSheetUrl", url);
       form.append("confirm", committing ? "true" : "false");
+      if (body.importRunId) form.append("importRunId", body.importRunId);
       if (body.previewFingerprint) form.append("previewFingerprint", body.previewFingerprint);
       form.append("smartMerge", (body.smartMerge ?? source?.smartMerge) === false ? "false" : "true");
       form.append("importType", body.importType || source?.importType || "AUTO");
@@ -159,7 +160,7 @@ export async function POST(req: NextRequest) {
         body: form,
       }));
       const result = await response.json();
-      return NextResponse.json({ ...result, changed: committing && result.success, config, previewSource: { googleSheetUrl: url, importType: body.importType || source?.importType || "AUTO", smartMerge: (body.smartMerge ?? source?.smartMerge) !== false, previewFingerprint: result.previewFingerprint }, message: result.success ? (committing ? `Đã ghi ${result.normalizedSaved || 0} bản ghi nghiệp vụ.` : "Đã quét xong; xem kết quả rồi xác nhận ghi bản ghi.") : result.message }, { status: response.status });
+      return NextResponse.json({ ...result, changed: committing && result.success, config, previewSource: { googleSheetUrl: url, importType: body.importType || source?.importType || "AUTO", smartMerge: (body.smartMerge ?? source?.smartMerge) !== false, previewFingerprint: result.previewFingerprint, importRunId: result.importRunId }, message: result.success ? (committing ? `Đã ghi ${result.normalizedSaved || 0} bản ghi nghiệp vụ.` : "Đã quét xong; xem kết quả rồi xác nhận ghi bản ghi.") : result.message }, { status: response.status });
     }
     if (action === "poll-auto-sync") {
       return NextResponse.json({ success: false, message: "Tự động đồng bộ đã tắt. Bấm Đồng bộ để đọc thủ công." }, { status: 400 });

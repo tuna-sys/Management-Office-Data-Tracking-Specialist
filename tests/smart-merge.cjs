@@ -14,9 +14,10 @@ function load(f) {
     {
       module: m,
       exports: m.exports,
+      process,
       Buffer,
       Date,
-      require: (n) => { if (n === '@/lib/duplicate-check') return require('./load-duplicate-check.js');
+      require: (n) => { if (n === '@/lib/import-recovery') return {runRecoverableImport: async (db, _meta, apply) => apply(db, deps['@/lib/import-source-store'].saveImportSource)}; if (n === '@/lib/duplicate-check') return require('./load-duplicate-check.js');
         if (!(n in deps)) throw Error(n);
         return deps[n];
       },

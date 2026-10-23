@@ -23,6 +23,9 @@ deps["@/lib/source-format"] = load("src/lib/source-format.ts");
 deps["@/lib/worker-source-view"] = load("src/lib/worker-source-view.ts");
 deps["@/lib/read-cache"] = { cachedRead: async (_key, _version, load) => load() };
 deps["@/lib/read-data-version"] = { readDataVersion: async () => "QA" };
+deps["node:crypto"] = require("node:crypto");
+deps["@/lib/duplicate-check"] = require("./load-duplicate-check.js");
+deps["@/lib/source-assignment-link"] = load("src/lib/source-assignment-link.ts");
 const split = deps["@/lib/import-review"].splitImportReview;
 const review = split([
   "Dòng 2: SĐT không hợp lệ",

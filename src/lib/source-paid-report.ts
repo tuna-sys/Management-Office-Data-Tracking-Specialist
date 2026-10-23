@@ -60,7 +60,7 @@ export function sourcePaidReport(
         continue;
       }
       const worker = people.get(card);
-      if (worker?.archivedAt) continue;
+      // Archiving a profile does not reverse historical source payments.
       const assignments = (worker?.assignments || []).filter(
         (a: any) =>
           norm(a.interviewFactory) === norm(company) &&
@@ -103,7 +103,7 @@ export function sourcePaidReport(
     }
   // Retain older source imports without a raw snapshot; do not double count records already represented by source.
   for (const b of imported) {
-    if (b.worker?.archivedAt) continue;
+    // Retain archived workers in historical paid totals.
     let note: any;
     try {
       note = JSON.parse(b.note || "{}");

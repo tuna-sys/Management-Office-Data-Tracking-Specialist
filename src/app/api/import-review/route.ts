@@ -1,3 +1,4 @@
+import { matchSourceAssignment } from "@/lib/source-assignment-link";
 import { sourceConflicts, assertSourceCompatible, fillMissing, assertSourceCard, assertReviewProfile, assertIdentity, sameFactory, resolveBonusAssignment } from "@/lib/duplicate-check";
 import { NextRequest, NextResponse } from "next/server";
 import { guard, identity } from "@/lib/local-request";
@@ -36,13 +37,8 @@ export async function GET(request: NextRequest) {
     ]);
 
     const workerByCard = new Map<string, any>();
-    const workerByPhone = new Map<string, any>();
     for (const w of workers) {
       if (w.idCard) workerByCard.set(normalizeCccd(w.idCard), w);
-      if (w.phone) {
-        const pk = phoneKey(w.phone);
-        if (pk && !workerByPhone.has(pk)) workerByPhone.set(pk, w);
-      }
     }
 
     const warnings: any[] = [],
@@ -59,7 +55,6 @@ export async function GET(request: NextRequest) {
         const rawCard = v["Số CCCD"] || v["số CCCD"] || v["CCCD"] || "";
         const normCard = normalizeCccd(rawCard);
         const rawPhone = v["SĐT"] || v["Số điện thoại"] || "";
-        const pk = rawPhone ? phoneKey(String(rawPhone)) : "";
         const rawCompany = String(
           v["Công ty"] || v["Nhà máy PV"] || "",
         ).trim();
@@ -69,28 +64,23 @@ export async function GET(request: NextRequest) {
 
         const matchedWorker =
           (normCard ? workerByCard.get(normCard) : null) ||
-          (pk ? workerByPhone.get(pk) : null) ||
+
           null;
 
+        const linkMatch = matchSourceAssignment(matchedWorker, v);
         let matchedAssignment = null;
         let matchedBonus = null;
         if (matchedWorker) {
-          matchedAssignment =
-            (matchedWorker.assignments || []).find(
-              (a: any) =>
-                (rawCompany &&
-                  a.interviewFactory === rawCompany) ||
-                (rawPv && dateKey(a.interviewDate) === dateKey(rawPv)),
-            ) ||
-            matchedWorker.assignments?.[0] ||
-            null;
-
-          matchedBonus =
-            (matchedWorker.bonusRecords || []).find(
-              (b: any) => !rawCompany || (b.company || "") === rawCompany,
-            ) ||
-            matchedWorker.bonusRecords?.[0] ||
-            null;
+          matchedAssignment = linkMatch.assignmentId ? matchedWorker.assignments.find((a: any) => a.id === linkMatch.assignmentId) : null;
+          if (source.type === "DS_THUONG") {
+            try {
+              const parsed = parseBonusImportRow(v);
+              const matches = (matchedWorker.bonusRecords || []).filter((b: any) => sameFactory(b.company, parsed.company)
+                && b.month === parsed.month && dateKey(b.interviewDate || "") === dateKey(parsed.interviewDate)
+                && (!b.workerCode || !parsed.workerCode || b.workerCode === parsed.workerCode));
+              matchedBonus = matches.length === 1 ? matches[0] : null;
+            } catch { /* Keep incomplete rows visible without guessing a bonus. */ }
+          }
         }
 
         const existingRecord = matchedWorker
@@ -138,6 +128,8 @@ export async function GET(request: NextRequest) {
           row: row.row,
           values: row.values,
           existingRecord,
+          linkState: linkMatch.state,
+          linkReason: linkMatch.reason,
         };
         if (review.duplicates.length)
           duplicates.push({

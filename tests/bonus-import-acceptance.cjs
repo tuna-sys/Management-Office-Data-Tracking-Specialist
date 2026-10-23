@@ -16,7 +16,7 @@ function load(file, deps = {}) {
     {
       module,
       exports: module.exports,
-      require: (name) => { if (name === '@/lib/duplicate-check') return require('./load-duplicate-check.js');
+      require: (name) => { if (name === '@/lib/import-recovery') return {runRecoverableImport: async (db, _meta, apply) => apply(db, deps['@/lib/import-source-store'].saveImportSource)}; if (name === '@/lib/duplicate-check') return require('./load-duplicate-check.js');
         if (!(name in deps)) throw new Error(`Unexpected dependency: ${name}`);
         return deps[name];
       },

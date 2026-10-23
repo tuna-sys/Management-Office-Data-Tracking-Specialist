@@ -1,6 +1,7 @@
+import { runRecoverableImport } from "@/lib/import-recovery";
 import { assertIdentity, identityText, sameInterviewDay, sameFactory, isActiveAssignment, resolveBonusAssignment } from "@/lib/duplicate-check";
 import { splitImportReview } from "@/lib/import-review";
-import { saveImportSource } from "@/lib/import-source-store";
+import { saveImportSource as saveSourceSnapshot } from "@/lib/import-source-store";
 import { sourceStatuses } from "@/lib/source-format";
 import {
   dateKey,
@@ -8,7 +9,7 @@ import {
   normalizeCccd,
 } from "@/lib/worker-validation";
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma as database } from "@/lib/prisma";
 import * as XLSX from "xlsx";
 import { guard, identity } from "@/lib/local-request";
 import { parseImportRow } from "@/lib/worker-import";
@@ -204,6 +205,8 @@ function workbookDataFingerprint(book: XLSX.WorkBook): string {
 }
 
 export async function POST(request: NextRequest) {
+  let prisma = database;
+  let saveImportSource = saveSourceSnapshot;
   const denied = await guard(request);
   if (denied) return denied;
 
@@ -306,6 +309,13 @@ export async function POST(request: NextRequest) {
       form.get("importType") || "AUTO",
     ).toUpperCase();
 
+    const importOptions = { importType: requestedType, smartMerge, profileId: String(form.get("profileId") || "") };
+    const signature = crypto.createHash("sha256").update(JSON.stringify({ previewFingerprint, ...importOptions, database: process.env.DATABASE_URL || "local" })).digest("hex");
+    const fallback = signature.slice(0, 32);
+    const importRunId = String(form.get("importRunId") || (commit
+      ? [fallback.slice(0,8), fallback.slice(8,12), fallback.slice(12,16), fallback.slice(16,20), fallback.slice(20)].join("-")
+      : crypto.randomUUID())).toLowerCase();
+    const execute = async () => {
     const sheetNames = book.SheetNames;
     if (!sheetNames.length) {
       return NextResponse.json(
@@ -918,8 +928,8 @@ export async function POST(request: NextRequest) {
 
         // Nối các bản thưởng chưa có assignmentId với đợt tuyển vừa tạo
         const unlinkedBonuses = await prisma.bonusRecord.findMany({
-          where: { assignmentId: null },
-          select: { id: true, workerId: true, company: true, interviewDate: true },
+          where: { assignmentId: null, status: "DRAFT", note: { contains: "SOURCE_EXCEL_ACTUAL_PAID" } },
+          select: { id: true, workerId: true, company: true, interviewDate: true, workerCode: true, note: true, updatedAt: true },
         });
         if (unlinkedBonuses.length > 0 && assignmentsToCreate.length > 0) {
           const assignByWorker = new Map<string, any[]>();
@@ -928,17 +938,27 @@ export async function POST(request: NextRequest) {
             list.push(a);
             assignByWorker.set(a.workerId, list);
           }
+          const peopleById = new Map([...people.values()].map(person => [person.id, person]));
           const linkTasks: Array<(tx: any) => Promise<void>> = [];
           for (const ub of unlinkedBonuses) {
-            const cands = assignByWorker.get(ub.workerId) || [];
+            const person = peopleById.get(ub.workerId);
+            if (!person || !assignByWorker.has(ub.workerId)) continue;
             let matched: any = null;
-            try { matched = resolveBonusAssignment({ assignments: cands }, { company: ub.company, interviewDate: ub.interviewDate }); } catch { /* Keep unmatched historical bonus for review. */ }
+            try {
+              const note = JSON.parse(ub.note || "{}");
+              if (note.source !== "SOURCE_EXCEL_ACTUAL_PAID") continue;
+              matched = resolveBonusAssignment(person, { company: ub.company, interviewDate: ub.interviewDate,
+                workerCode: ub.workerCode, fullName: note.sourceValues?.["Họ tên"] || note.sourceValues?.["Họ và tên"] || person.fullName });
+            } catch { /* Keep ambiguous, identity/code-conflicting historical bonuses for explicit review. */ }
             if (matched) {
               linkTasks.push(async (tx) => {
-                await tx.bonusRecord.update({
-                  where: { id: ub.id },
+                const changed = await tx.bonusRecord.updateMany({
+                  where: { id: ub.id, assignmentId: null, status: "DRAFT", updatedAt: ub.updatedAt },
                   data: { assignmentId: matched.id },
                 });
+                if (changed.count !== 1) throw new Error("Bản thưởng đã thay đổi trong lúc đối chiếu; thử lại phiên import");
+                await tx.auditLog.create({ data: { module: "IMPORT_RECONCILIATION", action: "LINK_BONUS_ON_IMPORT", operator: actor.username,
+                  details: JSON.stringify({ bonusId: ub.id, workerId: ub.workerId, beforeAssignmentId: null, afterAssignmentId: matched.id }) } });
               });
             }
           }
@@ -1506,6 +1526,8 @@ export async function POST(request: NextRequest) {
         success: true,
         preview: !commit,
         previewFingerprint,
+        importRunId,
+        importOptions,
         detectedType: "COMBINED",
         detectedTypeName: `Đồng bộ Liên kết 2 Sheet (${foundTongSheet} + ${foundBonusSheet})`,
         sheetUsed: `${foundTongSheet} (${tongRes.entries.length} dòng) + ${foundBonusSheet} (${bonusRes.entries.length} dòng)`,
@@ -1613,6 +1635,8 @@ export async function POST(request: NextRequest) {
         success: true,
         preview: !commit,
         previewFingerprint,
+        importRunId,
+        importOptions,
         detectedType: "DS_THUONG",
         detectedTypeName: "Bảng thưởng các lần 1 → 7 (DS_THUONG)",
         sheetUsed: res.targetSheetName,
@@ -1648,6 +1672,8 @@ export async function POST(request: NextRequest) {
         success: true,
         preview: !commit,
         previewFingerprint,
+        importRunId,
+        importOptions,
         detectedType: "DS_TONG",
         detectedTypeName: "Hồ sơ nhân sự tổng (DS_TONG)",
         sheetUsed: res.targetSheetName,
@@ -1805,6 +1831,8 @@ export async function POST(request: NextRequest) {
       success: true,
       preview: !commit,
         previewFingerprint,
+        importRunId,
+        importOptions,
       detectedType: "BANK_ACCOUNTS",
       detectedTypeName: "Đối soát số tài khoản ngân hàng (STK)",
       sheetUsed: targetSheetName,
@@ -1824,15 +1852,24 @@ export async function POST(request: NextRequest) {
       warnings: review.warnings.map((i) => i.message),
       duplicates: review.duplicates.map((i) => i.message),
     });
+    };
+    if (!commit) return await execute();
+    return await runRecoverableImport(database, { runId: importRunId, signature, operator: actor.username }, async (tx, stageSource) => {
+      prisma = tx;
+      saveImportSource = stageSource;
+      return execute();
+    });
   } catch (err: any) {
     return NextResponse.json(
       {
         success: false,
+        importRunId: err?.importRunId,
+        recoveryState: err?.recoveryState,
         message:
-          "Không thể đọc file Excel. " +
+          (err?.importRunId ? "" : "Không thể đọc file Excel. ") +
           (err?.message || "Kiểm tra định dạng và thử lại."),
       },
-      { status: 400 },
+      { status: err?.status || 400 },
     );
   }
 }

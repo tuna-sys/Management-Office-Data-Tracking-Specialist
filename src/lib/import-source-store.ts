@@ -17,7 +17,7 @@ const directory = path.resolve(
 );
 const memoryCache = new Map<string, { mtimeMs: number; data: any }>();
 
-export async function saveImportSource(
+export function buildImportSource(
   type: string,
   file: string,
   sheet: string,
@@ -25,9 +25,8 @@ export async function saveImportSource(
   warnings: string[],
   errors: string[],
 ) {
-  await mkdir(directory, { recursive: true });
   const id = randomUUID();
-  const target = path.join(directory, `${id}.json`);
+
   const issuesByRow = new Map<number, string[]>();
 
   for (const message of [...warnings, ...errors]) {
@@ -56,11 +55,35 @@ export async function saveImportSource(
     }),
   };
 
-  await writeFile(`${target}.tmp`, JSON.stringify(payload), "utf8");
-  await rename(`${target}.tmp`, target);
+  return payload;
+}
+
+export async function importSourcePublished(id: string) {
+  if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error("Mã nguồn không hợp lệ");
+  try {
+    const data = JSON.parse(await readFile(path.join(directory, id + ".json"), "utf8"));
+    if (data.id !== id) throw new Error("Snapshot nguồn không khớp mã phiên");
+    return true;
+  } catch (error: any) {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+export async function publishImportSource(payload: ReturnType<typeof buildImportSource>) {
+  // Existing snapshots may already have authorized review corrections: never overwrite them on retry.
+  if (await importSourcePublished(payload.id)) return payload.id;
+  await mkdir(directory, { recursive: true });
+  const target = path.join(directory, payload.id + ".json");
+  await writeFile(target + ".tmp", JSON.stringify(payload), "utf8");
+  await rename(target + ".tmp", target);
   memoryCache.clear();
   invalidateReadCache();
-  return id;
+  return payload.id;
+}
+
+export async function saveImportSource(...args: Parameters<typeof buildImportSource>) {
+  return publishImportSource(buildImportSource(...args));
 }
 
 export async function readImportSources() {

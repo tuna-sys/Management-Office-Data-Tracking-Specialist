@@ -1,0 +1,27 @@
+const fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript'),assert=require('node:assert/strict');
+const{test}=require('node:test');
+function load(file,cache={}){if(cache[file])return cache[file];const m={exports:{}};cache[file]=m.exports;vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020,esModuleInterop:true}}).outputText,{module:m,exports:m.exports,require:n=>n.startsWith('@/')?load('src/'+n.slice(2)+'.ts',cache):require(n),Date,Buffer,process,Map,Set});return cache[file]=m.exports;}
+const raw={'Số CCCD':'000000000001','Họ tên':'QA','Công ty':'ALPHA','Ngày PV':'01/10/2026','Mã NV':'EMP1'};
+const assignment={id:'a',workerId:'w',interviewFactory:'ALPHA',interviewDate:'2026-10-01',employeeCode:'EMP1'};
+const worker={id:'w',idCard:'000000000001',fullName:'QA',assignments:[assignment]};
+const api=()=>load('src/lib/source-assignment-link.ts');
+test('link requires exact person, day, company and compatible employee code',()=>{const r=api().matchSourceAssignment(worker,raw);assert.equal(r.state,'MATCHED');assert.equal(r.assignmentId,'a');});
+test('same company on another day never falls back to nearest assignment',()=>{const r=api().matchSourceAssignment({...worker,assignments:[{...assignment,interviewDate:'2026-10-02'}]},raw);assert.equal(r.state,'NO_ASSIGNMENT');assert.equal(r.assignmentId,null);});
+test('same day in another company is a conflict',()=>{assert.equal(api().matchSourceAssignment(worker,{...raw,'Công ty':'BETA'}).state,'COMPANY_CONFLICT');});
+test('multiple interviews on one day remain ambiguous even with one matching company',()=>{assert.equal(api().matchSourceAssignment({...worker,assignments:[assignment,{...assignment,id:'b',interviewFactory:'BETA'}]},raw).state,'AMBIGUOUS');});
+test('same CCCD with a different name cannot be linked',()=>{assert.equal(api().matchSourceAssignment(worker,{...raw,'Họ tên':'OTHER'}).state,'IDENTITY_CONFLICT');});
+test('reused employee code in another company cannot establish a link',()=>{assert.equal(api().matchSourceAssignment(worker,{...raw,'Mã NV':'OTHER'}).state,'CODE_CONFLICT');});
+test('missing source day, company and worker remain visible',()=>{assert.equal(api().matchSourceAssignment(worker,{...raw,'Ngày PV':''}).state,'MISSING_DATE');assert.equal(api().matchSourceAssignment(worker,{...raw,'Công ty':''}).state,'MISSING_COMPANY');assert.equal(api().matchSourceAssignment(null,raw).state,'NO_WORKER');});
+test('row linking rechecks token and rejects source duplicates',()=>{const a=api(),r=a.sourceLinkDecision(worker,{id:'s',type:'DS_THUONG'},{row:2,values:raw,duplicates:['Dòng 2: Trùng lặp nội bộ']});assert.equal(r.state,'SOURCE_CONFLICT');assert.equal(r.assignmentId,null);const first=a.sourceLinkDecision(worker,{id:'s',type:'DS_THUONG'},{row:2,values:raw});const changed=a.sourceLinkDecision(worker,{id:'s',type:'DS_THUONG'},{row:2,values:{...raw,'Họ tên':'OTHER'}});assert.notEqual(first.linkToken,changed.linkToken);});
+
+function linkFixture(overrides={}) {
+ const a=api(), source={id:'source',type:'DS_THUONG'},row={row:2,values:{...raw,'Tháng':'T10.2026','Thưởng lần 1':500000}};
+ const bonus={id:'bonus',workerId:worker.id,month:'T10.2026',company:'ALPHA',interviewDate:'2026-10-01',workerCode:'EMP1',assignmentId:null,status:'DRAFT',bonus1:500000,totalBonus:500000,note:JSON.stringify({source:'SOURCE_EXCEL_ACTUAL_PAID'}),...overrides};
+ const writes=[];const tx={worker:{findUnique:async()=>worker},bonusRecord:{findMany:async()=>[bonus],updateMany:async({data})=>{writes.push(data);return{count:1}}},auditLog:{create:async()=>{writes.push('audit')}}};
+ const decision=a.sourceLinkDecision(worker,source,row);return{a,source,row,bonus,writes,tx,input:{assignmentId:'a',linkToken:decision.linkToken}};
+}
+test('explicit source linking updates only assignment and writes an audit',async()=>{const f=linkFixture();const result=await f.a.linkSourceBonus(f.tx,f.source,f.row,f.input,'QA');assert.equal(result.linked,true);assert.equal(f.writes[0].assignmentId,'a');assert.deepEqual(Object.keys(f.writes[0]),['assignmentId']);assert.equal(f.writes[1],'audit');});
+test('changed source token cannot write a bonus link',async()=>{const f=linkFixture();await assert.rejects(()=>f.a.linkSourceBonus(f.tx,f.source,f.row,{...f.input,linkToken:'old'},'QA'),/thay đổi/);assert.equal(f.writes.length,0);});
+test('existing different assignment and locked bonus cannot be reassigned',async()=>{for(const override of [{assignmentId:'other'},{status:'LOCKED'}]){const f=linkFixture(override);await assert.rejects(()=>f.a.linkSourceBonus(f.tx,f.source,f.row,f.input,'QA'),/khác|khóa/);assert.equal(f.writes.length,0);}});
+test('amount mismatch and ambiguous bonus matches cannot create a link',async()=>{let f=linkFixture({totalBonus:999});await assert.rejects(()=>f.a.linkSourceBonus(f.tx,f.source,f.row,f.input,'QA'),/khớp số tiền/);assert.equal(f.writes.length,0);f=linkFixture();f.tx.bonusRecord.findMany=async()=>[f.bonus,{...f.bonus,id:'second'}];await assert.rejects(()=>f.a.linkSourceBonus(f.tx,f.source,f.row,f.input,'QA'),/nhiều bản thưởng/);assert.equal(f.writes.length,0);});
+test('already correct link is idempotent without writes',async()=>{const f=linkFixture({assignmentId:'a'});assert.equal((await f.a.linkSourceBonus(f.tx,f.source,f.row,f.input,'QA')).linked,false);assert.equal(f.writes.length,0);});

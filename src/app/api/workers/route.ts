@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { matchesAssignment } from "@/lib/reporting";
 import {
+  DomainError,
+  text,
   assignmentRelations,
   assignmentEnded,
   resultError,
@@ -329,71 +331,57 @@ export async function DELETE(request: NextRequest) {
       });
     }
 
-    let workerId = body.workerId;
-    let assignmentId = body.assignmentId || body.assignments?.[0]?.id;
+    const requestedWorkerId = text(body.workerId, "mã hồ sơ", false);
+    const assignmentId = text(body.assignmentId || body.assignments?.[0]?.id, "mã lượt tuyển", false);
+    const idCard = text(body.idCard, "CCCD", false);
+    if (!requestedWorkerId && !assignmentId && !idCard)
+      throw new DomainError("Cần chọn đúng hồ sơ hoặc lượt tuyển để xóa");
 
-    // 1. Nếu chưa có workerId nhưng có idCard (CCCD), tìm kiếm worker trong DB Prisma
-    if (!workerId && body.idCard) {
-      const w = await prisma.worker.findUnique({
-        where: { idCard: body.idCard },
+    await prisma.$transaction(async (tx) => {
+      const assignment = assignmentId
+        ? await tx.workAssignment.findUnique({ where: { id: assignmentId } })
+        : null;
+      if (assignmentId && !assignment)
+        throw new DomainError("Không tìm thấy lượt tuyển; hãy tải lại danh sách", 404);
+      if (assignment && requestedWorkerId && assignment.workerId !== requestedWorkerId)
+        throw new DomainError("Lượt tuyển không thuộc hồ sơ đã chọn", 409);
+      const workerId = requestedWorkerId || assignment?.workerId;
+      const worker = await tx.worker.findUnique({
+        where: workerId ? { id: workerId } : { idCard },
         include: { assignments: true },
       });
-      if (w) {
-        workerId = w.id;
-        if (!assignmentId && w.assignments.length > 0) {
-          assignmentId = w.assignments[0].id;
-        }
-      }
-    }
+      if (!worker) throw new DomainError("Không tìm thấy hồ sơ", 404);
+      if (idCard && worker.idCard !== idCard)
+        throw new DomainError("CCCD không khớp hồ sơ đã chọn; hãy tải lại danh sách", 409);
+      if (!assignment && worker.assignments.length)
+        throw new DomainError("Cần chọn rõ lượt tuyển cần xóa; không tự chọn lịch sử", 409);
+      if (assignment && !(await assignmentEnded(tx, assignment.status)))
+        throw new DomainError("Lượt tuyển đang hoạt động; cần chốt trạng thái trước khi xóa", 409);
 
-    // 2. Tiến hành xóa trong Database Prisma nếu tồn tại bản ghi
-    if (workerId || assignmentId) {
-      await prisma.$transaction(async (tx) => {
-        if (assignmentId) {
-          await tx.bonusRecord.deleteMany({ where: { assignmentId } });
-          await tx.assignmentEvent.deleteMany({ where: { assignmentId } });
-          await tx.workAssignment.delete({ where: { id: assignmentId } });
-        }
-
-        if (workerId) {
-          const remaining = await tx.workAssignment.count({
-            where: { workerId },
-          });
-          if (remaining === 0) {
-            await tx.bankAccount.deleteMany({ where: { workerId } });
-            await tx.worker.delete({ where: { id: workerId } });
-          }
-        }
-
-        if (actor) {
-          await tx.auditLog.create({
-            data: {
-              module: "WORKER",
-              action: "DELETE",
-              operator: actor.username,
-              details: `Xóa hồ sơ worker:${workerId || ""} assignment:${assignmentId || ""}`,
-            },
-          });
-        }
+      const remaining = worker.assignments.filter((a) => a.id !== assignmentId).length;
+      const bonusCount = await tx.bonusRecord.count({
+        where: remaining === 0 ? { workerId: worker.id } : { assignmentId },
       });
-    } else {
-      // 3. Trường hợp dòng dữ liệu nguồn import chưa vào DB: Ghi audit log xóa
-      if (actor) {
-        await prisma.auditLog.create({
-          data: {
-            module: "WORKER",
-            action: "DELETE",
-            operator: actor.username,
-            details: `Xóa dòng dữ liệu nguồn import CCCD: ${body.idCard || "N/A"}`,
-          },
-        });
-      }
-    }
+      const enrollmentCount = await tx.policyEnrollment.count({
+        where: remaining === 0 ? { assignment: { workerId: worker.id } } : { assignmentId },
+      });
+      if (bonusCount || enrollmentCount)
+        throw new DomainError("Hồ sơ/lượt tuyển đã có dữ liệu thưởng. Dùng lưu trữ để giữ lịch sử tài chính", 409);
 
-    return NextResponse.json({
-      success: true,
-      message: "Đã xóa hồ sơ thành công",
+      if (assignment) {
+        await tx.assignmentEvent.deleteMany({ where: { assignmentId: assignment.id } });
+        await tx.workAssignment.delete({ where: { id: assignment.id } });
+      }
+      if (remaining === 0) {
+        await tx.bankAccount.deleteMany({ where: { workerId: worker.id } });
+        await tx.worker.delete({ where: { id: worker.id } });
+      }
+      if (actor) await tx.auditLog.create({ data: {
+        module: "WORKER", action: "DELETE", operator: actor.username,
+        details: `Xóa hồ sơ worker:${worker.id} assignment:${assignment?.id || ""}; không có dữ liệu thưởng`,
+      } });
     });
+    return NextResponse.json({ success: true, message: "Đã xóa hồ sơ thành công" });
   } catch (error: any) {
     return resultError(error);
   }

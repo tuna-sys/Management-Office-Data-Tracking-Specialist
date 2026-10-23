@@ -28,11 +28,13 @@ import {
   Layers,
   Trash2,
 } from "lucide-react";
+import ImportRecoveryAndLinks from "@/components/ImportRecoveryAndLinks";
 import GoogleSheetSyncCard from "@/components/GoogleSheetSyncCard";
 
 const { Dragger } = Upload;
 
 export default function ExcelToolsPage() {
+  const [recoveryVersion, setRecoveryVersion] = useState(0);
   const [profiles, setProfiles] = useState<any[]>([]);
   const [profileId, setProfileId] = useState("");
   const [importMode, setImportMode] = useState<string>("AUTO");
@@ -115,10 +117,12 @@ export default function ExcelToolsPage() {
       const data = new FormData();
       if (pendingFile) data.append("file", pendingFile);
       data.append("confirm", "true");
-      data.append("smartMerge", smartMerge ? "true" : "false");
-      data.append("importType", result?.detectedType || importMode);
+      const options = result?.importOptions || { smartMerge, importType: importMode, profileId };
+      data.append("smartMerge", options.smartMerge ? "true" : "false");
+      data.append("importType", options.importType);
+      if (result?.importRunId) data.append("importRunId", result.importRunId);
 
-      if (profileId) data.append("profileId", profileId);
+      if (options.profileId) data.append("profileId", options.profileId);
 
       if (result?.previewFingerprint) data.append("previewFingerprint", result.previewFingerprint);
       const r = pendingSheet
@@ -134,15 +138,17 @@ export default function ExcelToolsPage() {
             ? ` Đã tạo ${j.summary?.newWorkerCount || 0} hồ sơ lao động mới.`
             : "";
         message.success(
-          `Đã ghi nhận ${j.sourceRowsSaved} dòng nguồn; ${j.normalizedSaved} dòng được ghi/cập nhật vào hồ sơ nghiệp vụ.${newWorkerMessage}`,
+          j.replayed ? "Phiên đã ghi trước đó; đã kiểm tra snapshot nguồn và không ghi trùng." : `Đã ghi nhận ${j.sourceRowsSaved} dòng nguồn; ${j.normalizedSaved} dòng được ghi/cập nhật vào hồ sơ nghiệp vụ.${newWorkerMessage}`,
         );
       } else {
+        setResult((previous: any) => ({ ...previous, importRunId: j.importRunId || previous?.importRunId, recoveryState: j.recoveryState }));
         message.error(j.message || "Lỗi khi nhập dữ liệu");
       }
     } catch {
-      message.error("Không thể nhập file");
+      message.error("Chưa nhận được kết quả. Giữ nguyên phiên và bấm xác nhận lại để kiểm tra; không quét thành phiên mới khi chưa rõ kết quả.");
     } finally {
       setUploading(false);
+      setRecoveryVersion(version => version + 1);
     }
   };
 
@@ -612,6 +618,7 @@ export default function ExcelToolsPage() {
           </div>
         </Card>
       </>) }]} />
+      <ImportRecoveryAndLinks refreshToken={recoveryVersion} />
     </div>
   );
 }

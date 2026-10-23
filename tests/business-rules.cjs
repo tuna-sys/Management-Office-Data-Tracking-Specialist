@@ -18,6 +18,8 @@ function load(file, deps = {}) {
       Date,
       URLSearchParams,
       require: (n) => {
+        if (n === "@/lib/read-cache") return { cachedRead: async (_key, _version, read) => read() };
+        if (n === "@/lib/read-data-version") return { readDataVersion: async () => "fixture" };
         if (n === "@/lib/duplicate-check")
           return require("./load-duplicate-check.js");
         if (n === "@/lib/province-name")

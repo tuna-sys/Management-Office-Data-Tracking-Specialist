@@ -418,11 +418,16 @@ async function buildDuplicateSnapshot() {
           alert.canApprove = false;
           alert.blockedApprovalReason = "Cần đối chiếu và chỉnh tại hồ sơ trước khi duyệt: " + unsupportedChanges.map(r => r.label).join(", ");
         }
+        if (["DS_TONG", "DS_THUONG"].includes(source.type) && !matchedAssignment) {
+          alert.canApprove = false;
+          alert.blockedApprovalReason = "Chưa có lượt tuyển phù hợp để duyệt. Cần đối chiếu các dòng nguồn và bổ sung dữ liệu tuyển dụng đã xác minh trước.";
+        }
         alert.leftSide.month = displayReviewMonth(alert.leftSide.month, alert.leftSide.interviewDate);
         alert.rightSide.month = displayReviewMonth(alert.rightSide.month, alert.rightSide.interviewDate);
         alert.actionRequired = isConflict
           ? "Kiểm tra thông tin khác nhau trước khi duyệt dữ liệu mới; lịch sử trước/sau được lưu lại."
           : "Có thông tin bổ sung; kiểm tra trước khi duyệt.";
+        if (alert.blockedApprovalReason) alert.actionRequired = alert.blockedApprovalReason;
         contexts.set(alert.id, { worker: matchedWorker, assignment: matchedAssignment, raw: v, type: source.type,
           editable: !!matchedWorker && !!matchedAssignment && dayAssignments.length === 1 });
         mergeInfoAlerts.push(alert);

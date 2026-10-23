@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 
 import {
   Card,
@@ -84,6 +84,9 @@ export default function RewardsPage() {
     [stageForm] = Form.useForm(),
     [payForm] = Form.useForm();
   const [assignmentId, setAssignmentId] = useState("");
+  const [filteredTotal, setFilteredTotal] = useState(0);
+  const [summary, setSummary] = useState<{ totalMilestoneMoney: number; totalPaidMoney: number; totalRemainingMoney: number } | null>(null);
+  const loadController = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setAssignmentId(
@@ -92,23 +95,32 @@ export default function RewardsPage() {
   }, []);
 
   async function load() {
+    loadController.current?.abort();
+    const controller = new AbortController();
+    loadController.current = controller;
     setLoading(true);
     try {
-      const params = new URLSearchParams();
+      const params = new URLSearchParams({ page: String(currentPage), pageSize: String(pageSize) });
       if (assignmentId) params.append("assignmentId", assignmentId);
       if (selectedMonth) params.append("month", selectedMonth);
       if (selectedFactory) params.append("factory", selectedFactory);
       if (idCardFilter.trim()) params.append("idCard", idCardFilter.trim());
       if (workerCodeFilter.trim()) params.append("workerCode", workerCodeFilter.trim());
       if (search.trim()) params.append("search", search.trim());
-      const res = await fetch("/api/enrollments?" + params.toString());
+      const res = await fetch("/api/enrollments?" + params.toString(), { signal: controller.signal });
       const j = await res.json();
-      if (j.success) setRows(j.data);
+      if (controller.signal.aborted) return;
+      if (j.success) {
+        setRows(j.data);
+        setFilteredTotal(j.filteredTotal ?? j.data.length);
+        setSummary(j.summary || null);
+        if (j.page) setCurrentPage(j.page);
+      }
       else message.error(j.message);
     } catch {
-      message.error("Không tải được thưởng");
+      if (!controller.signal.aborted) message.error("Không tải được thưởng");
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   }
 
@@ -139,8 +151,8 @@ export default function RewardsPage() {
     const timer = setTimeout(() => {
       load();
     }, 300);
-    return () => clearTimeout(timer);
-  }, [assignmentId, selectedMonth, selectedFactory, idCardFilter, workerCodeFilter, search]);
+    return () => { clearTimeout(timer); loadController.current?.abort(); };
+  }, [assignmentId, selectedMonth, selectedFactory, idCardFilter, workerCodeFilter, search, currentPage, pageSize]);
 
   async function apply(values: any) {
     setBusy(true);
@@ -216,12 +228,12 @@ export default function RewardsPage() {
   }
 
   // Thống kê tài chính mốc thưởng
-  const totalMilestoneMoney = rows.reduce(
+  const totalMilestoneMoney = summary?.totalMilestoneMoney ?? rows.reduce(
     (sum, e) =>
       sum + (e.stages || []).reduce((sSum: number, s: any) => sSum + (s.amount || 0), 0),
     0,
   );
-  const totalPaidMoney = rows.reduce(
+  const totalPaidMoney = summary?.totalPaidMoney ?? rows.reduce(
     (sum, e) =>
       sum +
       (e.stages || []).reduce(
@@ -231,7 +243,7 @@ export default function RewardsPage() {
       ),
     0,
   );
-  const totalRemainingMoney = rows.reduce(
+  const totalRemainingMoney = summary?.totalRemainingMoney ?? rows.reduce(
     (sum, e) =>
       sum +
       (e.stages || []).reduce((sSum: number, s: any) => {
@@ -522,7 +534,7 @@ export default function RewardsPage() {
             <Award className="w-5 h-5 text-purple-600" />
             <div>
               <div className="text-[11px] text-purple-700 font-semibold uppercase">
-                {rows.length.toLocaleString("vi-VN")} hồ sơ · Đã trả / Còn lại
+                {filteredTotal.toLocaleString("vi-VN")} hồ sơ · Đã trả / Còn lại
               </div>
               <div className="text-base font-black text-purple-900 flex items-center gap-1.5">
                 <span className="text-emerald-700">{money(totalPaidMoney)}</span>
@@ -543,6 +555,7 @@ export default function RewardsPage() {
           loading={loading}
           pagination={{
             current: currentPage,
+            total: filteredTotal,
             pageSize: pageSize,
             showSizeChanger: true,
             pageSizeOptions: ["10", "20", "50", "100"],
@@ -657,7 +670,7 @@ export default function RewardsPage() {
                     expandedRowRender: (s) => (
                       <div className="p-2 bg-white rounded border border-slate-200">
                         <div className="text-xs font-bold text-slate-700 mb-1.5">
-                          Lịch sử chứng từ thanh toán đã ghi nhận:
+                          {e.isSourceExcel ? "Khoản đã trả theo DS_THUONG; nguồn chưa cung cấp ngày trả và mã chứng từ:" : "Lịch sử chứng từ thanh toán đã ghi nhận:"}
                         </div>
                         <Table<any>
                           rowKey="id"
@@ -675,7 +688,7 @@ export default function RewardsPage() {
                               dataIndex: "amount",
                               render: (v: number) => money(v),
                             },
-                            { title: "Mã chứng từ", dataIndex: "reference" },
+                            { title: "Mã chứng từ", dataIndex: "reference", render: (value: string | null) => value || "Chưa có trong nguồn" },
                             { title: "Người xác nhận", dataIndex: "confirmedBy" },
                             { title: "Ghi chú", dataIndex: "note" },
                           ]}

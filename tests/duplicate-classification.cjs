@@ -27,8 +27,9 @@ function setup(type='DS_TONG'){
  delete f.w.bonusRecords[0].note;r=await route.GET({});assert.equal(r.data[0].category,'MERGE_INFO','new source note must remain visible');
  f=setup('DS_THUONG');f.raw['Thưởng lần 1']=2000000;f.raw['Tổng thưởng']=2000000;r=await route.GET({});assert.equal(r.data[0].category,'INTERVIEW_CONFLICT','different money requires verification');
  f=setup('DS_THUONG');f.raw['Tháng']='T05.2027';r=await route.GET({});assert.equal(r.data.length,1,'different reward year must never be hidden');assert.equal(r.data[0].leftSide.month,'—','do not compare to a reward for another year');
- f=setup();f.w.assignments=[];r=await route.GET({});assert.equal(r.data.length,1,'missing assignment must remain visible');
+ f=setup();f.w.assignments=[];r=await route.GET({});assert.equal(r.data.length,1,'missing assignment must remain visible');assert.equal(r.data[0].canApprove,false,'missing assignment must not offer an impossible approval');
+ f=setup('DS_THUONG');f.w.assignments=[];f.raw['Họ và tên']='OTHER PERSON';r=await route.GET({});assert.equal(r.data[0].canApprove,false,'source identity conflict without assignment must not offer approval');assert.match(r.data[0].blockedApprovalReason,/lượt tuyển/);
  f=setup();f.raw['Ngày cấp']='01/01/2020';f.w.idCardDate='02/01/2020';r=await route.GET({});assert.equal(r.data[0].category,'INTERVIEW_CONFLICT');assert.equal(r.data[0].canApprove,false,'unsupported changes cannot be silently approved');
  f=setup();f.raw['Mã NV']='EMP1';f.w.code='OLD_EMP_CODE';r=await route.GET({});assert.equal(r.data.length,0,'historical worker code must not conflict with the matched interview code');
- assert.equal(writes,0,'classification must never write');console.log('PASS 12 classification scenarios; zero writes');
+ assert.equal(writes,0,'classification must never write');console.log('PASS duplicate classification including missing assignment; zero writes');
 })().catch(e=>{console.error(e);process.exitCode=1});

@@ -52,6 +52,8 @@ interface ReviewItem {
   values: Record<string, any>;
   issues: Issue[];
   existingRecord?: Record<string, any> | null;
+  linkState?: string;
+  linkReason?: string;
 }
 
 interface IssueExplanation {
@@ -639,6 +641,8 @@ export default function ImportReviewPage() {
             <Button
               size="small"
               type="primary"
+              disabled={r.importType === "DS_THUONG" && r.linkState !== "MATCHED"}
+              title={r.linkReason}
               loading={actionBusy === `${r.id}-APPROVE`}
               icon={<Check className="w-3.5 h-3.5" />}
               className="text-xs font-medium bg-emerald-600 hover:bg-emerald-700"
@@ -1136,6 +1140,8 @@ export default function ImportReviewPage() {
                 >
                   <Button
                     type="primary"
+                    disabled={inspectItem.importType === "DS_THUONG" && inspectItem.linkState !== "MATCHED"}
+                    title={inspectItem.linkReason}
                     loading={actionBusy === `${inspectItem.id}-APPROVE`}
                     icon={<Check className="w-4 h-4" />}
                     className="bg-emerald-600 hover:bg-emerald-700"
