@@ -16,7 +16,22 @@ import { parseBonusImportRow, readBonusValue } from "@/lib/bonus-import";
 import { assignmentRelations, today } from "@/lib/domain";
 import crypto from "node:crypto";
 
+export const maxDuration = 600;
+
 const MAX_IMPORT_ROWS = 100_000;
+
+function invalidRowCountResponse(count: number, label = "File") {
+  if (!count || count > MAX_IMPORT_ROWS) {
+    return NextResponse.json(
+      {
+        success: false,
+        message: `${label} cần từ 1 đến 100.000 dòng dữ liệu`,
+      },
+      { status: 400 },
+    );
+  }
+  return null;
+}
 
 type SheetEntries = {
   sheetName: string;
@@ -233,6 +248,8 @@ export async function POST(request: NextRequest) {
           headers: {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
           },
+          // Lần đầu ~100.000 dòng: cho phép tải workbook lâu hơn, không hash CSV mỗi phút
+          signal: AbortSignal.timeout(10 * 60 * 1000),
         });
         if (!gRes.ok) {
           return NextResponse.json(
@@ -1436,6 +1453,12 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      const combinedRowError = invalidRowCountResponse(
+        tongData.entries.length,
+        "Sheet DS Tổng",
+      ) || invalidRowCountResponse(bonusData.entries.length, "Sheet thưởng");
+      if (combinedRowError) return combinedRowError;
+
       // Bước 1: Chạy DS Tổng trước để có đầy đủ Hồ sơ Công nhân + Đợt làm việc
       const tongRes = await processDsTongSheet(tongData);
       // Bước 2: Chạy Thưởng ngay sau đó và nối trực tiếp vào Hồ sơ + Đợt vừa tạo
@@ -1556,12 +1579,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!sheetData.entries.length || sheetData.entries.length > MAX_IMPORT_ROWS) {
-      return NextResponse.json(
-        { success: false, message: "File cần từ 1 đến 100.000 dòng dữ liệu" },
-        { status: 400 },
-      );
-    }
+    const rowCountError = invalidRowCountResponse(sheetData.entries.length);
+    if (rowCountError) return rowCountError;
 
     if (detectedType === "DS_THUONG") {
       // Nếu trong file cũng có sheet DS Tổng, tự động nạp DS Tổng trước để không bị thiếu thông tin cá nhân
@@ -1574,6 +1593,11 @@ export async function POST(request: NextRequest) {
           profile,
         );
         if (tongData && tongData.entries.length > 0) {
+          const tongRowError = invalidRowCountResponse(
+            tongData.entries.length,
+            "Sheet DS Tổng",
+          );
+          if (tongRowError) return tongRowError;
           const tongRes = await processDsTongSheet(tongData);
           preloadedPeople = tongRes.people;
         }

@@ -121,13 +121,32 @@ export default function WorkersPage() {
     if (!detailRecord?.workerId) return;
     const controller = new AbortController();
     setDetailHistoryLoading(true);
-    const params = new URLSearchParams({ id: detailRecord.workerId, review: "true" });
-    if (detailRecord.assignments?.[0]?.id) params.set("assignmentId", detailRecord.assignments[0].id);
+    const params = new URLSearchParams({
+      id: detailRecord.workerId,
+      review: "true",
+    });
+    if (detailRecord.assignments?.[0]?.id)
+      params.set("assignmentId", detailRecord.assignments[0].id);
     fetch("/api/worker-history?" + params, { signal: controller.signal })
-      .then(r => { if (!r.ok) throw new Error("history"); return r.json(); })
-      .then(json => { if (!json.success) throw new Error("history"); setDetailRecord((previous: any) => previous?.id === detailId ? {...previous, reviewHistory: json.data} : previous); })
-      .catch(() => { if (!controller.signal.aborted) message.error("Không tải được lịch sử thay đổi"); })
-      .finally(() => { if (!controller.signal.aborted) setDetailHistoryLoading(false); });
+      .then((r) => {
+        if (!r.ok) throw new Error("history");
+        return r.json();
+      })
+      .then((json) => {
+        if (!json.success) throw new Error("history");
+        setDetailRecord((previous: any) =>
+          previous?.id === detailId
+            ? { ...previous, reviewHistory: json.data }
+            : previous,
+        );
+      })
+      .catch(() => {
+        if (!controller.signal.aborted)
+          message.error("Không tải được lịch sử thay đổi");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setDetailHistoryLoading(false);
+      });
     return () => controller.abort();
   }, [detailId]);
 
@@ -179,7 +198,9 @@ export default function WorkersPage() {
         params.append("toDate", dateRange[1].format("YYYY-MM-DD"));
       }
 
-      const res = await fetch(`/api/worker-source-rows?${params.toString()}`, { signal: controller.signal });
+      const res = await fetch(`/api/worker-source-rows?${params.toString()}`, {
+        signal: controller.signal,
+      });
       const json = await res.json();
       if (controller.signal.aborted) return;
       if (!res.ok || !json.success) throw new Error("worker-list");
@@ -428,7 +449,11 @@ export default function WorkersPage() {
       });
       const json = await res.json();
       if (json.success) {
-        message.success("Đã xóa hồ sơ thành công");
+        message.success(
+          record.isSourceRow
+            ? "Đã xóa dòng nguồn; hồ sơ trong hệ thống được giữ nguyên"
+            : "Đã xóa hồ sơ thành công",
+        );
         fetchWorkers();
       } else {
         message.error(json.message || "Không thể xóa hồ sơ");
@@ -564,7 +589,9 @@ export default function WorkersPage() {
                 </Tooltip>
               )}
               {record.isReturning && (
-                <Tooltip title={`Lao động quay lại / Tái ký (${record.rehireCount || 2} đợt làm việc qua hệ thống)`}>
+                <Tooltip
+                  title={`Lao động quay lại / Tái ký (${record.rehireCount || 2} đợt làm việc qua hệ thống)`}
+                >
                   <Tag
                     color="cyan"
                     className="text-[10px] font-bold py-0 px-1.5 m-0 rounded shrink-0 leading-tight border-cyan-300 bg-cyan-50 text-cyan-700 inline-flex items-center gap-0.5"
@@ -829,8 +856,8 @@ export default function WorkersPage() {
             Danh sách người lao động
           </h1>
           <p className="text-xs text-slate-500 mt-1">
-            Hiển thị các cột quản lý nguồn Excel. Khóa cố định cột Họ tên
-            &amp; CCCD khi cuộn ngang.
+            Hiển thị các cột quản lý nguồn Excel. Khóa cố định cột Họ tên &amp;
+            CCCD khi cuộn ngang.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -1241,37 +1268,48 @@ export default function WorkersPage() {
               <div className="p-3.5 bg-amber-50/80 border border-amber-200 rounded-xl space-y-2">
                 <div className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
                   <span className="text-sm">📌</span>
-                  <span>Lịch sử các lần phỏng vấn trước (đã tự động gộp vào đợt chính thức này):</span>
+                  <span>
+                    Lịch sử các lần phỏng vấn trước (đã tự động gộp vào đợt
+                    chính thức này):
+                  </span>
                 </div>
                 <div className="space-y-1.5">
-                  {detailRecord.previousAttempts.map((att: any, idx: number) => (
-                    <div
-                      key={idx}
-                      className="text-xs text-amber-950 flex flex-wrap items-center gap-2.5 bg-white/80 p-2 rounded-lg border border-amber-200/60"
-                    >
-                      <span className="font-semibold text-slate-900">
-                        Lần {idx + 1}: Ngày PV {att.interviewDate}
-                      </span>
-                      <span>·</span>
-                      <span>
-                        Trạng thái:{" "}
-                        <Tag color="warning" className="text-[11px] font-semibold m-0">
-                          {att.status || "Bỏ ĐT"}
-                        </Tag>
-                      </span>
-                      {att.employeeCode && (
-                        <>
-                          <span>·</span>
-                          <span>
-                            Mã: <span className="font-mono font-medium">{att.employeeCode}</span>
-                          </span>
-                        </>
-                      )}
-                      <span className="text-slate-500 text-[11px]">
-                        ({att.note || "Đã hợp nhất vào đợt tuyển chính thức"})
-                      </span>
-                    </div>
-                  ))}
+                  {detailRecord.previousAttempts.map(
+                    (att: any, idx: number) => (
+                      <div
+                        key={idx}
+                        className="text-xs text-amber-950 flex flex-wrap items-center gap-2.5 bg-white/80 p-2 rounded-lg border border-amber-200/60"
+                      >
+                        <span className="font-semibold text-slate-900">
+                          Lần {idx + 1}: Ngày PV {att.interviewDate}
+                        </span>
+                        <span>·</span>
+                        <span>
+                          Trạng thái:{" "}
+                          <Tag
+                            color="warning"
+                            className="text-[11px] font-semibold m-0"
+                          >
+                            {att.status || "Bỏ ĐT"}
+                          </Tag>
+                        </span>
+                        {att.employeeCode && (
+                          <>
+                            <span>·</span>
+                            <span>
+                              Mã:{" "}
+                              <span className="font-mono font-medium">
+                                {att.employeeCode}
+                              </span>
+                            </span>
+                          </>
+                        )}
+                        <span className="text-slate-500 text-[11px]">
+                          ({att.note || "Đã hợp nhất vào đợt tuyển chính thức"})
+                        </span>
+                      </div>
+                    ),
+                  )}
                 </div>
               </div>
             )}
@@ -1478,7 +1516,9 @@ export default function WorkersPage() {
                       key: "co",
                       width: 140,
                       render: (v: string) => (
-                        <span className="font-semibold whitespace-nowrap">{v || "—"}</span>
+                        <span className="font-semibold whitespace-nowrap">
+                          {v || "—"}
+                        </span>
                       ),
                     },
                     {
@@ -1487,7 +1527,9 @@ export default function WorkersPage() {
                       key: "pv",
                       width: 110,
                       render: (value: string) => (
-                        <span className="whitespace-nowrap">{formatDate(value)}</span>
+                        <span className="whitespace-nowrap">
+                          {formatDate(value)}
+                        </span>
                       ),
                     },
                     {
@@ -1513,15 +1555,38 @@ export default function WorkersPage() {
             )}
 
             <div>
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 border-b pb-1">Lịch sử thay đổi</h4>
-              {detailHistoryLoading ? <div className="text-slate-500">Đang tải lịch sử…</div> : detailRecord.reviewHistory?.length ? detailRecord.reviewHistory.map((entry: any) => (
-                <div key={entry.id} className="mb-4 rounded-lg border p-3">
-                  <div className="font-semibold">{new Date(entry.createdAt).toLocaleString("vi-VN")} · Người duyệt: {entry.reviewer}</div>
-                  <div className="text-xs text-slate-500 mb-2">{entry.sourceFile} · Dòng {entry.sourceRow}</div>
-                  {entry.changes.map((change: any) => <div key={change.key} className="py-1"><strong>{change.label}:</strong> {String(change.before ?? "") || "Trống"} → {String(change.after ?? "") || "Trống"}</div>)}
-                  {!entry.changes.length && <div>Đã duyệt đối chiếu, thông tin không thay đổi.</div>}
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 border-b pb-1">
+                Lịch sử thay đổi
+              </h4>
+              {detailHistoryLoading ? (
+                <div className="text-slate-500">Đang tải lịch sử…</div>
+              ) : detailRecord.reviewHistory?.length ? (
+                detailRecord.reviewHistory.map((entry: any) => (
+                  <div key={entry.id} className="mb-4 rounded-lg border p-3">
+                    <div className="font-semibold">
+                      {new Date(entry.createdAt).toLocaleString("vi-VN")} ·
+                      Người duyệt: {entry.reviewer}
+                    </div>
+                    <div className="text-xs text-slate-500 mb-2">
+                      {entry.sourceFile} · Dòng {entry.sourceRow}
+                    </div>
+                    {entry.changes.map((change: any) => (
+                      <div key={change.key} className="py-1">
+                        <strong>{change.label}:</strong>{" "}
+                        {String(change.before ?? "") || "Trống"} →{" "}
+                        {String(change.after ?? "") || "Trống"}
+                      </div>
+                    ))}
+                    {!entry.changes.length && (
+                      <div>Đã duyệt đối chiếu, thông tin không thay đổi.</div>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <div className="text-slate-500">
+                  Chưa có thay đổi được duyệt.
                 </div>
-              )) : <div className="text-slate-500">Chưa có thay đổi được duyệt.</div>}
+              )}
             </div>
 
             {/* Thao tác */}

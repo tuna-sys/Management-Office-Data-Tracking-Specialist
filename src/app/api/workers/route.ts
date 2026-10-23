@@ -11,6 +11,10 @@ import {
 } from "@/lib/domain";
 import { guard, identity } from "@/lib/local-request";
 import {
+  readImportSources,
+  resolveImportSourceRow,
+} from "@/lib/import-source-store";
+import {
   WORKER_FIELDS,
   ASSIGNMENT_FIELDS,
   cleanFields,
@@ -131,9 +135,7 @@ export async function POST(request: NextRequest) {
               message: "Hồ sơ đang hạn chế, cần quản trị viên xác minh",
             },
           };
-        if (
-          identityText(existing.fullName) !== identityText(worker.fullName)
-        )
+        if (identityText(existing.fullName) !== identityText(worker.fullName))
           return {
             status: 409,
             body: {
@@ -282,6 +284,51 @@ export async function DELETE(request: NextRequest) {
     const body = await request.json();
     const actor = await identity(request);
 
+    if (body.isSourceRow === true) {
+      const sourceId = String(body.sourceId || "");
+      const sourceRow = Number(body.sourceRow);
+      if (
+        !/^[a-f0-9-]{36}$/i.test(sourceId) ||
+        !Number.isInteger(sourceRow) ||
+        sourceRow < 1
+      )
+        return NextResponse.json(
+          { success: false, message: "Thiếu mã nguồn hoặc số dòng hợp lệ" },
+          { status: 400 },
+        );
+
+      const source = (await readImportSources()).find(
+        (item) => item.id === sourceId,
+      );
+      if (
+        !source ||
+        !source.rows.some((row: any) => Number(row.row) === sourceRow)
+      )
+        return NextResponse.json(
+          {
+            success: false,
+            message: "Không tìm thấy dòng nguồn; hãy tải lại danh sách",
+          },
+          { status: 404 },
+        );
+
+      await resolveImportSourceRow(sourceId, sourceRow, "DELETE");
+      if (actor)
+        await prisma.auditLog.create({
+          data: {
+            module: "WORKER",
+            action: "DELETE_SOURCE_ROW",
+            operator: actor.username,
+            details: `Xóa dòng nguồn ${source.file}, dòng ${sourceRow}; không xóa hồ sơ chuẩn`,
+          },
+        });
+      return NextResponse.json({
+        success: true,
+        message:
+          "Đã xóa dòng nguồn; hồ sơ và lịch sử trong hệ thống được giữ nguyên",
+      });
+    }
+
     let workerId = body.workerId;
     let assignmentId = body.assignmentId || body.assignments?.[0]?.id;
 
@@ -343,7 +390,10 @@ export async function DELETE(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, message: "Đã xóa hồ sơ thành công" });
+    return NextResponse.json({
+      success: true,
+      message: "Đã xóa hồ sơ thành công",
+    });
   } catch (error: any) {
     return resultError(error);
   }

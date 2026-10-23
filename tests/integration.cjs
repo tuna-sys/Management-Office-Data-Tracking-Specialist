@@ -37,12 +37,9 @@ const fixtureClient = new (require("../.generated/client").PrismaClient)({
   datasources: { db: { url: "file:" + db } },
 });
 let qaFactoryId = "";
-const fixtureReady = require("../scripts/seed-catalogs.cjs")(
-  fixtureClient,
-)
+const fixtureReady = require("../scripts/seed-catalogs.cjs")(fixtureClient)
   .then(async () => {
-    const factory = await
-    fixtureClient.factory.upsert({
+    const factory = await fixtureClient.factory.upsert({
       where: { name: "QA TEST FACTORY" },
       create: {
         code: "QA-TEST-FACTORY",
@@ -69,6 +66,7 @@ const server = spawn(
       LOCAL_BUILD_DIR:
         process.env.QA_PRODUCTION === "1" ? ".next-evolution" : ".next-qa",
       DATABASE_URL: "file:" + db,
+      LOCAL_IMPORT_SOURCE_DIR: path.join(root, "source-imports"),
     },
     stdio: ["ignore", "pipe", "pipe"],
   },
@@ -168,7 +166,12 @@ async function json(url, method, data, cookie, expected = 200) {
     await json(
       "/api/workers",
       "POST",
-      { ...data, rehire: true, interviewDate: "11/10/2026", status: "Đang chờ phỏng vấn" },
+      {
+        ...data,
+        rehire: true,
+        interviewDate: "11/10/2026",
+        status: "Đang chờ phỏng vấn",
+      },
       "",
       201,
     )
@@ -190,15 +193,8 @@ async function json(url, method, data, cookie, expected = 200) {
     bonus7: 0,
     policy: "QA",
   };
-  await req(
-    "/api/bonuses",
-    "POST",
-    { ...bonus, bonus1: -1 },
-    "",
-    400,
-  );
-  let b = (await json("/api/bonuses", "POST", bonus, "", 201))
-    .data;
+  await req("/api/bonuses", "POST", { ...bonus, bonus1: -1 }, "", 400);
+  let b = (await json("/api/bonuses", "POST", bonus, "", 201)).data;
   await req("/api/bonuses", "POST", bonus, "", 409);
   b = (
     await json(
@@ -208,13 +204,7 @@ async function json(url, method, data, cookie, expected = 200) {
       "",
     )
   ).data;
-  await req(
-    "/api/bonuses",
-    "PUT",
-    { id: b.id, status: "LOCKED" },
-    "",
-    409,
-  );
+  await req("/api/bonuses", "PUT", { id: b.id, status: "LOCKED" }, "", 409);
   b = (
     await json(
       "/api/bonuses",
@@ -231,28 +221,10 @@ async function json(url, method, data, cookie, expected = 200) {
     "",
     409,
   );
-  b = (
-    await json(
-      "/api/bonuses",
-      "PUT",
-      { id: b.id, status: "LOCKED" },
-      "",
-    )
-  ).data;
-  await req(
-    "/api/bonuses",
-    "PUT",
-    { id: b.id, status: "DRAFT" },
-    "",
-    400,
-  );
-  await req(
-    "/api/bonuses",
-    "PUT",
-    { id: b.id, status: "APPROVED" },
-    "",
-    409,
-  );
+  b = (await json("/api/bonuses", "PUT", { id: b.id, status: "LOCKED" }, ""))
+    .data;
+  await req("/api/bonuses", "PUT", { id: b.id, status: "DRAFT" }, "", 400);
+  await req("/api/bonuses", "PUT", { id: b.id, status: "APPROVED" }, "", 409);
   let account = (
     await json(
       "/api/bank-accounts",
@@ -298,13 +270,7 @@ async function json(url, method, data, cookie, expected = 200) {
     "",
     409,
   );
-  await req(
-    "/api/excel-engine/export?type=WORKERS",
-    "GET",
-    undefined,
-    "",
-    200,
-  );
+  await req("/api/excel-engine/export?type=WORKERS", "GET", undefined, "", 200);
   const exported = await req(
     "/api/excel-engine/export?type=WORKERS",
     "GET",
@@ -312,18 +278,8 @@ async function json(url, method, data, cookie, expected = 200) {
     "",
   );
   assert.ok((await exported.arrayBuffer()).byteLength > 0);
-  await req(
-    "/api/excel-engine/export?type=DUPLICATES",
-    "GET",
-    undefined,
-    "",
-  );
-  await req(
-    "/api/excel-engine/export?type=TEMPLATE",
-    "GET",
-    undefined,
-    "",
-  );
+  await req("/api/excel-engine/export?type=DUPLICATES", "GET", undefined, "");
+  await req("/api/excel-engine/export?type=TEMPLATE", "GET", undefined, "");
   const policy = {
     name: "QA POLICY",
     factory: "QA TEST FACTORY",
@@ -335,9 +291,7 @@ async function json(url, method, data, cookie, expected = 200) {
       amount: 100000,
     })),
   };
-  const pol = (
-    await json("/api/policies", "POST", policy, "", 201)
-  ).data;
+  const pol = (await json("/api/policies", "POST", policy, "", 201)).data;
   await req(
     "/api/policies",
     "PUT",
@@ -420,6 +374,55 @@ async function json(url, method, data, cookie, expected = 200) {
   assert.equal(imported.summary.successCount, 1);
   workers = await json("/api/workers", "GET", undefined, "");
   assert.equal(workers.data.length, 3);
+  const importedSourceRows = await json(
+    "/api/worker-source-rows?search=QA IMPORT",
+    "GET",
+    undefined,
+    "",
+  );
+  const importedSourceRow = importedSourceRows.data.find(
+    (row) => row.isSourceRow && row.idCard === "000000000003",
+  );
+  assert.ok(importedSourceRow?.sourceId);
+  await req(
+    "/api/workers",
+    "DELETE",
+    {
+      workerId: importedSourceRow.workerId,
+      assignmentId: importedSourceRow.assignments?.[0]?.id,
+      idCard: importedSourceRow.idCard,
+      isSourceRow: true,
+      sourceId: importedSourceRow.sourceId,
+      sourceRow: importedSourceRow.sourceRow,
+    },
+    "",
+  );
+  workers = await json(
+    "/api/workers?search=000000000003",
+    "GET",
+    undefined,
+    "",
+  );
+  assert.equal(
+    workers.data.length,
+    1,
+    "deleting a source row must keep its normalized worker",
+  );
+  assert.equal(workers.data[0].assignments.length, 1);
+  const sourceRowsAfterDelete = await json(
+    "/api/worker-source-rows?search=QA IMPORT",
+    "GET",
+    undefined,
+    "",
+  );
+  assert.equal(
+    sourceRowsAfterDelete.data.some(
+      (row) =>
+        row.sourceId === importedSourceRow.sourceId &&
+        row.sourceRow === importedSourceRow.sourceRow,
+    ),
+    false,
+  );
 
   const factory = (
     await json(
@@ -526,8 +529,7 @@ async function json(url, method, data, cookie, expected = 200) {
     status: "Đang làm việc",
     employeeCode: "QA-EMP-001",
   };
-  let person = (await json("/api/workers", "POST", v3input, "", 201))
-    .data;
+  let person = (await json("/api/workers", "POST", v3input, "", 201)).data;
   const first = person.assignments[0];
   assert.equal(first.team, team.name);
   assert.equal(first.recruiter, recruiter.name);
@@ -670,12 +672,7 @@ async function json(url, method, data, cookie, expected = 200) {
   assert.equal(report.rewards.summary.paid, 100000);
   assert.equal(report.rewards.summary.earned, 300000);
   const history = (
-    await json(
-      "/api/worker-history?search=QA-EMP-001",
-      "GET",
-      undefined,
-      "",
-    )
+    await json("/api/worker-history?search=QA-EMP-001", "GET", undefined, "")
   ).data;
   assert.equal(history[0].id, person.id);
   assert.equal(
@@ -770,14 +767,8 @@ async function json(url, method, data, cookie, expected = 200) {
   ).data;
   await req("/api/workers/" + person.id, "DELETE", undefined, "");
   assert.equal(
-    (
-      await json(
-        "/api/worker-history?id=" + person.id,
-        "GET",
-        undefined,
-        "",
-      )
-    ).data[0].assignments.length,
+    (await json("/api/worker-history?id=" + person.id, "GET", undefined, ""))
+      .data[0].assignments.length,
     2,
   );
   await req("/api/workers/" + person.id, "PATCH", {}, "");
@@ -788,14 +779,8 @@ async function json(url, method, data, cookie, expected = 200) {
     "",
   );
   assert.equal(
-    (
-      await json(
-        "/api/worker-history?id=" + person.id,
-        "GET",
-        undefined,
-        "",
-      )
-    ).data[0].assignments[0].recruiter,
+    (await json("/api/worker-history?id=" + person.id, "GET", undefined, ""))
+      .data[0].assignments[0].recruiter,
     "QA RECRUITER",
   );
   const audit = await json("/api/audit", "GET", undefined, "");

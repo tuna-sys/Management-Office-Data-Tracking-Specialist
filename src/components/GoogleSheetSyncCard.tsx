@@ -212,7 +212,7 @@ export default function GoogleSheetSyncCard({ onPreview }: Props) {
                 Nguồn Google Sheets
               </span>
               <div className="text-[11px] text-slate-500 font-normal">
-                Quản lý nguồn và theo dõi kết quả đồng bộ
+                Tối đa 100.000 dòng. Lần đầu nạp đủ bộ có thể mất vài phút; không quét hash mỗi 60 giây.
               </div>
             </div>
           </div>

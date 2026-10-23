@@ -7,6 +7,8 @@ import {
   extractSpreadsheetId,
 } from "@/lib/google-sync-engine";
 
+export const maxDuration = 600;
+
 export async function GET(req: NextRequest) {
   const denied = await guard(req);
   if (denied) return denied;
