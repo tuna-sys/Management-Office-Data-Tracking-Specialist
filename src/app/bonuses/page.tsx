@@ -1,6 +1,6 @@
 "use client";
 import { formatDate } from "@/lib/date-format";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   Table,
   Button,
@@ -14,6 +14,7 @@ import {
   message,
   Popconfirm,
   Space,
+  Alert,
 } from "antd";
 import Link from "next/link";
 import {
@@ -63,12 +64,17 @@ export default function BonusesPage() {
   // Modal thêm thưởng
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [workersList, setWorkersList] = useState<any[]>([]);
+  const [workersLoading, setWorkersLoading] = useState(false);
+  const [selectedWorkerDetail, setSelectedWorkerDetail] = useState<any>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [noAssignmentWarning, setNoAssignmentWarning] = useState<string | null>(null);
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const detailAbortRef = useRef<AbortController | null>(null);
+  const selectedLookupWorker = useRef<any>(null);
   const [addForm] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
-  const selectedAddWorkerId = Form.useWatch("workerId", addForm);
-  const selectedAddWorker = workersList.find(
-    (worker) => worker.id === selectedAddWorkerId,
-  );
+
   const fetchBonuses = async () => {
     try {
       setLoading(true);
@@ -99,20 +105,121 @@ export default function BonusesPage() {
       setLoading(false);
     }
   };
-  const fetchWorkers = async () => {
+
+  const fetchWorkersLookup = async (keyword = "") => {
+    searchAbortRef.current?.abort();
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+    setWorkersLoading(true);
     try {
-      const res = await fetch("/api/workers");
+      const params = new URLSearchParams({
+        view: "lookup",
+        pageSize: "20",
+      });
+      if (keyword.trim()) params.append("search", keyword.trim());
+      const res = await fetch(`/api/workers?${params.toString()}`, {
+        signal: controller.signal,
+      });
       const json = await res.json();
-      if (json.success) {
-        setWorkersList(json.data);
+      if (json.success && !controller.signal.aborted) {
+        let list = json.data || [];
+        if (
+          selectedLookupWorker.current &&
+          !list.some((w: any) => w.id === selectedLookupWorker.current.id)
+        ) {
+          list = [selectedLookupWorker.current, ...list];
+        }
+        setWorkersList(list);
       }
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      if (err.name !== "AbortError") console.error(err);
+    } finally {
+      if (searchAbortRef.current === controller) setWorkersLoading(false);
     }
   };
+
+  const handleSearchWorkers = (val: string) => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      fetchWorkersLookup(val);
+    }, 300);
+  };
+
+  const handleWorkerSelect = async (workerId: string) => {
+    addForm.setFieldsValue({
+      fullName: "",
+      idCard: "",
+      assignmentId: undefined,
+      company: "",
+      interviewDate: "",
+      workerCode: "",
+      accountNumber: "",
+      bankName: "",
+    });
+    setSelectedWorkerDetail(null);
+    setNoAssignmentWarning(null);
+
+    detailAbortRef.current?.abort();
+    if (!workerId) {
+      selectedLookupWorker.current = null;
+      return;
+    }
+
+    const found = workersList.find((w) => w.id === workerId);
+    selectedLookupWorker.current = found || null;
+
+    const controller = new AbortController();
+    detailAbortRef.current = controller;
+    setDetailLoading(true);
+    try {
+      const res = await fetch(`/api/workers/${workerId}`, {
+        signal: controller.signal,
+      });
+      const json = await res.json();
+      if (controller.signal.aborted) return;
+      if (json.success && json.data) {
+        const worker = json.data;
+        setSelectedWorkerDetail(worker);
+        const hasAssignments =
+          Array.isArray(worker.assignments) && worker.assignments.length > 0;
+        if (!hasAssignments) {
+          setNoAssignmentWarning("Người này chưa có đợt tuyển dụng");
+          addForm.setFieldsValue({
+            fullName: worker.fullName || "",
+            idCard: worker.idCard || "",
+            workerCode: worker.code || "",
+            accountNumber: worker.bankAccounts?.[0]?.accountNumber || "",
+            bankName: worker.bankAccounts?.[0]?.bankName || "",
+          });
+        } else {
+          setNoAssignmentWarning(null);
+          const assignment = worker.assignments[0];
+          const bank = worker.bankAccounts?.[0];
+          addForm.setFieldsValue({
+            fullName: worker.fullName || "",
+            idCard: worker.idCard || "",
+            assignmentId: assignment.id,
+            company: assignment.interviewFactory || "",
+            interviewDate: assignment.interviewDate || "",
+            workerCode: assignment.employeeCode || worker.code || "",
+            accountNumber: bank?.accountNumber || "",
+            bankName: bank?.bankName || "",
+          });
+        }
+      } else {
+        message.error(json.message || "Không thể tải chi tiết người lao động");
+      }
+    } catch (err: any) {
+      if (err.name !== "AbortError") message.error("Lỗi kết nối khi tải chi tiết");
+    } finally {
+      if (detailAbortRef.current === controller) {
+        setDetailLoading(false);
+      }
+    }
+  };
+
   useEffect(() => {
     fetchBonuses();
-    fetchWorkers();
     fetch("/api/policies")
       .then((r) => r.json())
       .then((j) => {
@@ -120,6 +227,20 @@ export default function BonusesPage() {
       })
       .catch(() => message.error("Không thể tải chính sách"));
   }, [selectedMonth, selectedCompany]);
+
+  useEffect(() => {
+    if (isAddModalOpen) {
+      fetchWorkersLookup("");
+    } else {
+      searchAbortRef.current?.abort();
+      detailAbortRef.current?.abort();
+      setSelectedWorkerDetail(null);
+      setNoAssignmentWarning(null);
+      selectedLookupWorker.current = null;
+      setEditing(null);
+      addForm.resetFields();
+    }
+  }, [isAddModalOpen]);
   // Duyệt thưởng
   const handleApprove = async (id: string, newStatus: string) => {
     if (
@@ -425,6 +546,45 @@ export default function BonusesPage() {
                   fullName: r.worker?.fullName,
                   idCard: r.worker?.idCard,
                 });
+                const editWorker = r.worker
+                  ? {
+                      id: r.worker.id,
+                      fullName: r.worker.fullName,
+                      idCard: r.worker.idCard,
+                      code: r.worker.code,
+                    }
+                  : {
+                      id: r.workerId,
+                      fullName: r.fullName || "",
+                      idCard: r.idCard || "",
+                      code: r.workerCode || "",
+                    };
+                if (editWorker.id) {
+                  selectedLookupWorker.current = editWorker;
+                  setWorkersList((prev) => [
+                    editWorker,
+                    ...prev.filter((w: any) => w.id !== editWorker.id),
+                  ]);
+                }
+                setNoAssignmentWarning(null);
+                if (r.assignmentId) {
+                  setSelectedWorkerDetail({
+                    id: editWorker.id,
+                    fullName: editWorker.fullName,
+                    idCard: editWorker.idCard,
+                    code: editWorker.code,
+                    assignments: [
+                      {
+                        id: r.assignmentId,
+                        interviewFactory: r.company,
+                        interviewDate: r.interviewDate,
+                        employeeCode: r.workerCode,
+                      },
+                    ],
+                  });
+                } else {
+                  setSelectedWorkerDetail(null);
+                }
                 setIsAddModalOpen(true);
               }}
             >
@@ -551,6 +711,9 @@ export default function BonusesPage() {
             icon={<PlusCircle className="w-4 h-4" />}
             onClick={() => {
               setEditing(null);
+              selectedLookupWorker.current = null;
+              setSelectedWorkerDetail(null);
+              setNoAssignmentWarning(null);
               addForm.resetFields();
               addForm.setFieldsValue({
                 month:
@@ -739,6 +902,16 @@ export default function BonusesPage() {
           }}
           className="mt-4"
         >
+          {noAssignmentWarning && (
+            <Alert
+              type="warning"
+              showIcon
+              message={noAssignmentWarning}
+              description="Người này chưa có đợt tuyển dụng nào để thêm thưởng."
+              className="mb-4"
+            />
+          )}
+
           <Form.Item
             name="workerId"
             label="Chọn Lao Động"
@@ -747,29 +920,15 @@ export default function BonusesPage() {
             <Select
               disabled={!!editing}
               showSearch
+              filterOption={false}
+              onSearch={handleSearchWorkers}
+              loading={workersLoading}
               placeholder="Tìm theo họ tên hoặc số CCCD"
-              optionFilterProp="label"
               options={workersList.map((w) => ({
-                label: `${w.fullName} - CCCD: ${w.idCard} (${w.assignments?.[0]?.interviewFactory || "N/A"})`,
+                label: `${w.fullName} - CCCD: ${w.idCard}${w.code ? ` (${w.code})` : ""}`,
                 value: w.id,
               }))}
-              onChange={(workerId) => {
-                const worker = workersList.find((w) => w.id === workerId);
-                const assignment = worker?.assignments?.[0];
-                const bank = worker?.bankAccounts?.[0];
-                addForm.setFieldsValue({
-                  fullName: worker?.fullName || "",
-                  idCard: worker?.idCard || "",
-                  assignmentId: assignment?.id,
-                  company:
-                    assignment?.interviewFactory ||
-                    "",
-                  interviewDate: assignment?.interviewDate || "",
-                  workerCode: assignment?.employeeCode || worker?.code || "",
-                  accountNumber: bank?.accountNumber || "",
-                  bankName: bank?.bankName || "",
-                });
-              }}
+              onChange={handleWorkerSelect}
             />
           </Form.Item>
 
@@ -782,17 +941,28 @@ export default function BonusesPage() {
             </Form.Item>
             <Form.Item name="assignmentId" label="Đợt tuyển dụng">
               <Select
-                disabled={!!editing}
+                disabled={
+                  !!editing ||
+                  detailLoading ||
+                  !selectedWorkerDetail?.assignments?.length
+                }
+                loading={detailLoading}
                 allowClear
-                placeholder="Chọn đợt tuyển dụng"
-                options={(selectedAddWorker?.assignments || []).map(
+                placeholder={
+                  detailLoading
+                    ? "Đang tải đợt tuyển dụng..."
+                    : noAssignmentWarning
+                      ? "Không có đợt tuyển dụng"
+                      : "Chọn đợt tuyển dụng"
+                }
+                options={(selectedWorkerDetail?.assignments || []).map(
                   (a: any) => ({
                     value: a.id,
                     label: `${a.interviewFactory || "Chưa có công ty"} · PV ${a.interviewDate || "chưa có ngày"} · ${a.employeeCode || "chưa có mã NV"}`,
                   }),
                 )}
                 onChange={(assignmentId) => {
-                  const assignment = selectedAddWorker?.assignments?.find(
+                  const assignment = selectedWorkerDetail?.assignments?.find(
                     (a: any) => a.id === assignmentId,
                   );
                   if (assignment)
@@ -803,7 +973,7 @@ export default function BonusesPage() {
                       interviewDate: assignment.interviewDate || "",
                       workerCode:
                         assignment.employeeCode ||
-                        selectedAddWorker?.code ||
+                        selectedWorkerDetail?.code ||
                         "",
                     });
                 }}
@@ -927,7 +1097,17 @@ export default function BonusesPage() {
             >
               Hủy
             </Button>
-            <Button type="primary" htmlType="submit" loading={submitting}>
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={submitting || detailLoading}
+              disabled={
+                submitting ||
+                detailLoading ||
+                Boolean(noAssignmentWarning) ||
+                (!editing && !selectedWorkerDetail?.assignments?.length)
+              }
+            >
               Lưu Bản Ghi Thưởng
             </Button>
           </div>

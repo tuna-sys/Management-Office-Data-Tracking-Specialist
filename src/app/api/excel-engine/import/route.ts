@@ -1,5 +1,14 @@
 import { runRecoverableImport } from "@/lib/import-recovery";
-import { assertIdentity, identityText, sameInterviewDay, sameFactory, isActiveAssignment, resolveBonusAssignment } from "@/lib/duplicate-check";
+import {
+  assertIdentity,
+  identityText,
+  sameInterviewDay,
+  sameFactory,
+  isActiveAssignment,
+  resolveBonusAssignment,
+  assertSourceCard,
+  findAssignmentMatch,
+} from "@/lib/duplicate-check";
 import { splitImportReview } from "@/lib/import-review";
 import { saveImportSource as saveSourceSnapshot } from "@/lib/import-source-store";
 import { sourceStatuses } from "@/lib/source-format";
@@ -475,6 +484,7 @@ export async function POST(request: NextRequest) {
       const errors: string[] = [];
       const warnings: string[] = [];
 
+      const validWorkerCards = new Set<string>();
       const seenInFile = new Map<string, number>();
       const newStatusesToUpsert = new Set<string>();
       const workersToCreate = new Map<string, any>();
@@ -493,8 +503,7 @@ export async function POST(request: NextRequest) {
             }
           }
           const { worker, assignment } = parseImportRow(raw, true);
-          const sourceCard = String(raw["số CCCD"] ?? raw["Số CCCD"] ?? raw["CCCD"] ?? raw["CMT/CCCD"] ?? "").replace(/\s+/g, "");
-          if (sourceCard && sourceCard !== worker.idCard) throw new Error("Sai lệch danh tính: CCCD thiếu chữ số; không tự thêm số 0 để gộp hồ sơ");
+          assertSourceCard(raw, worker.idCard);
           const interviewFactory = factories.find((f) => sameFactory(f.name, assignment.interviewFactory));
           // Source imports use interview-factory text for identity; catalog links are optional.
           assignment.interviewFactory = interviewFactory?.name || assignment.interviewFactory;
@@ -550,10 +559,15 @@ export async function POST(request: NextRequest) {
           if (phoneMatches && [...phoneMatches].some(card => card !== worker.idCard)) throw new Error("Trùng SĐT hồ sơ đang hoạt động; cần xác nhận dùng chung số");
 
           // 3. Kiểm tra trùng lượt tuyển đã có trong CSDL (Smart Merge tự động điền ô trống)
-          const dayMatches = (old?.assignments || []).filter((a: any) => sameInterviewDay(a, assignment));
-          if (dayMatches.length > 1) throw new Error("Trùng lặp nội bộ: nhiều lượt PV cùng ngày; cần đối chiếu");
-          const matchAssignment = dayMatches[0];
-          if (matchAssignment && !sameFactory(matchAssignment.interviewFactory, assignment.interviewFactory)) throw new Error("Trùng lặp nội bộ: cùng CCCD và ngày PV nhưng khác nhà máy");
+          const matchRes = findAssignmentMatch(old?.assignments || [], {
+            interviewDate: assignment.interviewDate,
+            factory: assignment.interviewFactory,
+            employeeCode: assignment.employeeCode,
+          });
+          if (matchRes.status === "MULTIPLE_SAME_DAY") throw new Error("Trùng lặp nội bộ: nhiều lượt PV cùng ngày; cần đối chiếu");
+          if (matchRes.status === "FACTORY_MISMATCH") throw new Error("Trùng ngày PV tại hai công ty: cần đối chiếu, không tự gộp hoặc ghi đè");
+          if (matchRes.status === "CODE_MISMATCH") throw new Error("Khác mã theo công ty: cần đối chiếu");
+          const matchAssignment = matchRes.assignment;
 
           if (matchAssignment) {
             const workerFillable: Array<keyof typeof worker> = [
@@ -715,6 +729,7 @@ export async function POST(request: NextRequest) {
                 readyCount++;
               }
               mergedCount++;
+              validWorkerCards.add(worker.idCard);
               continue;
             }
 
@@ -849,6 +864,7 @@ export async function POST(request: NextRequest) {
           } else {
             readyCount++;
           }
+          validWorkerCards.add(worker.idCard);
         } catch (error: any) {
           errorCount++;
           errors.push(
@@ -993,6 +1009,8 @@ export async function POST(request: NextRequest) {
           )
         : null;
 
+      const validAssignmentsCount = mergedCount + (commit ? assignmentsToCreate.length : readyCount);
+
       return {
         people,
         entries,
@@ -1007,6 +1025,8 @@ export async function POST(request: NextRequest) {
         mergedCount,
         warnings,
         errors,
+        validWorkerCards,
+        validAssignmentsCount,
       };
     }
 
@@ -1069,6 +1089,7 @@ export async function POST(request: NextRequest) {
       const errors: string[] = [];
       const warnings: string[] = [];
 
+      const validWorkerCards = new Set<string>();
       const seenInFile = new Map<string, number>();
       const newWorkerIds = new Set<string>();
       const bonusWorkersToCreate = new Map<string, any>();
@@ -1085,7 +1106,7 @@ export async function POST(request: NextRequest) {
           const cccdRaw = readBonusValue(raw, "idCard");
           if (!cccdRaw) throw new Error("Thiếu số CCCD");
           const idCard = normalizeCccd(cccdRaw);
-          if (String(cccdRaw).replace(/\s+/g, "") !== idCard) throw new Error("Sai lệch danh tính: CCCD thiếu chữ số; cần đối chiếu bản gốc");
+          assertSourceCard(cccdRaw, idCard);
           const {
             company,
             month,
@@ -1139,7 +1160,7 @@ export async function POST(request: NextRequest) {
           const fileDayKey = idCard + "|" + dateKey(interviewDate);
           const existingDayKey = workerKey + "|" + dateKey(interviewDate);
           const companies = bonusCompanies.get(fileDayKey) || bonusCompanies.get(existingDayKey) || new Set<string>();
-          if ([...companies].some(c => c && c !== identityText(company))) throw new Error("Trùng lặp nội bộ: cùng CCCD và ngày PV nhưng khác công ty trong danh sách thưởng");
+          if ([...companies].some(c => c && c !== identityText(company))) throw new Error("Trùng ngày PV tại hai công ty: cùng CCCD và ngày PV nhưng khác công ty trong danh sách thưởng");
           companies.add(identityText(company)); bonusCompanies.set(fileDayKey, companies);
           const bonusKey = `${workerKey}|${month}|${identityText(company)}|${dateKey(interviewDate)}`;
           if ((bonusCounts.get(bonusKey) || 0) > 1) throw new Error("Trùng lặp nội bộ: nhiều bản thưởng cùng lượt và kỳ; cần đối chiếu");
@@ -1264,6 +1285,7 @@ export async function POST(request: NextRequest) {
                 readyCount++;
               }
               mergedCount++;
+              validWorkerCards.add(idCard);
               continue;
             }
 
@@ -1364,6 +1386,7 @@ export async function POST(request: NextRequest) {
           } else {
             readyCount++;
           }
+          validWorkerCards.add(idCard);
         } catch (err: any) {
           errorCount++;
           errors.push(`Dòng ${e.row}: ${err.message}`);
@@ -1438,6 +1461,7 @@ export async function POST(request: NextRequest) {
         mergedCount,
         warnings,
         errors,
+        validWorkerCards,
       };
     }
 
@@ -1516,6 +1540,14 @@ export async function POST(request: NextRequest) {
         tongRes.review.duplicateRows + bonusRes.review.duplicateRows;
       const totalErrors = tongRes.errorCount + bonusRes.errorCount;
 
+      const uniqueValidWorkers = new Set([
+        ...(tongRes.validWorkerCards || []),
+        ...(bonusRes.validWorkerCards || []),
+      ]).size;
+      const validAssignments = tongRes.validAssignmentsCount || 0;
+      const bonusRows = bonusRes.entries.length;
+      const reviewRows = combinedReview.reviewRows;
+
       return NextResponse.json({
         review: combinedReview,
         sourceId: bonusRes.sourceId || tongRes.sourceId,
@@ -1544,6 +1576,9 @@ export async function POST(request: NextRequest) {
           cleanCount: totalRows - combinedReview.reviewRows,
           rehireCount: tongRes.rehireCount,
           mergedCount: totalMerged,
+          uniqueWorkers: uniqueValidWorkers,
+          validAssignments,
+          reviewRows,
         },
         readyRows: [...readyRowSample(tongRes.entries, tongRes.errors), ...readyRowSample(bonusRes.entries, bonusRes.errors)].slice(0, 50),
         normalizationErrors: combinedErrors,
@@ -1651,6 +1686,10 @@ export async function POST(request: NextRequest) {
           cleanCount: res.entries.length - res.review.reviewRows,
           rehireCount: 0,
           mergedCount: res.mergedCount,
+          uniqueWorkers: res.validWorkerCards.size,
+          validAssignments: 0,
+          bonusRows: res.entries.length,
+          reviewRows: res.review.reviewRows,
         },
         readyRows: readyRowSample(res.entries, res.errors),
         normalizationErrors: res.errors,
@@ -1687,6 +1726,10 @@ export async function POST(request: NextRequest) {
           cleanCount: res.entries.length - res.review.reviewRows,
           rehireCount: res.rehireCount,
           mergedCount: res.mergedCount,
+          uniqueWorkers: res.validWorkerCards.size,
+          validAssignments: res.validAssignmentsCount,
+          bonusRows: 0,
+          reviewRows: res.review.reviewRows,
         },
         readyRows: readyRowSample(res.entries, res.errors),
         normalizationErrors: res.errors,

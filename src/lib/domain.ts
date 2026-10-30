@@ -43,7 +43,7 @@ export function resultError(error: any) {
           ? error.message
           : error?.code === "P2002"
             ? "Mã hoặc bản ghi đã tồn tại"
-            : /Trùng lặp nội bộ|Sai lệch danh tính/.test(error?.message || "") ? error.message : "Không thể xử lý yêu cầu",
+            : /Trùng lặp nội bộ|Trùng ngày PV tại hai công ty|Khác mã theo công ty|Sai lệch danh tính/.test(error?.message || "") ? error.message : "Không thể xử lý yêu cầu",
     },
     {
       status:
@@ -51,7 +51,7 @@ export function resultError(error: any) {
           ? error.status
           : error?.code === "P2002"
             ? 409
-            : /Trùng lặp nội bộ|Sai lệch danh tính/.test(error?.message || "") ? 409 : 500,
+            : /Trùng lặp nội bộ|Trùng ngày PV tại hai công ty|Khác mã theo công ty|Sai lệch danh tính/.test(error?.message || "") ? 409 : 500,
     },
   );
 }
