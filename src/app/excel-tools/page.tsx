@@ -41,7 +41,9 @@ export default function ExcelToolsPage() {
   const [inputTab, setInputTab] = useState("GOOGLE_SHEET");
   const [uploading, setUploading] = useState(false);
   const [smartMerge, setSmartMerge] = useState(true);
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const pendingFile = pendingFiles[0] || null;
+  const setPendingFile = (f: File | null) => setPendingFiles(f ? [f] : []);
   const [pendingSheet, setPendingSheet] = useState<any>(null);
   const [result, setResult] = useState<any>(null);
   const [clearOpen, setClearOpen] = useState(false);
@@ -58,7 +60,7 @@ export default function ExcelToolsPage() {
       }
       message.success(data.message);
       setResult(null);
-      setPendingFile(null);
+      setPendingFiles([]);
       setClearOpen(false);
     } catch {
       message.error("Không nhận được kết quả xóa. Hãy kiểm tra dữ liệu trước khi thử lại.");
@@ -73,14 +75,20 @@ export default function ExcelToolsPage() {
       .then((j) => setProfiles(j.data || []));
   }, []);
 
-  const handleCustomUpload = async ({ file, onSuccess, onError }: any) => {
+  const handleUploadFiles = async (files: File[]) => {
+    if (!files.length) return;
+    if (files.length > 2) {
+      message.error("Hệ thống hỗ trợ tối đa 2 file (một file DS_TONG và một file DS_THUONG)");
+      return;
+    }
     try {
       setUploading(true);
-      setPendingFile(null);
+      setPendingFiles([]);
       setPendingSheet(null);
       setResult(null);
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("file", files[0]);
+      if (files[1]) formData.append("secondaryFile", files[1]);
       formData.append("importType", importMode);
       formData.append("smartMerge", smartMerge ? "true" : "false");
       if (profileId) formData.append("profileId", profileId);
@@ -92,30 +100,37 @@ export default function ExcelToolsPage() {
       const json = await res.json();
       if (json.success) {
         setResult(json);
-        setPendingFile(file);
+        setPendingFiles(files);
         message.info(
-          `Đã kiểm tra file (${json.detectedTypeName || "Excel"}); chưa ghi dữ liệu. Xem kết quả rồi xác nhận.`,
+          `Đã kiểm tra ${files.length} file (${json.detectedTypeName || "Excel"}); chưa ghi dữ liệu. Xem kết quả rồi xác nhận.`,
         );
-        onSuccess("ok");
       } else {
         message.error(json.message || "Lỗi xử lý file Excel");
-        onError(new Error(json.message));
       }
     } catch (err: any) {
       message.error(`Không thể tải file: ${err?.message || "Kiểm tra kết nối và thử lại."}`);
-      onError(err);
     } finally {
       setUploading(false);
     }
   };
 
+  const handleCustomUpload = async ({ file, onSuccess, onError }: any) => {
+    try {
+      await handleUploadFiles([file]);
+      onSuccess?.("ok");
+    } catch (err: any) {
+      onError?.(err);
+    }
+  };
+
   const commitImport = async () => {
-    if (!pendingFile && !pendingSheet) return;
+    if (!pendingFiles.length && !pendingSheet) return;
 
     setUploading(true);
     try {
       const data = new FormData();
-      if (pendingFile) data.append("file", pendingFile);
+      if (pendingFiles[0]) data.append("file", pendingFiles[0]);
+      if (pendingFiles[1]) data.append("secondaryFile", pendingFiles[1]);
       data.append("confirm", "true");
       const options = result?.importOptions || { smartMerge, importType: importMode, profileId };
       data.append("smartMerge", options.smartMerge ? "true" : "false");
@@ -131,7 +146,7 @@ export default function ExcelToolsPage() {
       const j = await r.json();
       if (j.success) {
         setResult(j);
-        setPendingFile(null);
+        setPendingFiles([]);
         setPendingSheet(null);
         const newWorkerMessage =
           j.detectedType === "DS_THUONG"
@@ -305,10 +320,17 @@ export default function ExcelToolsPage() {
           </details>
 
             <Dragger
-              name="file"
-              multiple={false}
+              name="files"
+              multiple={true}
+              maxCount={2}
               accept=".xlsx"
-              customRequest={handleCustomUpload}
+              beforeUpload={(file, fileList) => {
+                if (file === fileList[0]) {
+                  const toUpload = fileList.slice(0, 2);
+                  handleUploadFiles(toUpload);
+                }
+                return false;
+              }}
               showUploadList={false}
               disabled={uploading}
               className="p-6 bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl hover:border-blue-400"
@@ -317,13 +339,50 @@ export default function ExcelToolsPage() {
                 <UploadCloud className="w-12 h-12 text-blue-500 animate-bounce" />
               </p>
               <p className="text-sm font-bold text-slate-800">
-                Nhấp hoặc kéo thả file Excel vào khu vực này
+                Nhấp hoặc kéo thả file Excel vào khu vực này (hỗ trợ 1 hoặc 2 file)
               </p>
               <p className="text-xs text-slate-500 mt-1">
                 Hệ thống tự động phát hiện: <b>DS_TONG</b>, <b>DS_THUONG</b>,
-                hoặc <b>STK ngân hàng</b>. Tối đa 50 MB / 100.000 dòng mỗi Sheet.
+                hoặc <b>STK ngân hàng</b>. Có thể chọn cùng lúc 2 file (Tổng + Thưởng) để tự động đối soát liên kết. Tối đa 50 MB / file.
               </p>
             </Dragger>
+
+            {pendingFiles.length > 0 && (
+              <div className="mt-3 p-3 bg-blue-50/70 rounded-xl border border-blue-200">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-blue-900">
+                    File đã nạp để xem trước ({pendingFiles.length} file):
+                  </span>
+                  <Button
+                    type="text"
+                    size="small"
+                    danger
+                    onClick={() => {
+                      setPendingFiles([]);
+                      setResult(null);
+                    }}
+                  >
+                    Bỏ chọn file
+                  </Button>
+                </div>
+                <div className="space-y-1.5">
+                  {pendingFiles.map((f, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between bg-white px-3 py-1.5 rounded-lg border border-slate-200 text-xs"
+                    >
+                      <span className="font-semibold text-slate-800 truncate max-w-[400px]">
+                        {pendingFiles.length === 2 ? (idx === 0 ? "File 1: " : "File 2: ") : "File nạp: "}
+                        {f.name}
+                      </span>
+                      <span className="text-slate-500 text-[11px]">
+                        {(f.size / (1024 * 1024)).toFixed(2)} MB
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
 
 
@@ -361,11 +420,105 @@ export default function ExcelToolsPage() {
               </div>
 
               {result.detectedType === "COMBINED" && (
-                <Alert
-                  type="success"
-                  showIcon
-                  message="Đã tự động phát hiện và ghép nối 2 Sheet: 'DS Tổng' (Hồ sơ & Đợt tuyển) + 'Thưởng' (Chính sách thưởng gắn trực tiếp vào từng đợt tuyển theo Số CCCD + Ngày PV)."
-                />
+                <>
+                  <Alert
+                    type="success"
+                    showIcon
+                    message="Đã tự động phát hiện và ghép nối 2 Sheet: 'DS Tổng' (Hồ sơ & Đợt tuyển) + 'Thưởng' (Chính sách thưởng gắn trực tiếp vào từng đợt tuyển theo Số CCCD + Ngày PV)."
+                  />
+
+                  <div className="p-4 rounded-xl bg-purple-50/80 border border-purple-200 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h4 className="font-bold text-purple-900 flex items-center gap-2 text-sm">
+                        <Sparkles className="w-4 h-4 text-purple-600" />
+                        Chỉ số Đối Soát Liên Kết 2 File (DS_TONG + DS_THUONG)
+                      </h4>
+                      {result.summary?.matchedAssignmentCount !== undefined && (
+                        <span className="text-xs text-purple-700 bg-purple-100/90 px-2.5 py-0.5 rounded-full font-medium">
+                          Tìm thấy <b>{result.summary.matchedAssignmentCount.toLocaleString()}</b> lượt PV phù hợp
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-center">
+                      <div className="bg-white p-3 rounded-lg border border-purple-100 shadow-sm">
+                        <div className="text-xs text-slate-500 font-medium">Lượt tuyển hợp lệ</div>
+                        <div className="text-xl font-bold text-blue-700">{result.summary?.validAssignments?.toLocaleString() || 0}</div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">chuẩn hóa từ sheet DS_TONG</div>
+                      </div>
+                      <div className="bg-white p-3 rounded-lg border border-purple-100 shadow-sm">
+                        <div className="text-xs text-slate-500 font-medium">Người theo CCCD hợp lệ</div>
+                        <div className="text-xl font-bold text-emerald-700">{result.summary?.uniqueWorkers?.toLocaleString() || 0}</div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">hồ sơ hợp lệ trên CSDL</div>
+                      </div>
+                      <div className="bg-white p-3 rounded-lg border border-purple-100 shadow-sm">
+                        <div className="text-xs text-slate-500 font-medium">Thưởng đã nối sẵn sàng nạp</div>
+                        <div className="text-xl font-bold text-purple-700">{result.summary?.linkedBonusCount?.toLocaleString() || 0}</div>
+                        <div className="text-[10px] text-purple-600 mt-0.5">khớp đợt tuyển & vượt mọi kiểm tra</div>
+                      </div>
+                      <div className="bg-white p-3 rounded-lg border border-purple-100 shadow-sm">
+                        <div className="text-xs text-slate-500 font-medium">Dòng cần xét duyệt / đối soát</div>
+                        <div className="text-xl font-bold text-amber-600">{result.summary?.reviewRows?.toLocaleString() || result.summary?.duplicateCount?.toLocaleString() || 0}</div>
+                        <div className="text-[10px] text-amber-600 mt-0.5">chi tiết theo từng nhóm bên dưới</div>
+                      </div>
+                    </div>
+
+                    {/* Phân loại các nhóm cần xét từ review */}
+                    {result.summary?.reviewBreakdown && (
+                      <div className="bg-white/90 p-3 rounded-lg border border-purple-100 text-xs space-y-2">
+                        <div className="font-semibold text-purple-950 flex flex-wrap items-center justify-between gap-1">
+                          <span>Chi tiết phân loại các nhóm cần quản lý xét duyệt:</span>
+                          <span className="text-[11px] text-slate-500 font-normal">
+                            (Giữ nguyên trạng thái để đối chiếu, không tự ý gộp)
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
+                          <div className="p-2 rounded bg-amber-50/70 border border-amber-200 flex items-center justify-between">
+                            <span className="text-amber-900 font-medium">Trùng ngày PV tại hai công ty:</span>
+                            <span className="font-bold text-amber-700 text-sm ml-2">
+                              {result.summary.reviewBreakdown.diffCompanyCount?.toLocaleString() || 0}
+                            </span>
+                          </div>
+                          <div className="p-2 rounded bg-blue-50/70 border border-blue-200 flex items-center justify-between">
+                            <span className="text-blue-900 font-medium">Khác mã trong cùng công ty:</span>
+                            <span className="font-bold text-blue-700 text-sm ml-2">
+                              {result.summary.reviewBreakdown.codeMismatchCount?.toLocaleString() || 0}
+                            </span>
+                          </div>
+                          <div className="p-2 rounded bg-slate-50 border border-slate-200 flex items-center justify-between">
+                            <span className="text-slate-800 font-medium">Chưa có lượt PV khớp ngày:</span>
+                            <span className="font-bold text-slate-700 text-sm ml-2">
+                              {result.summary.reviewBreakdown.unlinkedInterviewCount?.toLocaleString() || 0}
+                            </span>
+                          </div>
+                          <div className="p-2 rounded bg-rose-50/70 border border-rose-200 flex items-center justify-between">
+                            <span className="text-rose-900 font-medium">Sai lệch danh tính (khác họ tên):</span>
+                            <span className="font-bold text-rose-700 text-sm ml-2">
+                              {result.summary.reviewBreakdown.identityMismatchCount?.toLocaleString() || 0}
+                            </span>
+                          </div>
+                          <div className="p-2 rounded bg-orange-50/70 border border-orange-200 flex items-center justify-between">
+                            <span className="text-orange-900 font-medium">Trùng lặp nội bộ / bản thưởng đã có:</span>
+                            <span className="font-bold text-orange-700 text-sm ml-2">
+                              {((result.summary.reviewBreakdown.internalDuplicateCount || 0) + (result.summary.reviewBreakdown.existingBonusCount || 0)).toLocaleString()}
+                            </span>
+                          </div>
+                          {(result.summary.reviewBreakdown.otherCount || 0) > 0 && (
+                            <div className="p-2 rounded bg-purple-50/70 border border-purple-200 flex items-center justify-between">
+                              <span className="text-purple-900 font-medium">Cảnh báo khác:</span>
+                              <span className="font-bold text-purple-700 text-sm ml-2">
+                                {result.summary.reviewBreakdown.otherCount.toLocaleString()}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="text-[11px] text-purple-900 leading-relaxed bg-white/80 p-2.5 rounded-lg border border-purple-100">
+                      💡 <b>Giải thích số liệu người:</b> Số <b>{result.summary?.uniqueWorkers?.toLocaleString() || 0}</b> là số lượng công nhân duy nhất có hồ sơ hợp lệ vượt qua toàn bộ các bước kiểm tra và sẵn sàng nạp trên CSDL hiện tại (không tính các dòng bị loại trừ do lỗi định dạng, trùng lặp nội bộ hoặc sai lệch họ tên).
+                    </div>
+                  </div>
+                </>
               )}
 
               <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200">
@@ -429,7 +582,7 @@ export default function ExcelToolsPage() {
                 tự động điền bù thông tin trống); {result.pendingDuplicateCount ?? 0} dòng
                 trùng lặp (lệch thông tin hoặc đang làm cty khác) được tách riêng chờ duyệt.
               </p>
-              {result.preview && (pendingFile || pendingSheet) && (
+              {result.preview && (pendingFiles.length > 0 || pendingSheet) && (
                   <Popconfirm
                     title="Xác nhận nạp dữ liệu vào hệ thống"
                     description={

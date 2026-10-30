@@ -43,6 +43,50 @@ function invalidRowCountResponse(count: number, label = "File") {
   return null;
 }
 
+function buildReviewBreakdown(review: {
+  duplicates?: Array<{ row?: number; message?: string }>;
+  warnings?: Array<{ row?: number; message?: string }>;
+}) {
+  const diffCompanyRows = new Set<number>();
+  const codeMismatchRows = new Set<number>();
+  const identityMismatchRows = new Set<number>();
+  const unlinkedInterviewRows = new Set<number>();
+  const internalDuplicateRows = new Set<number>();
+  const existingBonusRows = new Set<number>();
+  const otherRows = new Set<number>();
+
+  const allItems = [...(review?.duplicates || []), ...(review?.warnings || [])];
+  for (const item of allItems) {
+    const msg = String(item?.message || "");
+    const row = Number(item?.row || 0);
+    if (/Trùng ngày PV tại hai công ty|khác nhà máy/i.test(msg)) {
+      diffCompanyRows.add(row);
+    } else if (/Khác mã theo công ty|mã nhân viên không khớp/i.test(msg)) {
+      codeMismatchRows.add(row);
+    } else if (/Sai lệch danh tính|khác họ tên/i.test(msg)) {
+      identityMismatchRows.add(row);
+    } else if (/Chưa có lượt PV khớp|Thiếu hoặc sai ngày PV/i.test(msg)) {
+      unlinkedInterviewRows.add(row);
+    } else if (/Trùng lặp nội bộ/i.test(msg)) {
+      internalDuplicateRows.add(row);
+    } else if (/Bản thưởng của đợt đã có/i.test(msg)) {
+      existingBonusRows.add(row);
+    } else if (msg) {
+      otherRows.add(row);
+    }
+  }
+
+  return {
+    diffCompanyCount: diffCompanyRows.size,
+    codeMismatchCount: codeMismatchRows.size,
+    identityMismatchCount: identityMismatchRows.size,
+    unlinkedInterviewCount: unlinkedInterviewRows.size,
+    internalDuplicateCount: internalDuplicateRows.size,
+    existingBonusCount: existingBonusRows.size,
+    otherCount: otherRows.size,
+  };
+}
+
 type SheetEntries = {
   sheetName: string;
   headers: string[];
@@ -234,7 +278,7 @@ export async function POST(request: NextRequest) {
     const googleSheetUrl = String(form.get("googleSheetUrl") || "").trim();
     const file = form.get("file");
 
-    let fileBuffer: Buffer;
+    let book: XLSX.WorkBook;
     let fileName: string;
 
     if (googleSheetUrl) {
@@ -273,8 +317,9 @@ export async function POST(request: NextRequest) {
             { status: 400 },
           );
         }
-        fileBuffer = Buffer.from(await gRes.arrayBuffer());
+        const fileBuffer = Buffer.from(await gRes.arrayBuffer());
         fileName = `GoogleSheet_${spreadsheetId.substring(0, 8)}.xlsx`;
+        book = XLSX.read(fileBuffer, { type: "buffer" });
       } catch (err: any) {
         return NextResponse.json(
           {
@@ -287,27 +332,87 @@ export async function POST(request: NextRequest) {
         );
       }
     } else {
-      if (
-        !file ||
-        typeof file === "string" ||
-        file.size > 50 * 1024 * 1024 ||
-        !file.size ||
-        !file.name.toLowerCase().endsWith(".xlsx")
-      ) {
+      const uploadedFiles: File[] = [];
+      const rawFiles = typeof form.getAll === "function" ? form.getAll("files") : [];
+      if (rawFiles.length > 0) {
+        for (const f of rawFiles) if (f && typeof f !== "string") uploadedFiles.push(f as File);
+      } else {
+        const f1 = form.get("file");
+        if (f1 && typeof f1 !== "string") uploadedFiles.push(f1 as File);
+        const f2 = form.get("secondaryFile") || form.get("bonusFile");
+        if (f2 && typeof f2 !== "string") uploadedFiles.push(f2 as File);
+      }
+
+      if (!uploadedFiles.length) {
         return NextResponse.json(
           {
             success: false,
-            message:
-              "Chọn file .xlsx tối đa 50 MB hoặc nhập link Google Sheets hợp lệ",
+            message: "Chọn file .xlsx tối đa 50 MB hoặc nhập link Google Sheets hợp lệ",
           },
           { status: 400 },
         );
       }
-      fileBuffer = Buffer.from(await file.arrayBuffer());
-      fileName = file.name;
+
+      if (uploadedFiles.length > 2) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "Hệ thống hỗ trợ tối đa 2 file đồng thời (một file DS_TONG và một file DS_THUONG).",
+          },
+          { status: 400 },
+        );
+      }
+
+      for (const f of uploadedFiles) {
+        if (
+          f.size > 50 * 1024 * 1024 ||
+          !f.size ||
+          !f.name.toLowerCase().endsWith(".xlsx")
+        ) {
+          return NextResponse.json(
+            {
+              success: false,
+              message: `File "${f.name}" không hợp lệ. Chọn file .xlsx tối đa 50 MB.`,
+            },
+            { status: 400 },
+          );
+        }
+      }
+
+      const readOptions = {
+        type: "buffer" as const,
+        cellFormula: false,
+        cellHTML: false,
+        cellText: false,
+      };
+
+      if (uploadedFiles.length === 1) {
+        const file = uploadedFiles[0];
+        const fileBuffer = Buffer.from(await file.arrayBuffer());
+        fileName = file.name;
+        book = XLSX.read(fileBuffer, readOptions);
+      } else {
+        // Hỗ trợ nạp 2 file riêng rẽ (ví dụ: DS_TONG.xlsx và DS_THUONG.xlsx)
+        // Ghép các sheet trong bộ nhớ RAM, tuyệt đối không tạo tệp tạm 451 MB trên đĩa
+        const buf1 = Buffer.from(await uploadedFiles[0].arrayBuffer());
+        book = XLSX.read(buf1, readOptions);
+        fileName = uploadedFiles.map((f) => f.name).join(" + ");
+
+        for (let i = 1; i < uploadedFiles.length; i++) {
+          const bufI = Buffer.from(await uploadedFiles[i].arrayBuffer());
+          const extraBook = XLSX.read(bufI, readOptions);
+          for (const sName of extraBook.SheetNames) {
+            let targetSheetName = sName;
+            if (book.Sheets[targetSheetName]) {
+              targetSheetName = `${sName}_${i + 1}`;
+            }
+            book.SheetNames.push(targetSheetName);
+            book.Sheets[targetSheetName] = extraBook.Sheets[sName];
+          }
+        }
+      }
     }
 
-    const book = XLSX.read(fileBuffer, { type: "buffer" });
     const previewFingerprint = workbookDataFingerprint(book);
     if (commit && form.get("previewFingerprint") && form.get("previewFingerprint") !== previewFingerprint) {
       return NextResponse.json({ success: false, message: String(form.get("previewFingerprint")).startsWith("cells-v1:") ? "Dữ liệu trong các ô đã thay đổi sau lần quét. Hãy quét lại trước khi xác nhận ghi." : "Cơ chế kiểm tra nguồn đã cập nhật. Bấm Đồng bộ để quét lại một lần trước khi ghi." }, { status: 409 });
@@ -930,15 +1035,10 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        const UPD_CHUNK = 100;
+        const UPD_CHUNK = 50;
         for (let i = 0; i < updateTasks.length; i += UPD_CHUNK) {
           const part = updateTasks.slice(i, i + UPD_CHUNK);
-          await prisma.$transaction(
-            async (tx) => {
-              for (const t of part) await t(tx);
-            },
-            { timeout: 60000 },
-          );
+          await Promise.all(part.map((t) => t(prisma)));
           successCount += part.length;
         }
 
@@ -955,7 +1055,7 @@ export async function POST(request: NextRequest) {
             assignByWorker.set(a.workerId, list);
           }
           const peopleById = new Map([...people.values()].map(person => [person.id, person]));
-          const linkTasks: Array<(tx: any) => Promise<void>> = [];
+          const matchedBonuses: Array<{ ub: (typeof unlinkedBonuses)[0]; matchedId: string }> = [];
           for (const ub of unlinkedBonuses) {
             const person = peopleById.get(ub.workerId);
             if (!person || !assignByWorker.has(ub.workerId)) continue;
@@ -967,22 +1067,36 @@ export async function POST(request: NextRequest) {
                 workerCode: ub.workerCode, fullName: note.sourceValues?.["Họ tên"] || note.sourceValues?.["Họ và tên"] || person.fullName });
             } catch { /* Keep ambiguous, identity/code-conflicting historical bonuses for explicit review. */ }
             if (matched) {
-              linkTasks.push(async (tx) => {
-                const changed = await tx.bonusRecord.updateMany({
-                  where: { id: ub.id, assignmentId: null, status: "DRAFT", updatedAt: ub.updatedAt },
-                  data: { assignmentId: matched.id },
-                });
-                if (changed.count !== 1) throw new Error("Bản thưởng đã thay đổi trong lúc đối chiếu; thử lại phiên import");
-                await tx.auditLog.create({ data: { module: "IMPORT_RECONCILIATION", action: "LINK_BONUS_ON_IMPORT", operator: actor.username,
-                  details: JSON.stringify({ bonusId: ub.id, workerId: ub.workerId, beforeAssignmentId: null, afterAssignmentId: matched.id }) } });
-              });
+              matchedBonuses.push({ ub, matchedId: matched.id });
             }
           }
-          for (let i = 0; i < linkTasks.length; i += 100) {
-            const part = linkTasks.slice(i, i + 100);
-            await prisma.$transaction(async (tx) => {
-              for (const t of part) await t(tx);
-            });
+
+          const LINK_CHUNK = 500;
+          for (let i = 0; i < matchedBonuses.length; i += LINK_CHUNK) {
+            const chunk = matchedBonuses.slice(i, i + LINK_CHUNK);
+            // Giữ 100% điều kiện cập nhật: assignmentId: null, status: "DRAFT"
+            const byAssign = new Map<string, typeof chunk>();
+            for (const item of chunk) {
+              const list = byAssign.get(item.matchedId) || [];
+              list.push(item);
+              byAssign.set(item.matchedId, list);
+            }
+            for (const [assignId, items] of byAssign) {
+              const ids = items.map(it => it.ub.id);
+              await prisma.bonusRecord.updateMany({
+                where: { id: { in: ids }, assignmentId: null, status: "DRAFT" },
+                data: { assignmentId: assignId },
+              });
+            }
+            // Giữ 100% khả năng truy vết từng bản thưởng bằng AuditLog.createMany
+            const auditBatch = chunk.map(item => ({
+              id: crypto.randomUUID(),
+              module: "IMPORT_RECONCILIATION",
+              action: "LINK_BONUS_ON_IMPORT",
+              operator: actor.username,
+              details: JSON.stringify({ bonusId: item.ub.id, workerId: item.ub.workerId, beforeAssignmentId: null, afterAssignmentId: item.matchedId }),
+            }));
+            await prisma.auditLog.createMany({ data: auditBatch });
           }
         }
 
@@ -1038,7 +1152,7 @@ export async function POST(request: NextRequest) {
       const { sheetName: targetSheetName, entries } = sheetData;
 
       let workerMap: Map<string, any>;
-      if (!commit && preloadedPeople) {
+      if (preloadedPeople) {
         workerMap = preloadedPeople;
       } else {
         const workers = await prisma.worker.findMany({
@@ -1086,6 +1200,9 @@ export async function POST(request: NextRequest) {
       let duplicateCount = 0;
       let errorCount = 0;
       let mergedCount = 0;
+      let matchedAssignmentCount = 0;
+      let linkedBonusCount = 0;
+      let unlinkedBonusCount = 0;
       const errors: string[] = [];
       const warnings: string[] = [];
 
@@ -1152,7 +1269,11 @@ export async function POST(request: NextRequest) {
 
           assertIdentity(worker, fullName);
           const selectedAssignment = resolveBonusAssignment(worker, { company, interviewDate, workerCode, fullName });
-          if (!selectedAssignment) warnings.push(`Dòng ${e.row}: Chưa có lượt PV khớp CCCD và ngày; giữ thưởng chưa liên kết, cần đối chiếu`);
+          if (selectedAssignment) {
+            matchedAssignmentCount++;
+          } else {
+            warnings.push(`Dòng ${e.row}: Chưa có lượt PV khớp CCCD và ngày; giữ thưởng chưa liên kết, cần đối chiếu`);
+          }
 
           // 2. Kiểm tra bản thưởng đã có trong CSDL (Smart Merge hoặc Tách trùng an toàn)
           const workerKey = worker?.id || `new:${idCard}`;
@@ -1284,6 +1405,11 @@ export async function POST(request: NextRequest) {
               } else {
                 readyCount++;
               }
+              if (selectedAssignment) {
+                linkedBonusCount++;
+              } else {
+                unlinkedBonusCount++;
+              }
               mergedCount++;
               validWorkerCards.add(idCard);
               continue;
@@ -1386,6 +1512,11 @@ export async function POST(request: NextRequest) {
           } else {
             readyCount++;
           }
+          if (selectedAssignment) {
+            linkedBonusCount++;
+          } else {
+            unlinkedBonusCount++;
+          }
           validWorkerCards.add(idCard);
         } catch (err: any) {
           errorCount++;
@@ -1413,15 +1544,10 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        const UPD_CHUNK = 100;
+        const UPD_CHUNK = 50;
         for (let i = 0; i < updateTasks.length; i += UPD_CHUNK) {
           const part = updateTasks.slice(i, i + UPD_CHUNK);
-          await prisma.$transaction(
-            async (tx) => {
-              for (const t of part) await t(tx);
-            },
-            { timeout: 60000 },
-          );
+          await Promise.all(part.map((t) => t(prisma)));
           successCount += part.length;
         }
 
@@ -1459,6 +1585,9 @@ export async function POST(request: NextRequest) {
         duplicateCount,
         errorCount,
         mergedCount,
+        matchedAssignmentCount,
+        linkedBonusCount,
+        unlinkedBonusCount,
         warnings,
         errors,
         validWorkerCards,
@@ -1548,8 +1677,14 @@ export async function POST(request: NextRequest) {
       const bonusRows = bonusRes.entries.length;
       const reviewRows = combinedReview.reviewRows;
 
+      const reviewForClient = {
+        ...combinedReview,
+        duplicates: combinedReview.duplicates.slice(0, 500),
+        warnings: combinedReview.warnings.slice(0, 500),
+      };
+
       return NextResponse.json({
-        review: combinedReview,
+        review: reviewForClient,
         sourceId: bonusRes.sourceId || tongRes.sourceId,
         normalizedSaved: totalSuccess,
         sourceRowsSaved: commit ? totalRows : 0,
@@ -1578,13 +1713,17 @@ export async function POST(request: NextRequest) {
           mergedCount: totalMerged,
           uniqueWorkers: uniqueValidWorkers,
           validAssignments,
+          matchedAssignmentCount: bonusRes.matchedAssignmentCount,
+          linkedBonusCount: bonusRes.linkedBonusCount,
+          unlinkedBonusCount: bonusRes.unlinkedBonusCount,
           reviewRows,
+          reviewBreakdown: buildReviewBreakdown(combinedReview),
         },
         readyRows: [...readyRowSample(tongRes.entries, tongRes.errors), ...readyRowSample(bonusRes.entries, bonusRes.errors)].slice(0, 50),
-        normalizationErrors: combinedErrors,
-        errors: combinedErrors,
-        warnings: combinedWarnings,
-        duplicates: combinedReview.duplicates.map((i) => i.message),
+        normalizationErrors: combinedErrors.slice(0, 500),
+        errors: combinedErrors.slice(0, 500),
+        warnings: combinedWarnings.slice(0, 500),
+        duplicates: combinedReview.duplicates.slice(0, 500).map((i) => i.message),
       });
     }
 
@@ -1661,7 +1800,11 @@ export async function POST(request: NextRequest) {
       }
       const res = await processDsThuongSheet(sheetData, preloadedPeople);
       return NextResponse.json({
-        review: res.review,
+        review: {
+          ...res.review,
+          duplicates: res.review.duplicates.slice(0, 500),
+          warnings: res.review.warnings.slice(0, 500),
+        },
         sourceId: res.sourceId,
         normalizedSaved: res.successCount,
         sourceRowsSaved: commit ? res.entries.length : 0,
@@ -1689,20 +1832,28 @@ export async function POST(request: NextRequest) {
           uniqueWorkers: res.validWorkerCards.size,
           validAssignments: 0,
           bonusRows: res.entries.length,
+          matchedAssignmentCount: res.matchedAssignmentCount,
+          linkedBonusCount: res.linkedBonusCount,
+          unlinkedBonusCount: res.unlinkedBonusCount,
           reviewRows: res.review.reviewRows,
+          reviewBreakdown: buildReviewBreakdown(res.review),
         },
         readyRows: readyRowSample(res.entries, res.errors),
-        normalizationErrors: res.errors,
-        errors: res.errors,
-        warnings: res.review.warnings.map((i) => i.message),
-        duplicates: res.review.duplicates.map((i) => i.message),
+        normalizationErrors: res.errors.slice(0, 500),
+        errors: res.errors.slice(0, 500),
+        warnings: res.review.warnings.slice(0, 500).map((i) => i.message),
+        duplicates: res.review.duplicates.slice(0, 500).map((i) => i.message),
       });
     }
 
     if (detectedType === "DS_TONG") {
       const res = await processDsTongSheet(sheetData);
       return NextResponse.json({
-        review: res.review,
+        review: {
+          ...res.review,
+          duplicates: res.review.duplicates.slice(0, 500),
+          warnings: res.review.warnings.slice(0, 500),
+        },
         sourceId: res.sourceId,
         normalizedSaved: res.successCount,
         sourceRowsSaved: commit ? res.entries.length : 0,
@@ -1729,13 +1880,17 @@ export async function POST(request: NextRequest) {
           uniqueWorkers: res.validWorkerCards.size,
           validAssignments: res.validAssignmentsCount,
           bonusRows: 0,
+          matchedAssignmentCount: 0,
+          linkedBonusCount: 0,
+          unlinkedBonusCount: 0,
           reviewRows: res.review.reviewRows,
+          reviewBreakdown: buildReviewBreakdown(res.review),
         },
         readyRows: readyRowSample(res.entries, res.errors),
-        normalizationErrors: res.errors,
-        errors: res.errors,
-        warnings: res.review.warnings.map((i) => i.message),
-        duplicates: res.review.duplicates.map((i) => i.message),
+        normalizationErrors: res.errors.slice(0, 500),
+        errors: res.errors.slice(0, 500),
+        warnings: res.review.warnings.slice(0, 500).map((i) => i.message),
+        duplicates: res.review.duplicates.slice(0, 500).map((i) => i.message),
       });
     }
 
@@ -1838,15 +1993,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (commit && commitTasks.length > 0) {
-      const BATCH_SIZE = 100;
+      const BATCH_SIZE = 50;
       for (let i = 0; i < commitTasks.length; i += BATCH_SIZE) {
         const chunk = commitTasks.slice(i, i + BATCH_SIZE);
-        await prisma.$transaction(
-          async (tx) => {
-            for (const task of chunk) await task(tx);
-          },
-          { timeout: 60000 },
-        );
+        await Promise.all(chunk.map((task) => task(prisma)));
         successCount += chunk.length;
       }
     }
