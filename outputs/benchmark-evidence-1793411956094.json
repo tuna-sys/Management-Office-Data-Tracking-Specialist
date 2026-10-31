@@ -1,0 +1,51 @@
+{
+  "timestamp": "2026-10-31T01:59:16.094Z",
+  "status": "SUCCESS",
+  "metrics": {
+    "replicaVacuumMs": 9306,
+    "readFilesMs": 20,
+    "previewMs": 100623,
+    "commitMs": 156348,
+    "workers": {
+      "before": 50385,
+      "after": 50392,
+      "added": 7
+    },
+    "assignments": {
+      "before": 0,
+      "after": 61178,
+      "added": 61178
+    },
+    "bonuses": {
+      "before": 61452,
+      "after": 61452,
+      "added": 0,
+      "linked": 60471
+    },
+    "auditLogs": {
+      "before": 84684,
+      "after": 145158,
+      "added": 60474
+    },
+    "snapshotsCreatedInSandbox": 2,
+    "fullRelationalAudit": {
+      "totalChecked": 60471,
+      "workerIdMatches": 60471,
+      "workerIdMismatches": 0,
+      "companyMatches": 60471,
+      "companyMismatches": 0,
+      "companyMissing": 0,
+      "dateMatches": 60471,
+      "dateMismatches": 0,
+      "dateMissing": 0,
+      "codeMatches": 59910,
+      "codeMismatches": 0,
+      "codeMissing": 561
+    },
+    "mainAppManifestVerified": {
+      "sourceImportsFilesCount": 1,
+      "importRecoveryFilesCount": 114,
+      "byteAndHashIdentical": true
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "timestamp": "2026-10-31T01:23:56.587Z",
+  "status": "SUCCESS",
+  "metrics": {
+    "replicaVacuumMs": 7881,
+    "readFilesMs": 18,
+    "previewMs": 72824,
+    "commitMs": 136281,
+    "workers": {
+      "before": 50385,
+      "after": 50392,
+      "added": 7
+    },
+    "assignments": {
+      "before": 0,
+      "after": 61178,
+      "added": 61178
+    },
+    "bonuses": {
+      "before": 61452,
+      "after": 61452,
+      "added": 0,
+      "linked": 60471
+    },
+    "auditLogs": {
+      "before": 84684,
+      "after": 145158,
+      "added": 60474
+    },
+    "snapshotsCreatedInSandbox": 2
+  }
+}

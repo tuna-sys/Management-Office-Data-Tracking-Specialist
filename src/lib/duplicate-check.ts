@@ -6,17 +6,26 @@ export function assertIdentity(worker: any, fullName: string) {
     if (worker?.fullName && fullName && identityText(worker.fullName) !== identityText(fullName))
         throw new Error("Sai lệch danh tính: cùng CCCD nhưng khác họ tên; cần xác minh trước khi tiếp tục");
 }
+export function isBlacklistAssignment(a: any, statuses: any[] = []) {
+    const key = identityText(a?.status);
+    if (/danh sách đen|ds đen/i.test(key)) return true;
+    const configured = statuses.find(s => identityText(s.name) === key);
+    return configured?.category === "BLACKLIST" || (configured?.warnsDuplicate === true && configured?.endsAssignment === true);
+}
+
 export function isActiveAssignment(a: any, statuses: any[] = []) {
     const key = identityText(a.status);
     const configured = statuses.find(s => identityText(s.name) === key);
+    if (isBlacklistAssignment(a, statuses))
+        return false;
     const ended = configured?.endsAssignment === true || /^bỏ/.test(key) || /nghỉ|hết phí|bỏ xx|bỏ xưởng|bỏ việc|bỏ vì sức khỏe|không theo dõi|ko theo dõi|hết hợp đồng|hết hạn|kết thúc/.test(key) || ["nh", "hhđ"].includes(key);
     // Contradictory leave fields do not silently suppress an active-status warning.
     if (ended)
         return false;
-    if (configured?.warnsDuplicate === true || /đang làm|đang lv|^lv$|chuyển chính thức|đào tạo/.test(key))
-        return true;
-    if (/chờ phỏng vấn|đạt phỏng vấn|trượt|^bỏ/.test(key))
+    if (/chờ phỏng vấn|đạt phỏng vấn|trượt|^bỏ|chưa đào tạo|chưa đt/.test(key))
         return false;
+    if (configured?.warnsDuplicate === true || /đang làm|đang lv|^lv$|chuyển chính thức|đang đào tạo|đào tạo chuẩn/.test(key))
+        return true;
     if (configured)
         return configured.warnsDuplicate === true;
     return !a.leaveDate && !a.leaveReason;
@@ -64,6 +73,9 @@ export async function assertReviewProfile(tx: any, person: any, worker: any, ass
     assertIdentity(person, worker.fullName);
     assertDailyInterview(person, assignment, excludeId);
     const statuses = await tx.laborStatus.findMany({ where: { isActive: true } });
+    const blacklist = (person?.assignments || []).find((a: any) => a.id !== excludeId && isBlacklistAssignment(a, statuses));
+    if (blacklist)
+        throw new Error(`DANH SÁCH ĐEN: Ứng viên CCCD ${worker.idCard} thuộc danh sách đen (${blacklist.interviewFactory || "đợt trước"}), không thể duyệt tuyển dụng`);
     if ((person?.assignments || []).some((a: any) => a.id !== excludeId && isActiveAssignment(a, statuses) && !sameFactory(a.interviewFactory, assignment.interviewFactory)))
         throw new Error("CHƯA BÁO NGHỈ: cần xử lý chuyển công ty ở cảnh báo trùng, không duyệt bổ sung trực tiếp");
 }

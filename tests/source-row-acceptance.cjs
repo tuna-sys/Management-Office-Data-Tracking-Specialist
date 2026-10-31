@@ -28,6 +28,7 @@ function load(f) {
   return m.exports;
 }
 deps["@/lib/import-review"] = load("src/lib/import-review.ts");
+deps["@/lib/status-mapping"] = load("src/lib/status-mapping.ts");
 deps["@/lib/worker-validation"] = load("src/lib/worker-validation.ts");
 deps["@/lib/source-format"] = load("src/lib/source-format.ts");
 deps["@/lib/bonus-import"] = load("src/lib/bonus-import.ts");

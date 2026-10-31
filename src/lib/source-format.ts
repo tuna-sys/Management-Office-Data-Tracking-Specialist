@@ -26,12 +26,17 @@ export const sourceStatuses = [
   "Bỏ ĐT",
   "Trượt KSK",
   "Đỗ - Ko tính",
+  "Đỗ - ko tính",
   "Ko theo dõi",
   "Hết Phí",
   "HHĐ",
   "Tự ý nghỉ việc",
   "Hết phí",
   "LV",
+  "Bỏ KSK",
+  "DS Đen",
+  "Chuyển FIH",
+  "Chưa ĐT",
 ];
 export function sourceRewardAmount(value: unknown) {
   const s = String(value ?? "").trim();

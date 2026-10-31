@@ -5,6 +5,7 @@ import {
   sameInterviewDay,
   sameFactory,
   isActiveAssignment,
+  isBlacklistAssignment,
   resolveBonusAssignment,
   assertSourceCard,
   findAssignmentMatch,
@@ -12,6 +13,7 @@ import {
 import { splitImportReview } from "@/lib/import-review";
 import { saveImportSource as saveSourceSnapshot } from "@/lib/import-source-store";
 import { sourceStatuses } from "@/lib/source-format";
+import { resolveCanonicalStatus } from "@/lib/status-mapping";
 import {
   dateKey,
   phoneKey,
@@ -44,35 +46,36 @@ function invalidRowCountResponse(count: number, label = "File") {
 }
 
 function buildReviewBreakdown(review: {
-  duplicates?: Array<{ row?: number; message?: string }>;
-  warnings?: Array<{ row?: number; message?: string }>;
+  duplicates?: Array<{ row?: number; message?: string; sheet?: string }>;
+  warnings?: Array<{ row?: number; message?: string; sheet?: string }>;
 }) {
-  const diffCompanyRows = new Set<number>();
-  const codeMismatchRows = new Set<number>();
-  const identityMismatchRows = new Set<number>();
-  const unlinkedInterviewRows = new Set<number>();
-  const internalDuplicateRows = new Set<number>();
-  const existingBonusRows = new Set<number>();
-  const otherRows = new Set<number>();
+  const diffCompanyRows = new Set<string>();
+  const codeMismatchRows = new Set<string>();
+  const identityMismatchRows = new Set<string>();
+  const unlinkedInterviewRows = new Set<string>();
+  const internalDuplicateRows = new Set<string>();
+  const existingBonusRows = new Set<string>();
+  const otherRows = new Set<string>();
 
   const allItems = [...(review?.duplicates || []), ...(review?.warnings || [])];
   for (const item of allItems) {
     const msg = String(item?.message || "");
-    const row = Number(item?.row || 0);
+    const sheetPrefix = item?.sheet || item?.message?.match(/^\[(.*?)\]/)?.[1] || "";
+    const rowKey = sheetPrefix ? `${sheetPrefix}:${item?.row || 0}` : String(item?.row || 0);
     if (/Trùng ngày PV tại hai công ty|khác nhà máy/i.test(msg)) {
-      diffCompanyRows.add(row);
+      diffCompanyRows.add(rowKey);
     } else if (/Khác mã theo công ty|mã nhân viên không khớp/i.test(msg)) {
-      codeMismatchRows.add(row);
+      codeMismatchRows.add(rowKey);
     } else if (/Sai lệch danh tính|khác họ tên/i.test(msg)) {
-      identityMismatchRows.add(row);
+      identityMismatchRows.add(rowKey);
     } else if (/Chưa có lượt PV khớp|Thiếu hoặc sai ngày PV/i.test(msg)) {
-      unlinkedInterviewRows.add(row);
+      unlinkedInterviewRows.add(rowKey);
     } else if (/Trùng lặp nội bộ/i.test(msg)) {
-      internalDuplicateRows.add(row);
+      internalDuplicateRows.add(rowKey);
     } else if (/Bản thưởng của đợt đã có/i.test(msg)) {
-      existingBonusRows.add(row);
+      existingBonusRows.add(rowKey);
     } else if (msg) {
-      otherRows.add(row);
+      otherRows.add(rowKey);
     }
   }
 
@@ -280,6 +283,9 @@ export async function POST(request: NextRequest) {
 
     let book: XLSX.WorkBook;
     let fileName: string;
+    let uploadedFiles: File[] = [];
+    let detectedTongSheet = "";
+    let detectedBonusSheet = "";
 
     if (googleSheetUrl) {
       const match = googleSheetUrl.match(
@@ -332,7 +338,6 @@ export async function POST(request: NextRequest) {
         );
       }
     } else {
-      const uploadedFiles: File[] = [];
       const rawFiles = typeof form.getAll === "function" ? form.getAll("files") : [];
       if (rawFiles.length > 0) {
         for (const f of rawFiles) if (f && typeof f !== "string") uploadedFiles.push(f as File);
@@ -386,30 +391,173 @@ export async function POST(request: NextRequest) {
         cellText: false,
       };
 
+      detectedTongSheet = "";
+      detectedBonusSheet = "";
+
+      function detectWorkbookKinds(wb: XLSX.WorkBook) {
+        let hasTong = false;
+        let hasBonus = false;
+        let hasCanonicalTong = false;
+        let hasCanonicalBonus = false;
+        let tongSheet = "";
+        let bonusSheet = "";
+        const allTongSheets: string[] = [];
+        const allBonusSheets: string[] = [];
+
+        // 1. Quét theo tên sheet chuẩn trước
+        for (const sName of wb.SheetNames) {
+          const sNorm = sName
+            .normalize("NFD")
+            .replace(/\p{Diacritic}/gu, "")
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, "");
+          if (
+            sNorm === "dstong" ||
+            sNorm === "tong" ||
+            sNorm === "hoso" ||
+            sNorm === "hosonhansu"
+          ) {
+            hasTong = true;
+            hasCanonicalTong = true;
+            if (!tongSheet) tongSheet = sName;
+            allTongSheets.push(sName);
+          } else if (
+            sNorm === "dsthuong" ||
+            sNorm === "thuong" ||
+            sNorm === "bangthuong"
+          ) {
+            hasBonus = true;
+            hasCanonicalBonus = true;
+            if (!bonusSheet) bonusSheet = sName;
+            allBonusSheets.push(sName);
+          }
+        }
+
+        // 2. Quét tiêu đề các sheet nếu chưa có theo tên
+        for (const sName of wb.SheetNames) {
+          if (allTongSheets.includes(sName) || allBonusSheets.includes(sName))
+            continue;
+          const s = wb.Sheets[sName];
+          if (!s) continue;
+          const m = readHeaderRows(s);
+          const hStr = (m.slice(0, 5).flat() || [])
+            .map((v: any) => String(v || "").toLowerCase())
+            .join(" ");
+
+          const isBonusHeader =
+            hStr.includes("thưởng lần") ||
+            hStr.includes("tiền thưởng") ||
+            hStr.includes("tháng thưởng") ||
+            hStr.includes("thưởng đi làm") ||
+            (hStr.includes("chính sách") && hStr.includes("tổng thưởng")) ||
+            (hStr.includes("thưởng") && (hStr.includes("cccd") || hStr.includes("số cccd")));
+
+          if (isBonusHeader) {
+            hasBonus = true;
+            if (!bonusSheet) bonusSheet = sName;
+            allBonusSheets.push(sName);
+          } else if (
+            hStr.includes("nhà máy pv") ||
+            (hStr.includes("ngày sinh") && hStr.includes("giới tính"))
+          ) {
+            hasTong = true;
+            if (!tongSheet) tongSheet = sName;
+            allTongSheets.push(sName);
+          }
+        }
+
+        return {
+          hasTong,
+          hasBonus,
+          hasCanonicalTong,
+          hasCanonicalBonus,
+          tongSheet,
+          bonusSheet,
+          allTongSheets,
+          allBonusSheets,
+        };
+      }
+
       if (uploadedFiles.length === 1) {
         const file = uploadedFiles[0];
         const fileBuffer = Buffer.from(await file.arrayBuffer());
         fileName = file.name;
         book = XLSX.read(fileBuffer, readOptions);
+        const info = detectWorkbookKinds(book);
+        if (!info.hasCanonicalTong && info.allTongSheets.length > 1) {
+          return NextResponse.json(
+            {
+              success: false,
+              message: `Phát hiện nhiều hơn 1 sheet Hồ sơ nhân sự (DS_TONG) trong tệp tải lên (${info.allTongSheets.join(", ")}). Hệ thống chỉ hỗ trợ tối đa 1 sheet Hồ sơ nhân sự mỗi lần; vui lòng nạp từng file riêng biệt.`,
+            },
+            { status: 400 },
+          );
+        }
+        if (!info.hasCanonicalBonus && info.allBonusSheets.length > 1) {
+          return NextResponse.json(
+            {
+              success: false,
+              message: `Phát hiện nhiều hơn 1 sheet Bảng thưởng (DS_THUONG) trong tệp tải lên (${info.allBonusSheets.join(", ")}). Hệ thống chỉ hỗ trợ tối đa 1 sheet Bảng thưởng mỗi lần; vui lòng nạp từng file riêng biệt.`,
+            },
+            { status: 400 },
+          );
+        }
+        detectedTongSheet = info.tongSheet;
+        detectedBonusSheet = info.bonusSheet;
       } else {
         // Hỗ trợ nạp 2 file riêng rẽ (ví dụ: DS_TONG.xlsx và DS_THUONG.xlsx)
-        // Ghép các sheet trong bộ nhớ RAM, tuyệt đối không tạo tệp tạm 451 MB trên đĩa
         const buf1 = Buffer.from(await uploadedFiles[0].arrayBuffer());
-        book = XLSX.read(buf1, readOptions);
+        const buf2 = Buffer.from(await uploadedFiles[1].arrayBuffer());
+        const book1 = XLSX.read(buf1, readOptions);
+        const book2 = XLSX.read(buf2, readOptions);
+
+        const info1 = detectWorkbookKinds(book1);
+        const info2 = detectWorkbookKinds(book2);
+
+        if (info1.hasTong && info2.hasTong) {
+          return NextResponse.json(
+            {
+              success: false,
+              message:
+                "Hệ thống chỉ hỗ trợ nạp 2 file khi gồm 1 file DS_TONG và 1 file DS_THUONG. Cả 2 file tải lên đều là file Hồ sơ nhân sự (DS_TONG); vui lòng nạp từng file riêng biệt.",
+            },
+            { status: 400 },
+          );
+        }
+        if (info1.hasBonus && info2.hasBonus) {
+          return NextResponse.json(
+            {
+              success: false,
+              message:
+                "Hệ thống chỉ hỗ trợ nạp 2 file khi gồm 1 file DS_TONG và 1 file DS_THUONG. Cả 2 file tải lên đều là file Bảng thưởng (DS_THUONG); vui lòng nạp từng file riêng biệt.",
+            },
+            { status: 400 },
+          );
+        }
+
+        book = book1;
         fileName = uploadedFiles.map((f) => f.name).join(" + ");
 
-        for (let i = 1; i < uploadedFiles.length; i++) {
-          const bufI = Buffer.from(await uploadedFiles[i].arrayBuffer());
-          const extraBook = XLSX.read(bufI, readOptions);
-          for (const sName of extraBook.SheetNames) {
-            let targetSheetName = sName;
-            if (book.Sheets[targetSheetName]) {
-              targetSheetName = `${sName}_${i + 1}`;
-            }
-            book.SheetNames.push(targetSheetName);
-            book.Sheets[targetSheetName] = extraBook.Sheets[sName];
+        const file2SheetMap = new Map<string, string>();
+        for (const sName of book2.SheetNames) {
+          let targetSheetName = sName;
+          let counter = 2;
+          while (book.Sheets[targetSheetName]) {
+            targetSheetName = `${sName}_${counter}`;
+            counter++;
           }
+          file2SheetMap.set(sName, targetSheetName);
+          book.SheetNames.push(targetSheetName);
+          book.Sheets[targetSheetName] = book2.Sheets[sName];
         }
+
+        if (info1.hasTong) detectedTongSheet = info1.tongSheet;
+        else if (info2.hasTong)
+          detectedTongSheet = file2SheetMap.get(info2.tongSheet) || info2.tongSheet;
+
+        if (info1.hasBonus) detectedBonusSheet = info1.bonusSheet;
+        else if (info2.hasBonus)
+          detectedBonusSheet = file2SheetMap.get(info2.bonusSheet) || info2.bonusSheet;
       }
     }
 
@@ -483,9 +631,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Phân loại từng sheet trong file
-    let foundTongSheet = "";
-    let foundBonusSheet = "";
-    let foundBankSheet = "";
+    const matchingTongSheets: string[] = [];
+    const matchingBonusSheets: string[] = [];
+    const matchingBankSheets: string[] = [];
 
     for (const [sName, hdrs] of sheetHeadersMap.entries()) {
       const hStr = hdrs.join(" ").toLowerCase();
@@ -500,7 +648,7 @@ export async function POST(request: NextRequest) {
         (hStr.includes("chính sách") && hStr.includes("tổng thưởng")) ||
         (sNorm.includes("thuong") && !hStr.includes("nhà máy pv"))
       ) {
-        if (!foundBonusSheet) foundBonusSheet = sName;
+        matchingBonusSheets.push(sName);
       } else if (
         hStr.includes("tình trạng stk") ||
         hStr.includes("người check") ||
@@ -508,16 +656,53 @@ export async function POST(request: NextRequest) {
         sNorm.includes("stk") ||
         sNorm.includes("ngan hang")
       ) {
-        if (!foundBankSheet) foundBankSheet = sName;
+        matchingBankSheets.push(sName);
       } else if (
         hStr.includes("nhà máy pv") ||
         (hStr.includes("ngày sinh") && hStr.includes("giới tính")) ||
         sNorm.includes("tong") ||
         sNorm.includes("ho so")
       ) {
-        if (!foundTongSheet) foundTongSheet = sName;
+        matchingTongSheets.push(sName);
       }
     }
+
+    let foundTongSheet = detectedTongSheet || matchingTongSheets[0] || "";
+    let foundBonusSheet = detectedBonusSheet || matchingBonusSheets[0] || "";
+    let foundBankSheet = matchingBankSheets[0] || "";
+
+    if (!detectedTongSheet && matchingTongSheets.length > 1) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: `Phát hiện nhiều hơn 1 sheet Hồ sơ nhân sự (DS_TONG) trong tệp tải lên (${matchingTongSheets.join(", ")}). Hệ thống chỉ hỗ trợ tối đa 1 sheet Hồ sơ nhân sự mỗi lần; vui lòng nạp từng file riêng biệt.`,
+        },
+        { status: 400 },
+      );
+    }
+    if (!detectedBonusSheet && matchingBonusSheets.length > 1) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: `Phát hiện nhiều hơn 1 sheet Bảng thưởng (DS_THUONG) trong tệp tải lên (${matchingBonusSheets.join(", ")}). Hệ thống chỉ hỗ trợ tối đa 1 sheet Bảng thưởng mỗi lần; vui lòng nạp từng file riêng biệt.`,
+        },
+        { status: 400 },
+      );
+    }
+
+    // Quản lý STK phiên import (tránh race-condition trong Promise.all và khử trùng xuyên suốt cả 2 sheet)
+    const sessionScheduledBankKeys = new Set<string>(); // key format: `${workerId}:${accountNumber}`
+    const sessionBanksToCreate: Array<{
+      id: string;
+      workerId: string;
+      accountNumber: string;
+      bankName: string;
+      accountHolderName: string;
+      isNameVerified: boolean;
+      verificationStatus: string;
+      checkResult?: string;
+    }> = [];
+    const sessionBankUpdates: Array<{ id: string; bankName: string }> = [];
 
     // Hàm xử lý Sheet DS_TONG (trả về kết quả + bản đồ people đã cập nhật)
     async function processDsTongSheet(sheetData: SheetEntries) {
@@ -591,7 +776,7 @@ export async function POST(request: NextRequest) {
 
       const validWorkerCards = new Set<string>();
       const seenInFile = new Map<string, number>();
-      const newStatusesToUpsert = new Set<string>();
+      const newStatusesToUpsert = new Map<string, any>();
       const workersToCreate = new Map<string, any>();
       const assignmentsToCreate: any[] = [];
       const eventsToCreate: any[] = [];
@@ -609,6 +794,13 @@ export async function POST(request: NextRequest) {
           }
           const { worker, assignment } = parseImportRow(raw, true);
           assertSourceCard(raw, worker.idCard);
+
+          const rawStatus = assignment.status;
+          const canonical = resolveCanonicalStatus(rawStatus);
+          assignment.status = canonical.canonicalName;
+          if (!statusNamesSet.has(canonical.canonicalName)) {
+            newStatusesToUpsert.set(canonical.canonicalName, canonical);
+          }
           const interviewFactory = factories.find((f) => sameFactory(f.name, assignment.interviewFactory));
           // Source imports use interview-factory text for identity; catalog links are optional.
           assignment.interviewFactory = interviewFactory?.name || assignment.interviewFactory;
@@ -748,22 +940,41 @@ export async function POST(request: NextRequest) {
                 assignment.status)
             ) {
               assignmentUpdates.status = assignment.status;
+              assignmentUpdates.statusId = null;
             }
 
             const rawStk = raw["STK"] || raw["Số tài khoản"];
             const rawBankName = raw["Ngân hàng"];
             const cleanRawStk = rawStk ? String(rawStk).trim() : "";
+            const cleanBankName = rawBankName ? String(rawBankName).trim() : "";
+            const targetWorkerId = old!.id;
+            const bankKey = `${targetWorkerId}:${cleanRawStk}`;
+
+            const existingBank = cleanRawStk
+              ? old?.bankAccounts?.find(
+                  (b: any) => b.accountNumber === cleanRawStk,
+                )
+              : null;
+
             const needBankAdd = Boolean(
               cleanRawStk &&
-                !old?.bankAccounts?.some(
-                  (b: any) => b.accountNumber === cleanRawStk,
-                ),
+                !existingBank &&
+                !sessionScheduledBankKeys.has(bankKey),
+            );
+            const needBankNameUpdate = Boolean(
+              cleanRawStk &&
+                existingBank &&
+                cleanBankName &&
+                (!existingBank.bankName ||
+                  existingBank.bankName === "Chưa xác định" ||
+                  existingBank.bankName === "Ngân hàng đối soát"),
             );
 
             const updatedFieldKeys = [
               ...Object.keys(workerUpdates).map((k) => labels[k] || k),
               ...Object.keys(assignmentUpdates).map((k) => labels[k] || k),
               ...(needBankAdd ? ["Số tài khoản (STK)"] : []),
+              ...(needBankNameUpdate ? ["Tên ngân hàng"] : []),
             ];
 
             if (smartMerge && updatedFieldKeys.length > 0) {
@@ -773,8 +984,34 @@ export async function POST(request: NextRequest) {
               if (Object.keys(assignmentUpdates).length > 0) {
                 Object.assign(matchAssignment, assignmentUpdates);
               }
+              if (needBankAdd) {
+                sessionScheduledBankKeys.add(bankKey);
+                const newBankRecord = {
+                  id: crypto.randomUUID(),
+                  workerId: targetWorkerId,
+                  accountNumber: cleanRawStk,
+                  accountHolderName:
+                    worker.fullName || old!.fullName || "Người lao động",
+                  bankName: cleanBankName || "Ngân hàng đối soát",
+                  verificationStatus: "UNVERIFIED",
+                  isNameVerified: false,
+                  checkResult: "Tự động bổ sung từ file nạp cập nhật",
+                };
+                sessionBanksToCreate.push(newBankRecord);
+                old!.bankAccounts = old!.bankAccounts || [];
+                old!.bankAccounts.push(newBankRecord);
+              }
+              if (needBankNameUpdate && existingBank) {
+                existingBank.bankName = cleanBankName;
+                if (commit) {
+                  sessionBankUpdates.push({
+                    id: existingBank.id,
+                    bankName: cleanBankName,
+                  });
+                }
+              }
+
               if (commit) {
-                const targetWorkerId = old!.id;
                 const targetAssignId = matchAssignment.id;
                 const isNewlyQueuedWorker = workersToCreate.has(worker.idCard);
                 if (isNewlyQueuedWorker && Object.keys(workerUpdates).length > 0) {
@@ -806,30 +1043,25 @@ export async function POST(request: NextRequest) {
                       data: assignmentUpdates,
                     });
                   }
-                  if (needBankAdd) {
-                    const hasBank = await tx.bankAccount.findFirst({
-                      where: {
-                        workerId: targetWorkerId,
-                        accountNumber: cleanRawStk,
-                      },
-                    });
-                    if (!hasBank) {
-                      await tx.bankAccount.create({
-                        data: {
-                          workerId: targetWorkerId,
-                          accountNumber: cleanRawStk,
-                          accountHolderName: worker.fullName || old!.fullName,
-                          bankName: rawBankName
-                            ? String(rawBankName).trim()
-                            : "Ngân hàng đối soát",
-                          verificationStatus: "UNVERIFIED",
-                          isNameVerified: false,
-                          checkResult: "Tự động bổ sung từ file nạp cập nhật",
-                        },
-                      });
-                    }
-                  }
                 });
+                if (assignmentUpdates.status) {
+                  const isStatusNormalized = Boolean(
+                    rawStatus && rawStatus.trim() !== assignmentUpdates.status,
+                  );
+                  const eventNote = isStatusNormalized
+                    ? `Cập nhật Smart Merge (${fileName} - ${targetSheetName} dòng #${e.row}): Trạng thái nguồn "${rawStatus}" -> chuẩn hóa "${assignmentUpdates.status}"`
+                    : `Cập nhật Smart Merge (${fileName} - ${targetSheetName} dòng #${e.row})`;
+
+                  eventsToCreate.push({
+                    id: crypto.randomUUID(),
+                    assignmentId: targetAssignId,
+                    occurredOn: today(),
+                    toStatus: assignmentUpdates.status,
+                    interviewResult: matchAssignment.interviewResult || "UNKNOWN",
+                    operator: actor.username,
+                    note: eventNote,
+                  });
+                }
               } else {
                 readyCount++;
               }
@@ -845,13 +1077,6 @@ export async function POST(request: NextRequest) {
             continue;
           }
 
-          const sourceStatus =
-            sourceStatuses.includes(assignment.status) &&
-            !statusNamesSet.has(assignment.status);
-          if (sourceStatus) {
-            newStatusesToUpsert.add(assignment.status);
-          }
-
           const canNormalize =
             /^(\d{9}|\d{12})$/.test(worker.idCard) &&
             !!dateKey(assignment.interviewDate) &&
@@ -865,9 +1090,24 @@ export async function POST(request: NextRequest) {
             continue;
           }
 
-          // Kiểm tra trường hợp công nhân đang làm việc tại công ty khác (CHƯA BÁO NGHỈ)
+          // Kiểm tra trường hợp công nhân thuộc Danh sách đen hoặc đang làm việc tại công ty khác (CHƯA BÁO NGHỈ)
           if (old) {
-            const activeAssign = (old.assignments || []).find((a: any) => isActiveAssignment(a, statuses) && !sameFactory(a.interviewFactory, assignment.interviewFactory));
+            const blacklistAssign = (old.assignments || []).find((a: any) =>
+              isBlacklistAssignment(a, statuses),
+            );
+            if (blacklistAssign) {
+              duplicateCount++;
+              errors.push(
+                `Dòng ${e.row}: Ứng viên CCCD ${worker.idCard} thuộc Danh sách đen (${blacklistAssign.interviewFactory || "Đợt trước"}), không đủ điều kiện tuyển dụng.`,
+              );
+              continue;
+            }
+
+            const activeAssign = (old.assignments || []).find(
+              (a: any) =>
+                isActiveAssignment(a, statuses) &&
+                !sameFactory(a.interviewFactory, assignment.interviewFactory),
+            );
 
             if (activeAssign) {
               const currentFac = activeAssign.interviewFactory;
@@ -957,6 +1197,13 @@ export async function POST(request: NextRequest) {
               interviewFactory: assignment.interviewFactory,
               workerId: workerId!,
             });
+            const isStatusNormalized = Boolean(
+              rawStatus && rawStatus.trim() !== assignment.status,
+            );
+            const eventNote = isStatusNormalized
+              ? `Import Excel (${fileName} - ${targetSheetName} dòng #${e.row}): Trạng thái nguồn "${rawStatus}" -> chuẩn hóa "${assignment.status}"`
+              : `Import Excel (${fileName} - ${targetSheetName} dòng #${e.row})`;
+
             eventsToCreate.push({
               id: crypto.randomUUID(),
               assignmentId: assignId,
@@ -964,7 +1211,7 @@ export async function POST(request: NextRequest) {
               toStatus: assignment.status,
               interviewResult: assignment.interviewResult || "UNKNOWN",
               operator: actor.username,
-              note: `Import Excel (${fileName} - ${targetSheetName} dòng #${e.row})`,
+              note: eventNote,
             });
           } else {
             readyCount++;
@@ -979,16 +1226,20 @@ export async function POST(request: NextRequest) {
       }
 
       if (commit) {
-        for (const st of newStatusesToUpsert) {
+        for (const [stName, def] of newStatusesToUpsert.entries()) {
           await prisma.laborStatus.upsert({
-            where: { name: st },
+            where: { name: stName },
             create: {
-              name: st,
-              category: "SOURCE",
-              warnsDuplicate: false,
-              endsAssignment: false,
+              name: stName,
+              category: def.category,
+              warnsDuplicate: def.warnsDuplicate,
+              endsAssignment: def.endsAssignment,
             },
-            update: {},
+            update: {
+              category: def.category,
+              warnsDuplicate: def.warnsDuplicate,
+              endsAssignment: def.endsAssignment,
+            },
           });
         }
 
@@ -1041,6 +1292,20 @@ export async function POST(request: NextRequest) {
           await Promise.all(part.map((t) => t(prisma)));
           successCount += part.length;
         }
+
+        for (let i = 0; i < sessionBanksToCreate.length; i += CHUNK) {
+          await prisma.bankAccount.createMany({
+            data: sessionBanksToCreate.slice(i, i + CHUNK),
+          });
+        }
+        for (const upd of sessionBankUpdates) {
+          await prisma.bankAccount.update({
+            where: { id: upd.id },
+            data: { bankName: upd.bankName },
+          });
+        }
+        sessionBanksToCreate.length = 0;
+        sessionBankUpdates.length = 0;
 
         // Nối các bản thưởng chưa có assignmentId với đợt tuyển vừa tạo
         const unlinkedBonuses = await prisma.bonusRecord.findMany({
@@ -1211,8 +1476,6 @@ export async function POST(request: NextRequest) {
       const newWorkerIds = new Set<string>();
       const bonusWorkersToCreate = new Map<string, any>();
       const bonusesToCreate: any[] = [];
-      const banksToCreate: any[] = [];
-      const scheduledBankKeys = new Set<string>();
       const updateTasks: Array<(tx: any) => Promise<void>> = [];
 
       for (const e of entries) {
@@ -1335,18 +1598,27 @@ export async function POST(request: NextRequest) {
 
             const cleanAcc = accountNumber ? String(accountNumber).trim() : "";
             const cleanBank = bankName ? String(bankName).trim() : "";
+            const targetWorkerId = existingBonus.workerId;
+            const bankKey = `${targetWorkerId}:${cleanAcc}`;
             const existingWorkerBank = cleanAcc
               ? worker?.bankAccounts?.find(
                   (b: any) => b.accountNumber === cleanAcc,
                 )
               : null;
-            const needBankUpdate = Boolean(
+            const needBankAdd = Boolean(
               cleanAcc &&
-                (!existingWorkerBank ||
-                  (cleanBank &&
-                    (!existingWorkerBank.bankName ||
-                      existingWorkerBank.bankName === "Chưa xác định"))),
+                !existingWorkerBank &&
+                !sessionScheduledBankKeys.has(bankKey),
             );
+            const needBankNameUpdate = Boolean(
+              cleanAcc &&
+                existingWorkerBank &&
+                cleanBank &&
+                (!existingWorkerBank.bankName ||
+                  existingWorkerBank.bankName === "Chưa xác định" ||
+                  existingWorkerBank.bankName === "Ngân hàng đối soát"),
+            );
+            const needBankUpdate = needBankAdd || needBankNameUpdate;
 
             const hasNewBonus =
               !hasConflictAmount &&
@@ -1355,7 +1627,33 @@ export async function POST(request: NextRequest) {
                 needBankUpdate);
 
             if (smartMerge && hasNewBonus) {
+              if (needBankAdd && targetWorkerId) {
+                sessionScheduledBankKeys.add(bankKey);
+                const newBankRecord = {
+                  id: crypto.randomUUID(),
+                  workerId: targetWorkerId,
+                  accountNumber: cleanAcc,
+                  bankName: cleanBank || "Chưa xác định",
+                  accountHolderName: fullName,
+                  isNameVerified: false,
+                  verificationStatus: "UNVERIFIED",
+                };
+                sessionBanksToCreate.push(newBankRecord);
+                worker.bankAccounts = worker.bankAccounts || [];
+                worker.bankAccounts.push(newBankRecord);
+              }
+              if (needBankNameUpdate && existingWorkerBank) {
+                existingWorkerBank.bankName = cleanBank;
+                if (commit) {
+                  sessionBankUpdates.push({
+                    id: existingWorkerBank.id,
+                    bankName: cleanBank,
+                  });
+                }
+              }
+
               if (commit) {
+
                 updateTasks.push(async (tx) => {
                   const addedAmount = Object.values(bonusUpdates).reduce(
                     (a, b) => a + b,
@@ -1370,37 +1668,6 @@ export async function POST(request: NextRequest) {
                         (existingBonus.totalBonus || 0) + addedAmount,
                     },
                   });
-                  if (cleanAcc && existingBonus.workerId) {
-                    const existingBank = await tx.bankAccount.findFirst({
-                      where: {
-                        workerId: existingBonus.workerId,
-                        accountNumber: cleanAcc,
-                      },
-                    });
-                    if (existingBank) {
-                      if (
-                        cleanBank &&
-                        (!existingBank.bankName ||
-                          existingBank.bankName === "Chưa xác định")
-                      ) {
-                        await tx.bankAccount.update({
-                          where: { id: existingBank.id },
-                          data: { bankName: cleanBank },
-                        });
-                      }
-                    } else {
-                      await tx.bankAccount.create({
-                        data: {
-                          workerId: existingBonus.workerId,
-                          accountNumber: cleanAcc,
-                          bankName: cleanBank || "Chưa xác định",
-                          accountHolderName: fullName,
-                          isNameVerified: false,
-                          verificationStatus: "UNVERIFIED",
-                        },
-                      });
-                    }
-                  }
                 });
               } else {
                 readyCount++;
@@ -1492,20 +1759,36 @@ export async function POST(request: NextRequest) {
             if (accountNumber) {
               const cleanAcc = String(accountNumber).trim();
               const cleanBank = String(bankName || "").trim();
-              const bankKey = `${targetWorkerId}|${cleanAcc}`;
+              const bankKey = `${targetWorkerId}:${cleanAcc}`;
               const existingWorkerBank = worker?.bankAccounts?.find(
                 (b: any) => b.accountNumber === cleanAcc,
               );
-              if (!existingWorkerBank && !scheduledBankKeys.has(bankKey)) {
-                scheduledBankKeys.add(bankKey);
-                banksToCreate.push({
+              if (!existingWorkerBank && !sessionScheduledBankKeys.has(bankKey)) {
+                sessionScheduledBankKeys.add(bankKey);
+                const newBankRecord = {
                   id: crypto.randomUUID(),
                   workerId: targetWorkerId,
                   accountNumber: cleanAcc,
                   bankName: cleanBank || "Chưa xác định",
-                  accountHolderName: fullName || worker?.fullName || "Người lao động",
+                  accountHolderName:
+                    fullName || worker?.fullName || "Người lao động",
                   isNameVerified: false,
                   verificationStatus: "UNVERIFIED",
+                };
+                sessionBanksToCreate.push(newBankRecord);
+                worker.bankAccounts = worker.bankAccounts || [];
+                worker.bankAccounts.push(newBankRecord);
+              } else if (
+                existingWorkerBank &&
+                cleanBank &&
+                (!existingWorkerBank.bankName ||
+                  existingWorkerBank.bankName === "Chưa xác định" ||
+                  existingWorkerBank.bankName === "Ngân hàng đối soát")
+              ) {
+                existingWorkerBank.bankName = cleanBank;
+                sessionBankUpdates.push({
+                  id: existingWorkerBank.id,
+                  bankName: cleanBank,
                 });
               }
             }
@@ -1538,11 +1821,6 @@ export async function POST(request: NextRequest) {
           });
           successCount += bonusesToCreate.slice(i, i + CHUNK).length;
         }
-        for (let i = 0; i < banksToCreate.length; i += CHUNK) {
-          await prisma.bankAccount.createMany({
-            data: banksToCreate.slice(i, i + CHUNK),
-          });
-        }
 
         const UPD_CHUNK = 50;
         for (let i = 0; i < updateTasks.length; i += UPD_CHUNK) {
@@ -1550,6 +1828,20 @@ export async function POST(request: NextRequest) {
           await Promise.all(part.map((t) => t(prisma)));
           successCount += part.length;
         }
+
+        for (let i = 0; i < sessionBanksToCreate.length; i += CHUNK) {
+          await prisma.bankAccount.createMany({
+            data: sessionBanksToCreate.slice(i, i + CHUNK),
+          });
+        }
+        for (const upd of sessionBankUpdates) {
+          await prisma.bankAccount.update({
+            where: { id: upd.id },
+            data: { bankName: upd.bankName },
+          });
+        }
+        sessionBanksToCreate.length = 0;
+        sessionBankUpdates.length = 0;
 
         await prisma.auditLog.create({
           data: {
@@ -1643,14 +1935,19 @@ export async function POST(request: NextRequest) {
         ...bonusRes.errors.map((m) => `[${foundBonusSheet}] ${m}`),
       ];
       const combinedReview = {
-        warnings: [...tongRes.review.warnings, ...bonusRes.review.warnings],
+        warnings: [
+          ...tongRes.review.warnings.map((w) => ({ ...w, sheet: foundTongSheet })),
+          ...bonusRes.review.warnings.map((w) => ({ ...w, sheet: foundBonusSheet })),
+        ],
         duplicates: [
           ...tongRes.review.duplicates.map((d) => ({
             ...d,
+            sheet: foundTongSheet,
             message: `[${foundTongSheet}] ${d.message}`,
           })),
           ...bonusRes.review.duplicates.map((d) => ({
             ...d,
+            sheet: foundBonusSheet,
             message: `[${foundBonusSheet}] ${d.message}`,
           })),
         ],
