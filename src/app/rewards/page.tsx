@@ -66,7 +66,11 @@ export default function RewardsPage() {
   const     canWrite = true,
     canPay = true;
   const [rows, setRows] = useState<any[]>([]),
-    [workers, setWorkers] = useState<any[]>([]),
+    [workersList, setWorkersList] = useState<any[]>([]),
+    [workersLoading, setWorkersLoading] = useState(false),
+    [selectedWorkerDetail, setSelectedWorkerDetail] = useState<any>(null),
+    [detailLoading, setDetailLoading] = useState(false),
+    [noAssignmentWarning, setNoAssignmentWarning] = useState<string | null>(null),
     [policies, setPolicies] = useState<any[]>([]),
     [open, setOpen] = useState(false),
     [stage, setStage] = useState<any>(null),
@@ -87,6 +91,10 @@ export default function RewardsPage() {
   const [filteredTotal, setFilteredTotal] = useState(0);
   const [summary, setSummary] = useState<{ totalMilestoneMoney: number; totalPaidMoney: number; totalRemainingMoney: number } | null>(null);
   const loadController = useRef<AbortController | null>(null);
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const detailAbortRef = useRef<AbortController | null>(null);
+  const selectedLookupWorker = useRef<any>(null);
 
   useEffect(() => {
     setAssignmentId(
@@ -137,15 +145,99 @@ export default function RewardsPage() {
     setCurrentPage(1);
   };
 
+  const fetchWorkersLookup = async (keyword = "") => {
+    searchAbortRef.current?.abort();
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+    setWorkersLoading(true);
+    try {
+      const params = new URLSearchParams({ view: "lookup", pageSize: "20" });
+      if (keyword.trim()) params.append("search", keyword.trim());
+      const res = await fetch(`/api/workers?${params.toString()}`, { signal: controller.signal });
+      const json = await res.json();
+      if (json.success && !controller.signal.aborted) {
+        let list = json.data || [];
+        if (selectedLookupWorker.current && !list.some((w: any) => w.id === selectedLookupWorker.current.id)) {
+          list = [selectedLookupWorker.current, ...list];
+        }
+        setWorkersList(list);
+      }
+    } catch (err: any) {
+      if (err.name !== "AbortError") console.error(err);
+    } finally {
+      if (searchAbortRef.current === controller) setWorkersLoading(false);
+    }
+  };
+
+  const handleSearchWorkers = (val: string) => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      fetchWorkersLookup(val);
+    }, 300);
+  };
+
+  const handleWorkerSelect = async (workerId: string) => {
+    form.setFieldsValue({ assignmentId: undefined });
+    setSelectedWorkerDetail(null);
+    setNoAssignmentWarning(null);
+
+    detailAbortRef.current?.abort();
+    if (!workerId) {
+      selectedLookupWorker.current = null;
+      return;
+    }
+
+    const found = workersList.find((w) => w.id === workerId);
+    selectedLookupWorker.current = found || null;
+
+    const controller = new AbortController();
+    detailAbortRef.current = controller;
+    setDetailLoading(true);
+    try {
+      const res = await fetch(`/api/workers/${workerId}`, { signal: controller.signal });
+      const json = await res.json();
+      if (controller.signal.aborted) return;
+      if (json.success && json.data) {
+        const worker = json.data;
+        setSelectedWorkerDetail(worker);
+        const hasAssignments = Array.isArray(worker.assignments) && worker.assignments.length > 0;
+        if (!hasAssignments) {
+          setNoAssignmentWarning("Người này chưa có đợt tuyển dụng nào để đăng ký chính sách.");
+        } else {
+          setNoAssignmentWarning(null);
+          form.setFieldsValue({ assignmentId: worker.assignments[0]?.id });
+        }
+      } else {
+        message.error(json.message || "Không thể tải chi tiết người lao động");
+      }
+    } catch (err: any) {
+      if (err.name !== "AbortError") message.error("Lỗi kết nối khi tải chi tiết");
+    } finally {
+      if (detailAbortRef.current === controller) setDetailLoading(false);
+    }
+  };
+
   useEffect(() => {
-    Promise.all([
-      fetch("/api/workers").then((r) => r.json()),
-      fetch("/api/policies").then((r) => r.json()),
-    ]).then(([w, p]) => {
-      setWorkers(w.data || []);
-      setPolicies(p.data || []);
-    });
+    fetch("/api/policies")
+      .then((r) => r.json())
+      .then((p) => {
+        setPolicies(p.data || []);
+      })
+      .catch(() => message.error("Không tải được chính sách"));
   }, []);
+
+  useEffect(() => {
+    if (open) {
+      fetchWorkersLookup("");
+    } else {
+      searchAbortRef.current?.abort();
+      detailAbortRef.current?.abort();
+      setSelectedWorkerDetail(null);
+      setNoAssignmentWarning(null);
+      selectedLookupWorker.current = null;
+      form.resetFields();
+    }
+  }, [open]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -710,26 +802,58 @@ export default function RewardsPage() {
         footer={null}
       >
         <Form form={form} layout="vertical" onFinish={apply}>
+          {noAssignmentWarning && (
+            <Alert
+              type="warning"
+              showIcon
+              message={noAssignmentWarning}
+              description="Vui lòng tạo đợt tuyển dụng cho người này trước khi đăng ký chính sách."
+              className="mb-4"
+            />
+          )}
           <Form.Item
-            name="assignmentId"
-            label="Lao động / công ty / đợt tuyển"
-            rules={[{ required: true }]}
+            name="workerId"
+            label="Chọn Lao Động"
+            rules={[{ required: true, message: "Vui lòng chọn lao động" }]}
           >
             <Select
               showSearch
-              optionFilterProp="label"
-              options={workers.flatMap((w) =>
-                w.assignments.map((a: any) => ({
-                  value: a.id,
-                  label: `${w.fullName} · ${a.interviewFactory} · PV ${formatDate(a.interviewDate)} · ${a.employeeCode || ""}`,
-                })),
-              )}
+              filterOption={false}
+              onSearch={handleSearchWorkers}
+              loading={workersLoading}
+              placeholder="Tìm theo họ tên hoặc số CCCD"
+              options={workersList.map((w) => ({
+                label: `${w.fullName} - CCCD: ${w.idCard}${w.code ? ` (${w.code})` : ""}`,
+                value: w.id,
+              }))}
+              onChange={handleWorkerSelect}
+            />
+          </Form.Item>
+          <Form.Item
+            name="assignmentId"
+            label="Đợt tuyển dụng"
+            rules={[{ required: true, message: "Vui lòng chọn đợt tuyển dụng" }]}
+          >
+            <Select
+              disabled={detailLoading || !selectedWorkerDetail?.assignments?.length}
+              loading={detailLoading}
+              placeholder={
+                detailLoading
+                  ? "Đang tải đợt tuyển dụng..."
+                  : noAssignmentWarning
+                    ? "Không có đợt tuyển dụng"
+                    : "Chọn đợt tuyển dụng"
+              }
+              options={(selectedWorkerDetail?.assignments || []).map((a: any) => ({
+                value: a.id,
+                label: `${a.interviewFactory || "Chưa có công ty"} · PV ${a.interviewDate ? formatDate(a.interviewDate) : "chưa có ngày"} · ${a.employeeCode || "chưa có mã NV"}`,
+              }))}
             />
           </Form.Item>
           <Form.Item
             name="policyId"
             label="Chính sách"
-            rules={[{ required: true }]}
+            rules={[{ required: true, message: "Vui lòng chọn chính sách" }]}
           >
             <Select
               options={policies
@@ -740,7 +864,17 @@ export default function RewardsPage() {
                 }))}
             />
           </Form.Item>
-          <Button type="primary" htmlType="submit" loading={busy}>
+          <Button
+            type="primary"
+            htmlType="submit"
+            loading={busy || detailLoading}
+            disabled={
+              busy ||
+              detailLoading ||
+              Boolean(noAssignmentWarning) ||
+              !selectedWorkerDetail?.assignments?.length
+            }
+          >
             Áp dụng và lưu snapshot
           </Button>
         </Form>

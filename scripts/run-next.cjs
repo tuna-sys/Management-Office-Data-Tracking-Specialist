@@ -4,6 +4,7 @@ const mode = process.argv[2];
 if (!["dev", "build", "start"].includes(mode))
   throw new Error("Invalid Next.js mode");
 const args = [
+  "--max-old-space-size=8192",
   // Trust the Windows certificate store while retaining HTTPS verification.
   ...(process.platform === "win32" && process.allowedNodeEnvironmentFlags.has("--use-system-ca")
     ? ["--use-system-ca"]

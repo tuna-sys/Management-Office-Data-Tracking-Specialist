@@ -85,6 +85,13 @@ async function publish(manifest: Manifest) {
   }
   await atomicWrite(path.join(folder(manifest.runId), "completed.json"), { manifestHash: digest(JSON.stringify(manifest)), finishedAt: new Date().toISOString() });
 }
+function maskSensitiveText(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/\b(\d{3})\d{3,6}(\d{3})\b/g, "$1***$2")
+    .replace(/\b0\d{8,11}\b/g, (v) => v.slice(0, 3) + "***" + v.slice(-3));
+}
+
 function transactionFacade(tx: any): any {
   const facade = new Proxy(tx, { get(target, key) {
     if (key === "$transaction") return (action: any) => typeof action === "function" ? action(facade) : Promise.all(action);
@@ -133,8 +140,16 @@ export async function runRecoverableImport(db: any, meta: Meta,
       let committed: boolean | null = null;
       try { committed = !!(await receipt(db, meta.runId)); } catch { /* Unknown commit state must not be called safe to retry. */ }
       const state = committed === true ? "RECOVERABLE" : committed === false ? "RETRYABLE" : "NEEDS_REVIEW";
+      const rawError = String((error as any)?.message || error);
+      const safeError = maskSensitiveText(rawError);
+      await atomicWrite(path.join(dir, "error.json"), {
+        runId: meta.runId,
+        error: safeError,
+        state,
+        failedAt: new Date().toISOString(),
+      }).catch(() => {});
       const message = committed === true ? "Database đã commit; cần phục hồi snapshot nguồn"
-        : committed === false ? "Phiên chưa commit; các thay đổi database đã hoàn tác. Có thể thử lại cùng phiên. " + String((error as any)?.message || "")
+        : committed === false ? "Phiên chưa commit; các thay đổi database đã hoàn tác. Có thể thử lại cùng phiên. " + safeError
         : "Chưa xác minh được trạng thái commit; kiểm tra phiên phục hồi trước khi nhập lại";
       throw new ImportRecoveryError(message, 503, meta.runId, state);
     }
@@ -166,7 +181,12 @@ export async function listImportRecovery(db: any) {
         try { const owner = JSON.parse(await readFile(path.join(folder(runId), "run.lock"), "utf8")); process.kill(owner.pid, 0); state = "RUNNING"; }
         catch { /* No live writer: an uncommitted SQLite transaction is rolled back. */ }
       }
-      return { runId, state, startedAt: pending.startedAt, sourceCount: manifest?.sources.length || 0 };
+      let lastError: string | undefined;
+      try {
+        const errData = JSON.parse(await readFile(path.join(folder(runId), "error.json"), "utf8"));
+        lastError = errData.error;
+      } catch {}
+      return { runId, state, startedAt: pending.startedAt, sourceCount: manifest?.sources.length || 0, lastError };
     } catch { return { runId, state: "NEEDS_REVIEW", startedAt: "", sourceCount: 0 }; }
   }));
   return runs.sort((a,b) => Number(a.state === "COMPLETED") - Number(b.state === "COMPLETED") || b.startedAt.localeCompare(a.startedAt)).slice(0, 30);

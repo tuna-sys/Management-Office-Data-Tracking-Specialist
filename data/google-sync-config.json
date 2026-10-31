@@ -1,10 +1,10 @@
 {
   "autoSyncEnabled": false,
   "syncIntervalSeconds": 60,
-  "activeSourceId": "gs-1792642691292",
+  "activeSourceId": "gs-1792751339283",
   "sources": [
     {
-      "id": "gs-1792642691292",
+      "id": "gs-1792751339283",
       "name": "Bảng tính 1WuTo4ji",
       "url": "https://docs.google.com/spreadsheets/d/1WuTo4jiBNg7rxdjDCbFmE6nQ3k4z3WJfV3rs5V1VXNw/edit?usp=sharing",
       "spreadsheetId": "1WuTo4jiBNg7rxdjDCbFmE6nQ3k4z3WJfV3rs5V1VXNw",
@@ -12,7 +12,7 @@
       "importType": "AUTO",
       "lastStatus": "IDLE",
       "lastMessage": "Chưa đồng bộ",
-      "createdAt": "2026-10-22T04:18:11.292Z"
+      "createdAt": "2026-10-23T10:28:59.283Z"
     }
   ]
 }

@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   Table,
   Button,
@@ -49,6 +49,10 @@ export default function BankAccountsPage() {
   // Modal thêm tài khoản
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [workersList, setWorkersList] = useState<any[]>([]);
+  const [workersLoading, setWorkersLoading] = useState(false);
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const selectedWorkerRef = useRef<any>(null);
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
   const [verifying, setVerifying] = useState(false);
@@ -69,19 +73,62 @@ export default function BankAccountsPage() {
       setLoading(false);
     }
   };
-  const fetchWorkers = async () => {
+  const fetchWorkersLookup = async (keyword = "") => {
+    searchAbortRef.current?.abort();
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+    setWorkersLoading(true);
     try {
-      const res = await fetch("/api/workers");
+      const params = new URLSearchParams({
+        view: "lookup",
+        pageSize: "20",
+      });
+      if (keyword.trim()) params.append("search", keyword.trim());
+      const res = await fetch(`/api/workers?${params.toString()}`, {
+        signal: controller.signal,
+      });
       const json = await res.json();
-      if (json.success) setWorkersList(json.data);
-    } catch (err) {
-      console.error(err);
+      if (json.success && !controller.signal.aborted) {
+        let list = json.data || [];
+        if (
+          selectedWorkerRef.current &&
+          !list.some((w: any) => w.id === selectedWorkerRef.current.id)
+        ) {
+          list = [selectedWorkerRef.current, ...list];
+        }
+        setWorkersList(list);
+      }
+    } catch (err: any) {
+      if (err.name !== "AbortError") {
+        console.error(err);
+      }
+    } finally {
+      if (searchAbortRef.current === controller) {
+        setWorkersLoading(false);
+      }
     }
   };
+
+  const handleSearchWorkers = (val: string) => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      fetchWorkersLookup(val);
+    }, 300);
+  };
+
   useEffect(() => {
     fetchAccounts();
-    fetchWorkers();
   }, [filter]);
+
+  useEffect(() => {
+    if (isModalOpen) {
+      fetchWorkersLookup("");
+    } else {
+      searchAbortRef.current?.abort();
+      setEditing(null);
+      selectedWorkerRef.current = null;
+    }
+  }, [isModalOpen]);
   // Dịch vụ chưa được kết nối
   const handleVerifyVietQR = async () => {
     const bankName = form.getFieldValue("bankName");
@@ -150,6 +197,28 @@ export default function BankAccountsPage() {
             setEditing(record);
             form.resetFields();
             form.setFieldsValue(record);
+            const editWorker = record.worker
+              ? {
+                  id: record.worker.id,
+                  fullName: record.worker.fullName,
+                  idCard: record.worker.idCard,
+                  code: record.worker.code,
+                }
+              : record.workerId
+                ? {
+                    id: record.workerId,
+                    fullName: record.accountHolderName || "",
+                    idCard: "",
+                    code: "",
+                  }
+                : null;
+            if (editWorker) {
+              selectedWorkerRef.current = editWorker;
+              setWorkersList((prev) => [
+                editWorker,
+                ...prev.filter((w: any) => w.id !== editWorker.id),
+              ]);
+            }
             setIsModalOpen(true);
           }}
         >
@@ -288,6 +357,7 @@ export default function BankAccountsPage() {
             icon={<PlusCircle className="w-4 h-4" />}
             onClick={() => {
               setEditing(null);
+              selectedWorkerRef.current = null;
               form.resetFields();
               setIsModalOpen(true);
             }}
@@ -362,7 +432,11 @@ export default function BankAccountsPage() {
       <Modal
         title="Thông tin tài khoản ngân hàng — chưa xác minh"
         open={isModalOpen}
-        onCancel={() => setIsModalOpen(false)}
+        onCancel={() => {
+          setIsModalOpen(false);
+          setEditing(null);
+          selectedWorkerRef.current = null;
+        }}
         footer={null}
         width={600}
       >
@@ -384,12 +458,18 @@ export default function BankAccountsPage() {
             <Select
               disabled={!!editing}
               showSearch
-              placeholder="Chọn người lao động để liên kết STK"
-              optionFilterProp="label"
+              filterOption={false}
+              onSearch={handleSearchWorkers}
+              loading={workersLoading}
+              placeholder="Tìm theo họ tên hoặc số CCCD để liên kết STK"
               options={workersList.map((w) => ({
-                label: `${w.fullName} - CCCD: ${w.idCard}`,
+                label: `${w.fullName} - CCCD: ${w.idCard}${w.code ? ` (${w.code})` : ""}`,
                 value: w.id,
               }))}
+              onChange={(val) => {
+                const found = workersList.find((w) => w.id === val);
+                selectedWorkerRef.current = found || null;
+              }}
             />
           </Form.Item>
 

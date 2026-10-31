@@ -21,6 +21,17 @@ export function isActiveAssignment(a: any, statuses: any[] = []) {
         return configured.warnsDuplicate === true;
     return !a.leaveDate && !a.leaveReason;
 }
+export function findAssignmentMatch(assignments: any[], criteria: { interviewDate?: any; factory?: any; employeeCode?: any }) {
+    const day = dateKey(criteria?.interviewDate || "");
+    if (!day) return { status: "MISSING_DATE", error: "Thiếu hoặc sai ngày PV; chưa đủ căn cứ kiểm tra lượt tuyển" };
+    const matches = (assignments || []).filter((a: any) => sameInterviewDay(a, criteria));
+    if (matches.length > 1) return { status: "MULTIPLE_SAME_DAY", error: "Trùng lặp nội bộ: nhiều lượt PV cùng ngày; cần đối chiếu", matches };
+    if (!matches.length) return { status: "NO_MATCH" };
+    const a = matches[0];
+    if (criteria.factory && !sameFactory(a.interviewFactory, criteria.factory)) return { status: "FACTORY_MISMATCH", error: "Trùng ngày PV tại hai công ty (khác nhà máy)", assignment: a };
+    if (criteria.employeeCode && a.employeeCode && identityText(criteria.employeeCode) !== identityText(a.employeeCode)) return { status: "CODE_MISMATCH", error: "Khác mã theo công ty (mã nhân viên không khớp lượt PV)", assignment: a };
+    return { status: "EXACT_MATCH", assignment: a };
+}
 export function resolveBonusAssignment(worker: any, row: any) {
     assertIdentity(worker, row.fullName);
     if (!dateKey(row.interviewDate || ""))
@@ -32,9 +43,9 @@ export function resolveBonusAssignment(worker: any, row: any) {
         return null;
     const a = matches[0];
     if (!sameFactory(a.interviewFactory, row.company))
-        throw new Error("Trùng lặp nội bộ: CCCD và ngày PV khớp nhưng khác công ty");
+        throw new Error("Trùng ngày PV tại hai công ty: CCCD và ngày PV khớp nhưng khác công ty");
     if (row.workerCode && a.employeeCode && identityText(row.workerCode) !== identityText(a.employeeCode))
-        throw new Error("Trùng lặp nội bộ: mã nhân viên không khớp lượt PV");
+        throw new Error("Khác mã theo công ty: mã nhân viên không khớp lượt PV");
     return a;
 }
 export function assertDailyInterview(worker: any, row: any, excludeId?: string) {
@@ -45,7 +56,7 @@ export function assertDailyInterview(worker: any, row: any, excludeId?: string) 
 }
 export { phoneKey };
 export function assertSourceCard(raw: any, normalized: string) {
-    const value = raw["số CCCD"] ?? raw["Số CCCD"] ?? raw["CCCD"] ?? raw["CMT/CCCD"];
+    const value = raw && typeof raw === "object" ? (raw["số CCCD"] ?? raw["Số CCCD"] ?? raw["CCCD"] ?? raw["CMT/CCCD"]) : raw;
     if (value != null && String(value).replace(/\s+/g, "") !== normalized)
         throw new Error("Sai lệch danh tính: CCCD thiếu chữ số; cần đối chiếu bản gốc");
 }

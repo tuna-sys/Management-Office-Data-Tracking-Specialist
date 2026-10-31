@@ -33,6 +33,51 @@ export async function GET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams,
       search = params.get("search")?.trim() || "";
+
+    if (params.get("view") === "lookup") {
+      const page = Math.max(1, parseInt(params.get("page") || "1", 10) || 1);
+      const pageSize = Math.min(
+        100,
+        Math.max(1, parseInt(params.get("pageSize") || "20", 10) || 20),
+      );
+      const where = search
+        ? {
+            archivedAt:
+              params.get("archived") === "true" ? { not: null } : null,
+            OR: ["fullName", "idCard", "phone", "code", "recruiter"].map(
+              (field) => ({ [field]: { contains: search } }),
+            ),
+          }
+        : {
+            archivedAt:
+              params.get("archived") === "true" ? { not: null } : null,
+          };
+      const [lookupWorkers, total] = await Promise.all([
+        prisma.worker.findMany({
+          where,
+          select: {
+            id: true,
+            fullName: true,
+            idCard: true,
+            code: true,
+          },
+          take: pageSize,
+          skip: (page - 1) * pageSize,
+          orderBy: { createdAt: "desc" },
+        }),
+        prisma.worker.count({ where }),
+      ]);
+      return NextResponse.json({
+        success: true,
+        data: lookupWorkers,
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      });
+    }
+
+    const includeBanks = params.get("include")?.includes("bankAccounts");
     const workers = await prisma.worker.findMany({
       where: search
         ? {
@@ -48,7 +93,9 @@ export async function GET(request: NextRequest) {
           },
       include: {
         assignments: { orderBy: [{ createdAt: "desc" }, { id: "desc" }] },
-        bankAccounts: { orderBy: { createdAt: "desc" } },
+        ...(includeBanks
+          ? { bankAccounts: { orderBy: { createdAt: "desc" } } }
+          : {}),
       },
       orderBy: { createdAt: "desc" },
     });

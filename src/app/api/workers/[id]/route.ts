@@ -18,6 +18,67 @@ import {
   phoneKey,
   validateInterview,
 } from "@/lib/worker-validation";
+
+export async function GET(
+  request: NextRequest,
+  {
+    params,
+  }: {
+    params: {
+      id: string;
+    };
+  },
+) {
+  const denied = await guard(request);
+  if (denied) return denied;
+  try {
+    const worker = await prisma.worker.findUnique({
+      where: { id: params.id },
+      select: {
+        id: true,
+        fullName: true,
+        idCard: true,
+        code: true,
+        phone: true,
+        archivedAt: true,
+        isBlacklisted: true,
+        assignments: {
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          select: {
+            id: true,
+            interviewFactory: true,
+            interviewDate: true,
+            employeeCode: true,
+            status: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        },
+        bankAccounts: {
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            bankName: true,
+            bankCode: true,
+            accountNumber: true,
+            accountHolderName: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+    if (!worker) {
+      return NextResponse.json(
+        { success: false, message: "Không tìm thấy hồ sơ" },
+        { status: 404 },
+      );
+    }
+    return NextResponse.json({ success: true, data: worker });
+  } catch (e) {
+    return resultError(e);
+  }
+}
+
 export async function PUT(
   request: NextRequest,
   {
