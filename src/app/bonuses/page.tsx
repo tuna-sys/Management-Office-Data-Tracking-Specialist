@@ -53,6 +53,8 @@ export default function BonusesPage() {
   const [editing, setEditing] = useState<any>(null);
   const [policies, setPolicies] = useState<any[]>([]);
   const [bonuses, setBonuses] = useState<any[]>([]);
+  const [filteredTotal, setFilteredTotal] = useState(0);
+  const [totalBonusAmount, setTotalBonusAmount] = useState(0);
   const [companyChoices, setCompanyChoices] = useState<string[]>(FACTORIES);
   const [loading, setLoading] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState<string[]>([]);
@@ -75,16 +77,30 @@ export default function BonusesPage() {
   const [addForm] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
 
-  const fetchBonuses = async () => {
+  const fetchBonuses = async (page = currentPage, size = pageSize) => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
+      params.set("page", String(page));
+      params.set("pageSize", String(size));
       selectedMonth.forEach((month) => params.append("month", month));
       selectedCompany.forEach((company) => params.append("company", company));
+      if (idCardFilter.trim()) params.set("idCard", idCardFilter.trim());
+      if (workerCodeFilter.trim())
+        params.set("workerCode", workerCodeFilter.trim());
       const res = await fetch(`/api/bonuses?${params.toString()}`);
       const json = await res.json();
       if (json.success) {
+        const total = json.total ?? json.data?.length ?? 0;
+        const lastPage = Math.max(1, Math.ceil(total / size));
+        if (page > lastPage) {
+          setCurrentPage(lastPage);
+          await fetchBonuses(lastPage, size);
+          return;
+        }
         setBonuses(json.data);
+        setFilteredTotal(total);
+        setTotalBonusAmount(json.totalBonus ?? 0);
         setCompanyChoices((current) =>
           Array.from(
             new Set([
@@ -626,10 +642,7 @@ export default function BonusesPage() {
       ),
     },
   ];
-  const totalMonthAmount = filteredBonuses.reduce(
-    (sum, b) => sum + (b.totalBonus || 0),
-    0,
-  );
+  const totalMonthAmount = totalBonusAmount;
   return (
     <div className="space-y-6">
       {/* Breadcrumb & Quick links */}
@@ -797,7 +810,7 @@ export default function BonusesPage() {
                 setIdCardFilter(e.target.value);
                 setCurrentPage(1);
               }}
-              onPressEnter={fetchBonuses}
+              onPressEnter={() => fetchBonuses(1, pageSize)}
               className="w-full"
               aria-label="Lọc số CCCD"
             />
@@ -814,7 +827,7 @@ export default function BonusesPage() {
                 setWorkerCodeFilter(e.target.value);
                 setCurrentPage(1);
               }}
-              onPressEnter={fetchBonuses}
+              onPressEnter={() => fetchBonuses(1, pageSize)}
               className="w-full"
               aria-label="Lọc mã nhân viên"
             />
@@ -859,11 +872,13 @@ export default function BonusesPage() {
           pagination={{
             current: currentPage,
             pageSize: pageSize,
+            total: filteredTotal,
             showSizeChanger: true,
             pageSizeOptions: ["10", "20", "50", "100", "200"],
             onChange: (page, size) => {
               setCurrentPage(page);
               setPageSize(size);
+              fetchBonuses(page, size);
             },
             showTotal: (total, range) =>
               `${range[0]} - ${range[1]} / ${total} bản ghi`,

@@ -34,6 +34,8 @@ model Worker {
   assignments  WorkAssignment[]
   bonusRecords BonusRecord[]
   bankAccounts BankAccount[]
+
+  @@index([archivedAt, createdAt])
 }
 
 model WorkAssignment {
@@ -82,6 +84,12 @@ model WorkAssignment {
   workDaysConfirmedBy  String?
   events               AssignmentEvent[]
   enrollments          PolicyEnrollment[]
+
+  @@index([workerId, createdAt])
+  @@index([interviewFactoryId])
+  @@index([workingFactoryId])
+  @@index([statusId])
+  @@index([orderId, batchId])
 }
 
 model BonusRecord {
@@ -111,6 +119,11 @@ model BonusRecord {
   approvedAt    DateTime?
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
+
+  @@index([createdAt])
+  @@index([month, company, createdAt])
+  @@index([workerId, createdAt])
+  @@index([assignmentId])
 }
 
 model BankAccount {
@@ -131,6 +144,8 @@ model BankAccount {
   checkedAt          DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
+
+  @@index([workerId, createdAt])
 }
 
 model BonusPolicy {
@@ -158,6 +173,9 @@ model AuditLog {
   details   String?
   operator  String?  @default("Hệ thống")
   createdAt DateTime @default(now())
+
+  @@index([action, module, createdAt])
+  @@index([createdAt])
 }
 
 model RecruitmentOrder {
@@ -203,6 +221,8 @@ model AssignmentEvent {
   note            String?
   operator        String
   createdAt       DateTime       @default(now())
+
+  @@index([assignmentId, createdAt])
 }
 
 model PolicyEnrollment {
@@ -312,4 +332,59 @@ model ImportProfile {
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+}
+
+model ImportBatch {
+  id        String            @id
+  type      String
+  file      String
+  sheet     String
+  createdAt DateTime
+  rows      ImportSourceRow[]
+
+  @@index([type, createdAt])
+  @@index([createdAt])
+}
+
+model ImportSourceRow {
+  id         String      @id
+  sourceId   String
+  source     ImportBatch @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  rowNumber  Int
+  valuesJson String
+  warningsJson String   @default("[]")
+  duplicatesJson String @default("[]")
+  isApproved Boolean    @default(false)
+  createdAt  DateTime
+  updatedAt  DateTime
+  issues     DataIssue[]
+
+  @@unique([sourceId, rowNumber])
+  @@index([sourceId, rowNumber])
+  @@index([isApproved, rowNumber])
+}
+
+model DataIssue {
+  id          String          @id
+  sourceRowId String
+  sourceRow   ImportSourceRow @relation(fields: [sourceRowId], references: [id], onDelete: Cascade)
+  kind        String
+  message     String
+  status      String          @default("OPEN")
+  resolvedBy  String?
+  resolvedAt  DateTime?
+  createdAt   DateTime
+  updatedAt   DateTime
+
+  @@index([status, kind, createdAt])
+  @@index([sourceRowId, kind])
+}
+
+model DuplicateResolution {
+  alertId    String   @id
+  resolvedBy String
+  resolvedAt DateTime @default(now())
+  note       String?
+
+  @@index([resolvedAt])
 }

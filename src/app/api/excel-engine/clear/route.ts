@@ -170,13 +170,9 @@ export async function POST(request: NextRequest) {
 
     // 3. Xóa các file lưu nguồn review trong .local/source-imports/
     await deleteImportSource();
+    await prisma.$executeRawUnsafe('DELETE FROM "DuplicateResolution"');
 
     // 4. Reset danh sách đã duyệt trùng lặp để lần nạp sau hoàn toàn nhất quán
-    const resolvedFile = path.resolve('.local/resolved-duplicates.json');
-    if (existsSync(resolvedFile)) {
-      const { unlink } = await import('node:fs/promises');
-      await unlink(resolvedFile).catch(() => {});
-    }
 
     return NextResponse.json({
       success: true,

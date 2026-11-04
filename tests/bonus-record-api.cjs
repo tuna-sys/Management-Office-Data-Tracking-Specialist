@@ -43,16 +43,25 @@ const worker = {
 const records = [];
 const audits = [];
 let queriedWhere;
+let queriedPage;
 const db = {
   worker: {
     findUnique: async () => worker,
   },
   bonusRecord: {
     findFirst: async () => null,
-    findMany: async ({ where }) => {
+    findMany: async ({ where, skip, take }) => {
       queriedWhere = where;
-      return records;
+      queriedPage = { skip, take };
+      return typeof take === "number"
+        ? records.slice(skip || 0, (skip || 0) + take)
+        : records;
     },
+    aggregate: async () => ({
+      _sum: {
+        totalBonus: records.reduce((sum, record) => sum + (record.totalBonus || 0), 0),
+      },
+    }),
     findUnique: async ({ where }) =>
       records.find((record) => record.id === where.id) || null,
     create: async ({ data }) => {
@@ -204,6 +213,24 @@ const request = (body) => ({ json: async () => body });
     "T05.2026,T06.2026",
   );
   assert.equal(Array.from(queriedWhere.company.in).join(","), "Canon,LG");
+
+  const pageResult = await route.GET({
+    url: "http://localhost/api/bonuses?page=1&pageSize=1&idCard=000000000001",
+  });
+  assert.equal(pageResult.body.page, 1);
+  assert.equal(pageResult.body.pageSize, 1);
+  assert.equal(pageResult.body.total, 1);
+  assert.equal(pageResult.body.totalBonus, 500);
+  assert.deepEqual(queriedPage, { skip: 0, take: 1 });
+  assert.ok(queriedWhere.worker);
+  assert.equal(queriedWhere.AND, undefined);
+
+  const codeFiltered = await route.GET({
+    url: "http://localhost/api/bonuses?page=1&pageSize=1&workerCode=EMP-2",
+  });
+  assert.equal(codeFiltered.body.total, 1);
+  assert.equal(codeFiltered.body.data.length, 1);
+  assert.ok(queriedWhere.AND);
 
   const removedOne = await route.DELETE(request({ id: "bonus-1" }));
   assert.equal(removedOne.body.deletedCount, 1);

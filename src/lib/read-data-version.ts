@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
-import { readdir, stat, open, readFile } from "node:fs/promises";
-import path from "node:path";
+import { stat, open, readFile } from "node:fs/promises";
 import { prisma } from "@/lib/prisma";
 import { readCacheEpoch } from "@/lib/read-cache";
 
@@ -16,11 +15,42 @@ async function sqliteVersion(db: string | null) {
   try { await file.read(header, 0, 100, 0); } finally { await file.close(); }
   let wal = "";
   try {
-    const meta = await stat(db + "-wal");
-    // Coarse filesystem timestamps cannot detect same-size SQLite commits.
-    // Hash small WALs; bypass reuse for large active WALs rather than return stale results.
-    wal = meta.size > 2 * 1024 * 1024 ? "active-wal:" + process.hrtime.bigint()
-      : createHash("sha256").update(await readFile(db + "-wal")).digest("hex");
+    const walPath = db + "-wal";
+    const walFile = await open(walPath, "r");
+    try {
+      const meta = await walFile.stat();
+      if (meta.size <= 2 * 1024 * 1024) {
+        wal = createHash("sha256")
+          .update(await readFile(walPath))
+          .digest("hex");
+      } else {
+        // Large WALs used to get a unique cache key for every request. Hash only
+        // the WAL header and final frame header (includes SQLite rolling checksums)
+        // to retain stable reuse while detecting same-size commits.
+        const walHeader = Buffer.alloc(32);
+        await walFile.read(walHeader, 0, walHeader.length, 0);
+        const encodedPageSize = walHeader.readUInt32BE(8);
+        const pageSize = encodedPageSize === 1 ? 65536 : encodedPageSize;
+        const frameSize = pageSize + 24;
+        const frameOffset = pageSize >= 512 && meta.size >= frameSize
+          ? meta.size - frameSize
+          : Math.max(0, meta.size - 24);
+        const frameHeader = Buffer.alloc(24);
+        const frame = await walFile.read(
+          frameHeader,
+          0,
+          frameHeader.length,
+          frameOffset,
+        );
+        wal = createHash("sha256")
+          .update(walHeader)
+          .update(frameHeader.subarray(0, frame.bytesRead))
+          .update(String(meta.size))
+          .digest("hex");
+      }
+    } finally {
+      await walFile.close();
+    }
   } catch (error: any) { if (error.code !== "ENOENT") throw error; }
   return [header.toString("hex"), wal];
 }
@@ -31,10 +61,6 @@ export async function readDataVersion() {
       .catch(error => { databasePath = undefined; throw error; });
   }
   const db = await databasePath;
-  const directory = path.resolve(".local/source-imports");
-  let names: string[];
-  try { names = (await readdir(directory)).filter(n => /^[a-f0-9-]+\.json$/.test(n)).sort(); }
-  catch (error: any) { if (error.code !== "ENOENT") throw error; names = []; }
-  const files = [path.resolve(".local/resolved-duplicates.json"), ...names.map(n => path.join(directory, n)), ...(db ? [db, db + "-wal", db + "-journal"] : [])];
+  const files = db ? [db, db + "-wal", db + "-journal"] : [];
   return JSON.stringify([process.env.DATABASE_URL, readCacheEpoch(), await sqliteVersion(db), await Promise.all(files.map(fileVersion))]);
 }

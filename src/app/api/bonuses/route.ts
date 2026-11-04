@@ -27,6 +27,15 @@ export async function GET(request: NextRequest) {
     const idCard = searchParams.get("idCard")?.trim() || "";
     const workerCode = searchParams.get("workerCode")?.trim() || "";
     const search = searchParams.get("search")?.trim() || "";
+    const paginated = searchParams.has("page") || searchParams.has("pageSize");
+    const pageSize = Math.min(
+      200,
+      Math.max(1, Math.trunc(Number(searchParams.get("pageSize"))) || 50),
+    );
+    const requestedPage = Math.max(
+      1,
+      Math.trunc(Number(searchParams.get("page"))) || 1,
+    );
 
     const whereClause: any = {};
     if (months.length === 1) whereClause.month = months[0];
@@ -34,15 +43,33 @@ export async function GET(request: NextRequest) {
     if (companies.length === 1) whereClause.company = companies[0];
     else if (companies.length > 1) whereClause.company = { in: companies };
     if (status) whereClause.status = status;
-    if (workerCode) {
-      whereClause.workerCode = { contains: workerCode };
-    }
     if (idCard) {
       whereClause.worker = {
-        is: {
-          idCard: { contains: idCard },
-        },
+        is: { idCard: { contains: idCard } },
       };
+    }
+    if (workerCode) {
+      whereClause.AND = [
+        ...(whereClause.AND || []),
+        {
+          OR: [
+            { workerCode: { contains: workerCode } },
+            {
+              AND: [
+                { workerCode: null },
+                { worker: { is: { code: { contains: workerCode } } } },
+              ],
+            },
+            {
+              AND: [
+                { workerCode: null },
+                { worker: { is: { code: null } } },
+                { note: { contains: workerCode } },
+              ],
+            },
+          ],
+        },
+      ];
     }
     if (search) {
       whereClause.OR = [
@@ -52,18 +79,80 @@ export async function GET(request: NextRequest) {
       ];
     }
     const orderDirection = searchParams.get("order") === "desc" ? "desc" : "asc";
-    const bonuses = await prisma.bonusRecord.findMany({
-      where: whereClause,
-      include: {
-        worker: {
-          include: {
-            bankAccounts: { orderBy: { createdAt: "desc" } },
+    const page = paginated ? requestedPage : 1;
+    const [total, aggregate, bonuses] = await Promise.all([
+      paginated && !workerCode
+        ? prisma.bonusRecord.count({ where: whereClause })
+        : Promise.resolve(null),
+      paginated && !workerCode
+        ? prisma.bonusRecord.aggregate({ where: whereClause, _sum: { totalBonus: true } })
+        : Promise.resolve(null),
+      prisma.bonusRecord.findMany({
+        where: whereClause,
+        ...(paginated && !workerCode
+          ? { skip: (page - 1) * pageSize, take: pageSize }
+          : {}),
+        include: {
+          worker: {
+            include: {
+              bankAccounts: {
+                orderBy: { createdAt: "desc" },
+                take: 1,
+                select: {
+                  accountNumber: true,
+                  bankName: true,
+                },
+              },
+            },
           },
         },
-      },
-      orderBy: { createdAt: orderDirection },
+        orderBy: [{ createdAt: orderDirection }, { id: orderDirection }],
+      }),
+    ]);
+    let visibleBonuses = bonuses;
+    let visibleTotal = total ?? bonuses.length;
+    let visibleBonusAmount = aggregate?._sum?.totalBonus || 0;
+    if (workerCode) {
+      const keyword = workerCode.toLocaleLowerCase("vi");
+      visibleBonuses = bonuses.filter((record: any) => {
+        let sourceValues: Record<string, unknown> = {};
+        try {
+          const note = JSON.parse(record.note || "{}");
+          if (note.source === "SOURCE_EXCEL_ACTUAL_PAID")
+            sourceValues = note.sourceValues || {};
+        } catch {}
+        const value =
+          record.workerCode ??
+          record.worker?.code ??
+          sourceValues["Mã nhân viên"] ??
+          sourceValues.workerCode ??
+          "";
+        return String(value).toLocaleLowerCase("vi").includes(keyword);
+      });
+      visibleTotal = visibleBonuses.length;
+      visibleBonusAmount = visibleBonuses.reduce(
+        (sum: number, record: any) => sum + (record.totalBonus || 0),
+        0,
+      );
+    }
+    if (paginated && workerCode)
+      visibleBonuses = visibleBonuses.slice(
+        (page - 1) * pageSize,
+        page * pageSize,
+      );
+    return NextResponse.json({
+      success: true,
+      data: visibleBonuses,
+      ...(paginated
+        ? {
+            page,
+            pageSize,
+            total: visibleTotal,
+            totalPages: Math.ceil((visibleTotal || 0) / pageSize),
+            totalBonus: visibleBonusAmount,
+          }
+        : {}),
     });
-    return NextResponse.json({ success: true, data: bonuses });
   } catch (error: any) {
     if (error instanceof SyntaxError)
       return NextResponse.json(

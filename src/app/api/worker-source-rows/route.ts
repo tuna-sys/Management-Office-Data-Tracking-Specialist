@@ -11,20 +11,11 @@ import {
   normalizeWorkerSourceValues,
   workerSourceView,
 } from "@/lib/worker-source-view";
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
 
 export const dynamic = "force-dynamic";
 
 async function buildWorkerRows(archived: boolean) {
-    const resolvedPath = path.resolve(".local/resolved-duplicates.json");
-    const resolvedIds = new Set<string>(
-      existsSync(resolvedPath)
-        ? JSON.parse(readFileSync(resolvedPath, "utf8"))
-        : [],
-    );
-
-    const [sources, workers, approveLogs] = await Promise.all([
+    const [sources, workers, approveLogs, resolvedRows] = await Promise.all([
       readImportSources(),
       prisma.worker.findMany({
         where: {
@@ -33,9 +24,52 @@ async function buildWorkerRows(archived: boolean) {
               ? { not: null }
               : null,
         },
-        include: {
+        select: {
+          id: true,
+          code: true,
+          fullName: true,
+          dob: true,
+          gender: true,
+          idCard: true,
+          idCardDate: true,
+          idCardPlace: true,
+          phone: true,
+          address: true,
+          province: true,
+          recruiter: true,
+          team: true,
+          source: true,
+          updatedAt: true,
           assignments: {
-            include: {
+            select: {
+              id: true,
+              workerId: true,
+              updatedAt: true,
+              contractType: true,
+              status: true,
+              interviewFactory: true,
+              leaveDate: true,
+              leaveReason: true,
+              shuttleBusKtx: true,
+              interviewDate: true,
+              expectedTrainingDate: true,
+              expectedTrainingStatus: true,
+              standardTrainingDate: true,
+              onboardingMonth: true,
+              employeeCode: true,
+              recruiter: true,
+              recruiterId: true,
+              team: true,
+              teamId: true,
+              orderId: true,
+              batchId: true,
+              interviewResult: true,
+              passedDate: true,
+              startDate: true,
+              confirmedWorkDays: true,
+              workDaysAsOf: true,
+              workDaysConfirmedBy: true,
+              source: true,
               events: {
                 where: { note: { startsWith: "Import Excel — source:" } },
                 orderBy: { createdAt: "desc" },
@@ -45,14 +79,24 @@ async function buildWorkerRows(archived: boolean) {
               bonusRecords: { select: { status: true, approvedAt: true } },
             },
           },
-          bankAccounts: true,
+          bankAccounts: {
+            select: {
+              accountNumber: true,
+              bankName: true,
+              accountHolderName: true,
+            },
+          },
         },
       }),
       prisma.auditLog.findMany({
         where: { action: "APPROVE", module: "DUPLICATE" },
         select: { details: true },
       }),
+      prisma.$queryRawUnsafe<Array<{ alertId: string }>>(
+        'SELECT "alertId" FROM "DuplicateResolution"',
+      ),
     ]);
+    const resolvedIds = new Set(resolvedRows.map((item) => item.alertId));
 
     interface ApproveLogInfo {
       card: string;
@@ -69,6 +113,19 @@ async function buildWorkerRows(archived: boolean) {
         rowNum: rowMatch ? Number(rowMatch[1]) : undefined,
         sourceType: typeMatch ? typeMatch[1].toUpperCase() : undefined,
       });
+    }
+
+    const approvedCards = new Set(
+      parsedApproveLogs.map((log) => log.card).filter(Boolean),
+    );
+    const explicitlyApprovedSourceRows = new Set<string>();
+    for (const log of parsedApproveLogs) {
+      if (
+        log.rowNum === undefined ||
+        (log.sourceType && log.sourceType !== "DS_TONG")
+      )
+        continue;
+      explicitlyApprovedSourceRows.add(`${log.rowNum}|${log.card || "*"}`);
     }
 
     const people = new Map(workers.map((w) => [w.idCard, w]));
@@ -204,12 +261,10 @@ async function buildWorkerRows(archived: boolean) {
 
         const isDirectApproved =
           Boolean(r.isApproved) || resolvedIds.has(alertId);
-        const isExplicitLogRow = parsedApproveLogs.some(
-          (l) =>
-            l.rowNum === Number(r.row) &&
-            (l.sourceType === "DS_TONG" || !l.sourceType) &&
-            (!l.card || l.card === card),
-        );
+        const rowNumber = Number(r.row);
+        const isExplicitLogRow =
+          explicitlyApprovedSourceRows.has(`${rowNumber}|*`) ||
+          explicitlyApprovedSourceRows.has(`${rowNumber}|${card}`);
         const isAssignmentApproved = Boolean(
           matchedAssignment?.events?.some((e: any) =>
             /duyệt.*(trùng|bổ sung|ghi đè|chính thức)|duyệt cảnh báo/i.test(
@@ -220,12 +275,10 @@ async function buildWorkerRows(archived: boolean) {
             (b: any) => b.status === "APPROVED" || Boolean(b.approvedAt),
           ),
         );
-        const isDuplicateLogCardMatch = parsedApproveLogs.some(
-          (l) =>
-            Boolean(l.card && l.card === card) &&
-            code &&
-            !["bỏ đt", "chưa có mã", "chưa có"].includes(code.toLowerCase()),
-        );
+        const isDuplicateLogCardMatch =
+          Boolean(card && approvedCards.has(card)) &&
+          Boolean(code) &&
+          !["bỏ đt", "chưa có mã", "chưa có"].includes(code.toLowerCase());
 
         const isApproved =
           isDirectApproved ||
@@ -428,9 +481,7 @@ async function buildWorkerRows(archived: boolean) {
           const hasApprovedBonus = a.bonusRecords?.some(
             (b: any) => b.status === "APPROVED" || Boolean(b.approvedAt),
           );
-          const hasDuplicateLog = parsedApproveLogs.some(
-            (l) => l.card && l.card === w.idCard,
-          );
+          const hasDuplicateLog = approvedCards.has(w.idCard);
           const isApproved =
             Boolean(hasApprovalEvent) ||
             Boolean(hasApprovedBonus) ||

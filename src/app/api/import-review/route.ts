@@ -3,7 +3,8 @@ import { sourceConflicts, assertSourceCompatible, fillMissing, assertSourceCard,
 import { NextRequest, NextResponse } from "next/server";
 import { guard, identity } from "@/lib/local-request";
 import {
-  readImportSources,
+  readOpenImportIssues,
+  readImportSourceRow,
   deleteImportSource,
   resolveImportSourceRow,
 } from "@/lib/import-source-store";
@@ -26,7 +27,7 @@ export async function GET(request: NextRequest) {
   if (denied) return denied;
   try {
     const [sources, workers] = await Promise.all([
-      readImportSources(),
+      readOpenImportIssues(),
       prisma.worker.findMany({
         include: {
           assignments: { orderBy: { createdAt: "desc" } },
@@ -171,8 +172,9 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "DELETE") {
-      const src = (await readImportSources()).find((s: any) => s.id === String(sourceId));
-      const incoming = src?.rows?.find((r: any) => Number(r.row) === Number(row));
+      const sourceRow = await readImportSourceRow(String(sourceId), Number(row));
+      const src = sourceRow?.source;
+      const incoming = sourceRow?.row;
       if (incoming) {
         const v = incoming.values || {};
         const card = normalizeCccd(v["Số CCCD"] || v["số CCCD"] || v.CCCD || "");
@@ -205,11 +207,9 @@ export async function POST(request: NextRequest) {
     }
 
     // action === "APPROVE"
-    const sources = await readImportSources();
-    const targetSource = sources.find((s: any) => s.id === String(sourceId));
-    const targetRow = (targetSource?.rows || []).find(
-      (r: any) => Number(r.row) === Number(row),
-    );
+    const sourceRow = await readImportSourceRow(String(sourceId), Number(row));
+    const targetSource = sourceRow?.source;
+    const targetRow = sourceRow?.row;
     if (!targetSource || !targetRow) {
       return NextResponse.json(
         { success: false, message: "Không tìm thấy dòng dữ liệu để duyệt" },

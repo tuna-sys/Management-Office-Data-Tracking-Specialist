@@ -69,8 +69,16 @@ const sources = [
   },
 ];
 deps["@/lib/local-request"] = { guard: async () => null };
-deps["@/lib/import-source-store"] = { readImportSources: async () => sources };
-deps["@/lib/prisma"] = { prisma: { worker: { findMany: async () => [] }, auditLog: { findMany: async () => [] } } };
+deps["@/lib/import-source-store"] = {
+  readImportSources: async () => sources,
+  readOpenImportIssues: async () => sources,
+  readImportSourceRow: async (sourceId, rowNumber) => {
+    const source = sources.find((item) => item.id === sourceId);
+    const row = source?.rows.find((item) => Number(item.row) === Number(rowNumber));
+    return source && row ? { source, row } : null;
+  },
+};
+deps["@/lib/prisma"] = { prisma: { worker: { findMany: async () => [{ id: "worker-1", code: null, fullName: "QA", idCard: "000000000001", assignments: [{ id: "assignment-1", workerId: "worker-1", updatedAt: new Date(), interviewFactory: "QA", interviewDate: "04/05/2026", status: "Đang chờ phỏng vấn", events: [], bonusRecords: [] }], bankAccounts: [] }] }, auditLog: { findMany: async () => [] }, $queryRawUnsafe: async () => [] } };
 deps["next/server"] = {
   NextResponse: { json: (body, options) => ({ body, ...options }) },
 };

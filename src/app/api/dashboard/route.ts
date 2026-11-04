@@ -18,16 +18,31 @@ export async function GET(request: NextRequest) {
   const denied = await guard(request);
   if (denied) return denied;
   try {
-    const workers = await prisma.worker.findMany({
-      include: {
-        assignments: {
-          orderBy: { createdAt: "desc" },
-          take: 1,
+    const [workers, approvedBonuses, bankMismatches] = await Promise.all([
+      prisma.worker.findMany({
+        select: {
+          id: true,
+          recruiter: true,
+          province: true,
+          address: true,
+          assignments: {
+            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+            take: 1,
+            select: {
+              interviewFactory: true,
+              status: true,
+              recruiter: true,
+            },
+          },
         },
-      },
-    });
-    const bonuses = await prisma.bonusRecord.findMany();
-    const bankAccounts = await prisma.bankAccount.findMany();
+      }),
+      prisma.bonusRecord.aggregate({
+        where: { status: { in: ["APPROVED", "LOCKED"] } },
+        _sum: { totalBonus: true },
+        _count: { _all: true },
+      }),
+      prisma.bankAccount.count({ where: { verificationStatus: "MISMATCH" } }),
+    ]);
     // 1. Thống kê tổng quan
     const totalWorkers = workers.length;
     let workingCount = 0;
@@ -96,16 +111,8 @@ export async function GET(request: NextRequest) {
       provinceMap[prov] = (provinceMap[prov] || 0) + 1;
     }
     // Tổng tiền thưởng
-    const totalBonusAmount = bonuses
-      .filter((b) => ["APPROVED", "LOCKED"].includes(b.status))
-      .reduce((sum, b) => sum + (b.totalBonus || 0), 0);
-    const approvedBonusCount = bonuses.filter(
-      (b) => b.status === "APPROVED" || b.status === "LOCKED",
-    ).length;
-    // Cảnh báo ngân hàng
-    const bankMismatches = bankAccounts.filter(
-      (b) => b.verificationStatus === "MISMATCH",
-    ).length;
+    const totalBonusAmount = approvedBonuses._sum.totalBonus || 0;
+    const approvedBonusCount = approvedBonuses._count._all;
     // Retention rate
     const retentionRate =
       totalWorkers > 0 ? Math.round((workingCount / totalWorkers) * 100) : 0;

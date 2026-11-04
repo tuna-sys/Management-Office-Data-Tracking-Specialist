@@ -26,17 +26,92 @@ export async function GET(r: NextRequest) {
     const data = await cachedRead("report:" + query.toString(), version, async () => {
       const [workers, enrollments, imported, sources] = await cachedRead("report-inputs", version, () => Promise.all([
         prisma.worker.findMany({
-          include: { assignments: { include: { order: true, batch: true } } },
+          select: {
+            id: true,
+            idCard: true,
+            code: true,
+            fullName: true,
+            dob: true,
+            gender: true,
+            province: true,
+            address: true,
+            archivedAt: true,
+            assignments: {
+              select: {
+                id: true,
+                workerId: true,
+                interviewDate: true,
+                interviewFactory: true,
+                employeeCode: true,
+                status: true,
+                interviewResult: true,
+                startDate: true,
+                confirmedWorkDays: true,
+                orderId: true,
+                recruiter: true,
+                team: true,
+                batchId: true,
+                order: { select: { name: true } },
+                batch: { select: { id: true, target: true, periodMonth: true } },
+              },
+            },
+          },
         }),
         prisma.policyEnrollment.findMany({
-          include: {
-            assignment: { include: { worker: true, order: true, batch: true } },
-            stages: { include: { payments: true } },
+          select: {
+            id: true,
+            factory: true,
+            policyName: true,
+            assignment: {
+              select: {
+                interviewDate: true,
+                interviewFactory: true,
+                employeeCode: true,
+                orderId: true,
+                recruiter: true,
+                team: true,
+                order: { select: { name: true } },
+                batch: { select: { id: true, periodMonth: true } },
+                worker: {
+                  select: { idCard: true, code: true, fullName: true },
+                },
+              },
+            },
+            stages: {
+              select: {
+                label: true,
+                thresholdDays: true,
+                amount: true,
+                eligible: true,
+                achieved: true,
+                payments: { select: { amount: true } },
+              },
+            },
           },
         }),
         prisma.bonusRecord.findMany({
           where: { note: { contains: "SOURCE_EXCEL_ACTUAL_PAID" } },
-          include: { assignment: { include: { worker: true } }, worker: true },
+          select: {
+            id: true,
+            company: true,
+            month: true,
+            interviewDate: true,
+            policy: true,
+            workerCode: true,
+            totalBonus: true,
+            note: true,
+            worker: { select: { idCard: true, fullName: true } },
+            assignment: {
+              select: {
+                interviewDate: true,
+                interviewFactory: true,
+                orderId: true,
+                recruiter: true,
+                team: true,
+                batch: { select: { id: true, periodMonth: true } },
+              },
+            },
+          },
         }),
         readImportSources(),
       ]));

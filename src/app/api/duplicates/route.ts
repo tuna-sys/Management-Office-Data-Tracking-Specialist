@@ -23,28 +23,25 @@ import {
 import { splitImportReview } from "@/lib/import-review";
 import { parseBonusImportRow, readBonusValue } from "@/lib/bonus-import";
 import { parseImportRow, inferProvince } from "@/lib/worker-import";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
 
 export const dynamic = "force-dynamic";
 
-const resolvedFile = path.resolve(".local/resolved-duplicates.json");
-
 async function readResolvedIds(): Promise<Set<string>> {
   try {
-    const raw = await readFile(resolvedFile, "utf8");
-    const parsed = JSON.parse(raw);
-    return new Set(Array.isArray(parsed) ? parsed : []);
+    const rows = await prisma.$queryRawUnsafe<Array<{ alertId: string }>>(
+      'SELECT "alertId" FROM "DuplicateResolution"',
+    );
+    return new Set(rows.map((row) => row.alertId));
   } catch {
     return new Set();
   }
 }
 
-async function addResolvedId(id: string) {
-  const set = await readResolvedIds();
-  set.add(id);
-  await mkdir(path.dirname(resolvedFile), { recursive: true });
-  await writeFile(resolvedFile, JSON.stringify([...set], null, 2), "utf8");
+async function addResolvedId(id: string, resolvedBy = "Hệ thống") {
+  await prisma.$executeRawUnsafe(
+    'INSERT INTO "DuplicateResolution" ("alertId","resolvedBy","resolvedAt") VALUES (?,?,?) ON CONFLICT("alertId") DO UPDATE SET "resolvedBy" = excluded."resolvedBy", "resolvedAt" = excluded."resolvedAt"',
+    id, resolvedBy, new Date().toISOString(),
+  );
 }
 
 async function buildDuplicateSnapshot() {
@@ -720,7 +717,7 @@ export async function POST(request: NextRequest) {
     if (category === "MERGE_INFO" && sourceId && row != null) {
       if (action === "DELETE") {
         await resolveImportSourceRow(String(sourceId), Number(row), "DELETE");
-        await addResolvedId(String(id));
+        await addResolvedId(String(id), actor.username);
         await prisma.auditLog.create({
           data: {
             module: "DUPLICATE",
@@ -742,7 +739,7 @@ export async function POST(request: NextRequest) {
         (r: any) => Number(r.row) === Number(row),
       );
       if (!targetSource || !targetRow) {
-        await addResolvedId(String(id));
+        await addResolvedId(String(id), actor.username);
         return NextResponse.json({
           success: true,
           message: "Đã duyệt bản ghi",
@@ -976,7 +973,7 @@ export async function POST(request: NextRequest) {
       });
 
       await resolveImportSourceRow(String(sourceId), Number(row), "APPROVE");
-      await addResolvedId(String(id));
+      await addResolvedId(String(id), actor.username);
       return NextResponse.json({
         success: true,
         message:
@@ -1006,7 +1003,7 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      await addResolvedId(String(id));
+      await addResolvedId(String(id), actor.username);
       await prisma.auditLog.create({
         data: {
           module: "DUPLICATE",
@@ -1132,7 +1129,7 @@ export async function POST(request: NextRequest) {
         });
       });
 
-      await addResolvedId(String(id));
+      await addResolvedId(String(id), actor.username);
       return NextResponse.json({
         success: true,
         message:

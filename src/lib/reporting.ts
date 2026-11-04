@@ -194,12 +194,10 @@ export function recruitmentReport(workers: any[], p: URLSearchParams) {
       passRate: rate(passed, total),
       trainingRate: rate(training, total),
       abandonRate: rate(abandon, total),
-      statusCounts: Object.fromEntries(
-        [...new Set(list.map((a) => a.status))].map((status) => [
-          status,
-          list.filter((a) => a.status === status).length,
-        ]),
-      ),
+      statusCounts: list.reduce((counts: Record<string, number>, a: any) => {
+        counts[a.status] = (counts[a.status] || 0) + 1;
+        return counts;
+      }, {}),
       unknownInterview: list.filter(
         (a) => !isPassed(a) && !isFailed(a) && !isAbandon(a),
       ).length,
@@ -209,7 +207,9 @@ export function recruitmentReport(workers: any[], p: URLSearchParams) {
     const groups = new Map<string, any[]>();
     for (const a of rows) {
       const k = key(a) || "Chưa gán";
-      groups.set(k, [...(groups.get(k) || []), a]);
+      const list = groups.get(k);
+      if (list) list.push(a);
+      else groups.set(k, [a]);
     }
     return [...groups].map(([name, list]) => ({ name, ...summarize(list) }));
   }
@@ -275,21 +275,26 @@ export function recruitmentReport(workers: any[], p: URLSearchParams) {
       ages: arr(ages),
     };
   };
-  const factories = group((a) => a.interviewFactory),
-    companies = [
-      ...new Set(rows.map((a) => a.interviewFactory)),
-    ].map((factory) => ({
-      factory,
-      ...demographics(
-        rows.filter(
-          (a) => (a.interviewFactory) === factory,
-        ),
-      ),
-    }));
-  const orderReports = Array.from(
-    new Set(rows.map((a) => a.orderId || "UNKNOWN")),
-  ).map((id) => {
-    const list = rows.filter((a) => (a.orderId || "UNKNOWN") === id);
+  const factories = group((a) => a.interviewFactory);
+  const factoryRows = new Map<string, any[]>();
+  for (const assignment of rows) {
+    const factory = assignment.interviewFactory;
+    const list = factoryRows.get(factory);
+    if (list) list.push(assignment);
+    else factoryRows.set(factory, [assignment]);
+  }
+  const companies = [...factoryRows].map(([factory, list]) => ({
+    factory,
+    ...demographics(list),
+  }));
+  const orderGroups = new Map<string, any[]>();
+  for (const assignment of rows) {
+    const id = assignment.orderId || "UNKNOWN";
+    const list = orderGroups.get(id);
+    if (list) list.push(assignment);
+    else orderGroups.set(id, [assignment]);
+  }
+  const orderReports = [...orderGroups].map(([id, list]) => {
     const batches = new Map<string, number>();
     for (const a of list)
       if (a.batch?.target != null) batches.set(a.batch.id, a.batch.target);
@@ -352,7 +357,9 @@ export function rewardReport(enrollments: any[], p: URLSearchParams) {
     const map = new Map<string, any[]>();
     for (const e of rows) {
       const k = key(e) || "Chưa xác định";
-      map.set(k, [...(map.get(k) || []), e]);
+      const list = map.get(k);
+      if (list) list.push(e);
+      else map.set(k, [e]);
     }
     return [...map].map(([name, list]) => ({ name, ...summarize(list) }));
   }
@@ -360,7 +367,9 @@ export function rewardReport(enrollments: any[], p: URLSearchParams) {
   for (const e of rows)
     for (const s of e.stages) {
       const name = `${e.factory} · ${e.policyName} · ${s.label}`;
-      map.set(name, [...(map.get(name) || []), s]);
+      const list = map.get(name);
+      if (list) list.push(s);
+      else map.set(name, [s]);
     }
   const stages = [...map].map(([name, list]) => {
     const eligible = list.filter((s) => s.eligible).length,
@@ -380,7 +389,9 @@ export function rewardReport(enrollments: any[], p: URLSearchParams) {
   for (const e of rows)
     for (const s of e.stages) {
       const name = `${e.factory} · ${s.label} · ${s.thresholdDays == null ? "Không theo số công" : s.thresholdDays + " công"}`;
-      conditions.set(name, [...(conditions.get(name) || []), s]);
+      const list = conditions.get(name);
+      if (list) list.push(s);
+      else conditions.set(name, [s]);
     }
   const milestones = [...conditions].map(([name, list]) => {
     const eligible = list.filter((s) => s.eligible).length,
