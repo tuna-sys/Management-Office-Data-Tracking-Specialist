@@ -14,649 +14,653 @@ import {
 
 export const dynamic = "force-dynamic";
 
+function compareCreatedAt(
+  a: { createdAt: unknown },
+  b: { createdAt: unknown },
+) {
+  const aTime = new Date(a.createdAt as string | number | Date).getTime();
+  const bTime = new Date(b.createdAt as string | number | Date).getTime();
+  return (
+    (Number.isFinite(aTime) ? aTime : 0) - (Number.isFinite(bTime) ? bTime : 0)
+  );
+}
+
 async function buildWorkerRows(archived: boolean) {
-    const [sources, workers, approveLogs, resolvedRows] = await Promise.all([
-      readImportSources(),
-      prisma.worker.findMany({
-        where: {
-          archivedAt:
-            archived
-              ? { not: null }
-              : null,
-        },
-        select: {
-          id: true,
-          code: true,
-          fullName: true,
-          dob: true,
-          gender: true,
-          idCard: true,
-          idCardDate: true,
-          idCardPlace: true,
-          phone: true,
-          address: true,
-          province: true,
-          recruiter: true,
-          team: true,
-          source: true,
-          updatedAt: true,
-          assignments: {
-            select: {
-              id: true,
-              workerId: true,
-              updatedAt: true,
-              contractType: true,
-              status: true,
-              interviewFactory: true,
-              leaveDate: true,
-              leaveReason: true,
-              shuttleBusKtx: true,
-              interviewDate: true,
-              expectedTrainingDate: true,
-              expectedTrainingStatus: true,
-              standardTrainingDate: true,
-              onboardingMonth: true,
-              employeeCode: true,
-              recruiter: true,
-              recruiterId: true,
-              team: true,
-              teamId: true,
-              orderId: true,
-              batchId: true,
-              interviewResult: true,
-              passedDate: true,
-              startDate: true,
-              confirmedWorkDays: true,
-              workDaysAsOf: true,
-              workDaysConfirmedBy: true,
-              source: true,
-              events: {
-                where: { note: { startsWith: "Import Excel — source:" } },
-                orderBy: { createdAt: "desc" },
-                take: 1,
-                select: { note: true },
-              },
-              bonusRecords: { select: { status: true, approvedAt: true } },
+  const [sources, workers, approveLogs, resolvedRows] = await Promise.all([
+    readImportSources(),
+    prisma.worker.findMany({
+      where: {
+        archivedAt: archived ? { not: null } : null,
+      },
+      select: {
+        id: true,
+        code: true,
+        fullName: true,
+        dob: true,
+        gender: true,
+        idCard: true,
+        idCardDate: true,
+        idCardPlace: true,
+        phone: true,
+        address: true,
+        province: true,
+        recruiter: true,
+        team: true,
+        source: true,
+        updatedAt: true,
+        assignments: {
+          select: {
+            id: true,
+            workerId: true,
+            updatedAt: true,
+            contractType: true,
+            status: true,
+            interviewFactory: true,
+            leaveDate: true,
+            leaveReason: true,
+            shuttleBusKtx: true,
+            interviewDate: true,
+            expectedTrainingDate: true,
+            expectedTrainingStatus: true,
+            standardTrainingDate: true,
+            onboardingMonth: true,
+            employeeCode: true,
+            recruiter: true,
+            recruiterId: true,
+            team: true,
+            teamId: true,
+            orderId: true,
+            batchId: true,
+            interviewResult: true,
+            passedDate: true,
+            startDate: true,
+            confirmedWorkDays: true,
+            workDaysAsOf: true,
+            workDaysConfirmedBy: true,
+            source: true,
+            events: {
+              where: { note: { startsWith: "Import Excel — source:" } },
+              orderBy: { createdAt: "desc" },
+              take: 1,
+              select: { note: true },
             },
-          },
-          bankAccounts: {
-            select: {
-              accountNumber: true,
-              bankName: true,
-              accountHolderName: true,
-            },
+            bonusRecords: { select: { status: true, approvedAt: true } },
           },
         },
-      }),
-      prisma.auditLog.findMany({
-        where: { action: "APPROVE", module: "DUPLICATE" },
-        select: { details: true },
-      }),
-      prisma.$queryRawUnsafe<Array<{ alertId: string }>>(
-        'SELECT "alertId" FROM "DuplicateResolution"',
-      ),
-    ]);
-    const resolvedIds = new Set(resolvedRows.map((item) => item.alertId));
+        bankAccounts: {
+          select: {
+            accountNumber: true,
+            bankName: true,
+            accountHolderName: true,
+          },
+        },
+      },
+    }),
+    prisma.auditLog.findMany({
+      where: { action: "APPROVE", module: "DUPLICATE" },
+      select: { details: true },
+    }),
+    prisma.$queryRawUnsafe<Array<{ alertId: string }>>(
+      'SELECT "alertId" FROM "DuplicateResolution"',
+    ),
+  ]);
+  const resolvedIds = new Set(resolvedRows.map((item) => item.alertId));
 
-    interface ApproveLogInfo {
-      card: string;
-      rowNum?: number;
-      sourceType?: string;
-    }
-    const parsedApproveLogs: ApproveLogInfo[] = [];
-    for (const log of approveLogs) {
-      const cardMatch = /\b(\d{9}|\d{12})\b/.exec(log.details || "");
-      const rowMatch = /dòng #(\d+)/i.exec(log.details || "");
-      const typeMatch = /\((DS_TONG|DS_THUONG)\)/i.exec(log.details || "");
-      parsedApproveLogs.push({
-        card: cardMatch ? cardMatch[1] : "",
-        rowNum: rowMatch ? Number(rowMatch[1]) : undefined,
-        sourceType: typeMatch ? typeMatch[1].toUpperCase() : undefined,
-      });
-    }
+  interface ApproveLogInfo {
+    card: string;
+    rowNum?: number;
+    sourceType?: string;
+  }
+  const parsedApproveLogs: ApproveLogInfo[] = [];
+  for (const log of approveLogs) {
+    const cardMatch = /\b(\d{9}|\d{12})\b/.exec(log.details || "");
+    const rowMatch = /dòng #(\d+)/i.exec(log.details || "");
+    const typeMatch = /\((DS_TONG|DS_THUONG)\)/i.exec(log.details || "");
+    parsedApproveLogs.push({
+      card: cardMatch ? cardMatch[1] : "",
+      rowNum: rowMatch ? Number(rowMatch[1]) : undefined,
+      sourceType: typeMatch ? typeMatch[1].toUpperCase() : undefined,
+    });
+  }
 
-    const approvedCards = new Set(
-      parsedApproveLogs.map((log) => log.card).filter(Boolean),
+  const approvedCards = new Set(
+    parsedApproveLogs.map((log) => log.card).filter(Boolean),
+  );
+  const explicitlyApprovedSourceRows = new Set<string>();
+  for (const log of parsedApproveLogs) {
+    if (
+      log.rowNum === undefined ||
+      (log.sourceType && log.sourceType !== "DS_TONG")
+    )
+      continue;
+    explicitlyApprovedSourceRows.add(`${log.rowNum}|${log.card || "*"}`);
+  }
+
+  const people = new Map(workers.map((w) => [w.idCard, w]));
+  const assignmentValues = (a: any) => ({
+    id: a.id,
+    updatedAt: a.updatedAt,
+    contractType: a.contractType,
+    status: a.status,
+    interviewFactory: a.interviewFactory,
+    leaveDate: a.leaveDate,
+    leaveReason: a.leaveReason,
+    shuttleBusKtx: a.shuttleBusKtx,
+    interviewDate: a.interviewDate,
+    expectedTrainingDate: a.expectedTrainingDate,
+    expectedTrainingStatus: a.expectedTrainingStatus,
+    standardTrainingDate: a.standardTrainingDate,
+    onboardingMonth: a.onboardingMonth,
+    employeeCode: a.employeeCode,
+    recruiter: a.recruiter,
+    recruiterId: a.recruiterId,
+    team: a.team,
+    teamId: a.teamId,
+    orderId: a.orderId,
+    batchId: a.batchId,
+    interviewResult: a.interviewResult,
+    passedDate: a.passedDate,
+    startDate: a.startDate,
+    confirmedWorkDays: a.confirmedWorkDays,
+    workDaysAsOf: a.workDaysAsOf,
+    source: a.source,
+  });
+  const workerValues = (w: any) => ({
+    code: w.code,
+    fullName: w.fullName,
+    dob: w.dob,
+    gender: w.gender,
+    idCard: w.idCard,
+    idCardDate: w.idCardDate,
+    idCardPlace: w.idCardPlace,
+    phone: w.phone,
+    address: w.address,
+    province: w.province,
+    recruiter: w.recruiter,
+    team: w.team,
+    source: w.source,
+  });
+
+  const bonusRows = sources
+    .filter((s) => s.type === "DS_THUONG")
+    .sort(
+      (a, b) => a.file.localeCompare(b.file, "vi") || compareCreatedAt(a, b),
+    )
+    .flatMap((s) =>
+      s.rows
+        .filter(
+          (r: any) =>
+            !splitImportReview([...(r.warnings || []), ...(r.duplicates || [])])
+              .duplicates.length,
+        )
+        .map((r: any) => ({
+          ...r,
+          id: `${s.id}-${r.row}`,
+          values: normalizeWorkerSourceValues(r.values),
+          file: s.file,
+        })),
     );
-    const explicitlyApprovedSourceRows = new Set<string>();
-    for (const log of parsedApproveLogs) {
-      if (
-        log.rowNum === undefined ||
-        (log.sourceType && log.sourceType !== "DS_TONG")
-      )
-        continue;
-      explicitlyApprovedSourceRows.add(`${log.rowNum}|${log.card || "*"}`);
-    }
 
-    const people = new Map(workers.map((w) => [w.idCard, w]));
-    const assignmentValues = (a: any) => ({
-      id: a.id,
-      updatedAt: a.updatedAt,
-      contractType: a.contractType,
-      status: a.status,
-      interviewFactory: a.interviewFactory,
-      leaveDate: a.leaveDate,
-      leaveReason: a.leaveReason,
-      shuttleBusKtx: a.shuttleBusKtx,
-      interviewDate: a.interviewDate,
-      expectedTrainingDate: a.expectedTrainingDate,
-      expectedTrainingStatus: a.expectedTrainingStatus,
-      standardTrainingDate: a.standardTrainingDate,
-      onboardingMonth: a.onboardingMonth,
-      employeeCode: a.employeeCode,
-      recruiter: a.recruiter,
-      recruiterId: a.recruiterId,
-      team: a.team,
-      teamId: a.teamId,
-      orderId: a.orderId,
-      batchId: a.batchId,
-      interviewResult: a.interviewResult,
-      passedDate: a.passedDate,
-      startDate: a.startDate,
-      confirmedWorkDays: a.confirmedWorkDays,
-      workDaysAsOf: a.workDaysAsOf,
-      source: a.source,
-    });
-    const workerValues = (w: any) => ({
-      code: w.code,
-      fullName: w.fullName,
-      dob: w.dob,
-      gender: w.gender,
-      idCard: w.idCard,
-      idCardDate: w.idCardDate,
-      idCardPlace: w.idCardPlace,
-      phone: w.phone,
-      address: w.address,
-      province: w.province,
-      recruiter: w.recruiter,
-      team: w.team,
-      source: w.source,
-    });
+  const stored = sources
+    .filter((s) => s.type === "DS_TONG")
+    .sort(
+      (a, b) => a.file.localeCompare(b.file, "vi") || compareCreatedAt(a, b),
+    );
 
-    const bonusRows = sources
-      .filter((s) => s.type === "DS_THUONG")
-      .sort(
-        (a, b) =>
-          a.file.localeCompare(b.file, "vi") ||
-          a.createdAt.localeCompare(b.createdAt),
-      )
-      .flatMap((s) =>
-        s.rows
-          .filter(
-            (r: any) =>
-              !splitImportReview([
-                ...(r.warnings || []),
-                ...(r.duplicates || []),
-              ]).duplicates.length,
+  const sourceRows = stored.flatMap((s) =>
+    s.rows.map((r: any) => {
+      const values = normalizeWorkerSourceValues(r.values);
+      const card = String(
+        values["Số CCCD"] || values["số CCCD"] || values.CCCD || "",
+      ).trim();
+      const worker = people.get(card);
+      const rev = splitImportReview([
+        ...(r.warnings || []),
+        ...(r.duplicates || []),
+      ]);
+      const cleanAssignments = worker
+        ? worker.assignments.map(assignmentValues)
+        : [];
+      const cleanBanks = worker?.bankAccounts
+        ? worker.bankAccounts.map((b: any) => ({
+            accountNumber: b.accountNumber,
+            bankName: b.bankName,
+            accountHolderName: b.accountHolderName,
+          }))
+        : [];
+      const alertId = `import-${s.id}-${r.row}`;
+      const pvDate = String(values["Ngày PV"] || "");
+      const code = String(values["Mã NV"] || "");
+      const factory = String(values["Nhà máy PV"] || "");
+
+      const matchedAssignment =
+        worker?.assignments?.find((a: any) => {
+          if (!matchFactory(a.interviewFactory || "", factory)) return false;
+          if (
+            pvDate &&
+            a.interviewDate &&
+            dateKey(a.interviewDate) !== dateKey(pvDate)
           )
-          .map((r: any) => ({
-            ...r,
-            id: `${s.id}-${r.row}`,
-            values: normalizeWorkerSourceValues(r.values),
-            file: s.file,
-          })),
-      );
-
-    const stored = sources
-      .filter((s) => s.type === "DS_TONG")
-      .sort(
-        (a, b) =>
-          a.file.localeCompare(b.file, "vi") ||
-          a.createdAt.localeCompare(b.createdAt),
-      );
-
-    const sourceRows = stored.flatMap((s) =>
-      s.rows.map((r: any) => {
-        const values = normalizeWorkerSourceValues(r.values);
-        const card = String(
-          values["Số CCCD"] || values["số CCCD"] || values.CCCD || "",
-        ).trim();
-        const worker = people.get(card);
-        const rev = splitImportReview([
-          ...(r.warnings || []),
-          ...(r.duplicates || []),
-        ]);
-        const cleanAssignments = worker
-          ? worker.assignments.map(assignmentValues)
-          : [];
-        const cleanBanks = worker?.bankAccounts
-          ? worker.bankAccounts.map((b: any) => ({
-              accountNumber: b.accountNumber,
-              bankName: b.bankName,
-              accountHolderName: b.accountHolderName,
-            }))
-          : [];
-        const alertId = `import-${s.id}-${r.row}`;
-        const pvDate = String(values["Ngày PV"] || "");
-        const code = String(values["Mã NV"] || "");
-        const factory = String(values["Nhà máy PV"] || "");
-
-        const matchedAssignment =
-          worker?.assignments?.find((a: any) => {
-            if (!matchFactory(a.interviewFactory || "", factory)) return false;
-            if (
-              pvDate &&
-              a.interviewDate &&
-              dateKey(a.interviewDate) !== dateKey(pvDate)
-            )
-              return false;
-            if (
-              code &&
-              a.employeeCode &&
-              String(a.employeeCode).trim() !== code.trim()
-            )
-              return false;
-            return true;
-          }) ||
-          worker?.assignments?.find((a: any) => {
-            if (!matchFactory(a.interviewFactory || "", factory)) return false;
-            if (
-              pvDate &&
-              a.interviewDate &&
-              dateKey(a.interviewDate) === dateKey(pvDate)
-            )
-              return true;
             return false;
-          });
+          if (
+            code &&
+            a.employeeCode &&
+            String(a.employeeCode).trim() !== code.trim()
+          )
+            return false;
+          return true;
+        }) ||
+        worker?.assignments?.find((a: any) => {
+          if (!matchFactory(a.interviewFactory || "", factory)) return false;
+          if (
+            pvDate &&
+            a.interviewDate &&
+            dateKey(a.interviewDate) === dateKey(pvDate)
+          )
+            return true;
+          return false;
+        });
 
-        const isDirectApproved =
-          Boolean(r.isApproved) || resolvedIds.has(alertId);
-        const rowNumber = Number(r.row);
-        const isExplicitLogRow =
-          explicitlyApprovedSourceRows.has(`${rowNumber}|*`) ||
-          explicitlyApprovedSourceRows.has(`${rowNumber}|${card}`);
-        const isAssignmentApproved = Boolean(
-          matchedAssignment?.events?.some((e: any) =>
-            /duyệt.*(trùng|bổ sung|ghi đè|chính thức)|duyệt cảnh báo/i.test(
-              e.note || "",
-            ),
-          ) ||
-          matchedAssignment?.bonusRecords?.some(
-            (b: any) => b.status === "APPROVED" || Boolean(b.approvedAt),
+      const isDirectApproved =
+        Boolean(r.isApproved) || resolvedIds.has(alertId);
+      const rowNumber = Number(r.row);
+      const isExplicitLogRow =
+        explicitlyApprovedSourceRows.has(`${rowNumber}|*`) ||
+        explicitlyApprovedSourceRows.has(`${rowNumber}|${card}`);
+      const isAssignmentApproved = Boolean(
+        matchedAssignment?.events?.some((e: any) =>
+          /duyệt.*(trùng|bổ sung|ghi đè|chính thức)|duyệt cảnh báo/i.test(
+            e.note || "",
+          ),
+        ) ||
+        matchedAssignment?.bonusRecords?.some(
+          (b: any) => b.status === "APPROVED" || Boolean(b.approvedAt),
+        ),
+      );
+      const isDuplicateLogCardMatch =
+        Boolean(card && approvedCards.has(card)) &&
+        Boolean(code) &&
+        !["bỏ đt", "chưa có mã", "chưa có"].includes(code.toLowerCase());
+
+      const isApproved =
+        isDirectApproved ||
+        isExplicitLogRow ||
+        isAssignmentApproved ||
+        isDuplicateLogCardMatch;
+
+      return {
+        id: `source-${s.id}-${r.row}`,
+        sourceId: s.id,
+        sourceValues: values,
+        sourceWarnings: rev.warnings.map((i) => i.message),
+        sourceDuplicates: rev.duplicates.map((i) => i.message),
+        sourceFile: s.file,
+        sourceRow: r.row,
+        workerId: worker?.id,
+        fullName: values["Họ và tên"],
+        idCard: card,
+        updatedAt: worker?.updatedAt,
+        workerValues: worker ? workerValues(worker) : null,
+        assignments: cleanAssignments,
+        bankAccounts: cleanBanks,
+        isSourceRow: true,
+        isApproved,
+      };
+    }),
+  );
+
+  const pendingDuplicateRows = sourceRows.filter(
+    (r) => r.sourceDuplicates.length > 0,
+  );
+  const unmergedSourceRows = sourceRows.filter(
+    (r) => !r.sourceDuplicates.length,
+  );
+
+  const scoreCandidateRow = (row: any): number => {
+    let score = 0;
+    if (row.isApproved) score += 1000;
+    const status = String(row.sourceValues?.["Tình trạng"] || "")
+      .toLowerCase()
+      .trim();
+    const trainStatus = String(row.sourceValues?.["Tình trạng đào tạo"] || "")
+      .toLowerCase()
+      .trim();
+    const code = String(row.sourceValues?.["Mã NV"] || "")
+      .trim()
+      .toLowerCase();
+
+    // Active / successful recruitment
+    if (
+      ["nh", "lv", "đang làm việc", "làm việc", "ok", "hết phí", "đi làm"].some(
+        (s) => status.includes(s) || trainStatus.includes(s),
+      )
+    ) {
+      score += 500;
+    }
+    // Negative / dropped / failed
+    if (
+      [
+        "bỏ đt",
+        "bỏ đào tạo",
+        "trượt",
+        "k đạt",
+        "không đạt",
+        "hủy",
+        "ko đi làm",
+        "nghỉ việc",
+      ].some((s) => status.includes(s) || trainStatus.includes(s))
+    ) {
+      score -= 300;
+    }
+    // Real employee code
+    if (
+      code &&
+      !["bỏ đt", "chưa có mã", "chưa có", "—", "-", ""].includes(code)
+    ) {
+      score += 200;
+    }
+    // Later interview date preferred
+    const pv = String(row.sourceValues?.["Ngày PV"] || "");
+    const d = dateKey(pv);
+    if (d) {
+      const time = new Date(d).getTime();
+      if (!isNaN(time)) score += Math.floor(time / 86400000) / 1000;
+    }
+    return score;
+  };
+
+  const mainSourceRows: any[] = [];
+  const groupedByWorkerFactoryMonth = new Map<string, any[]>();
+
+  for (const r of unmergedSourceRows) {
+    const card = r.idCard;
+    if (!card) {
+      mainSourceRows.push(r);
+      continue;
+    }
+    const factory = cleanFactory(r.sourceValues?.["Nhà máy PV"] || "");
+    const m =
+      dateKey(String(r.sourceValues?.["Ngày PV"] || ""))?.slice(0, 7) ||
+      dateKey(String(r.sourceValues?.["Ngày NH"] || ""))?.slice(0, 7) ||
+      String(r.sourceValues?.["Tháng nhận việc"] || "")
+        .trim()
+        .toLowerCase();
+    const day = dateKey(String(r.sourceValues?.["Ngày PV"] || ""));
+    const groupKey = day ? `${card}|${day}` : `${card}|${factory}|${m}|${r.id}`;
+
+    let list = groupedByWorkerFactoryMonth.get(groupKey);
+    if (!list) {
+      list = [];
+      groupedByWorkerFactoryMonth.set(groupKey, list);
+    }
+    list.push(r);
+  }
+
+  for (const group of groupedByWorkerFactoryMonth.values()) {
+    if (group.length === 1) {
+      mainSourceRows.push(group[0]);
+      continue;
+    }
+    const sorted = [...group].sort(
+      (a, b) => scoreCandidateRow(b) - scoreCandidateRow(a),
+    );
+    const winner = sorted[0];
+    const losers = sorted.slice(1);
+
+    const previousAttempts = losers.map((l) => ({
+      sourceRow: l.sourceRow,
+      interviewDate: l.sourceValues?.["Ngày PV"] || "—",
+      status: l.sourceValues?.["Tình trạng"] || "—",
+      trainingStatus: l.sourceValues?.["Tình trạng đào tạo"] || "—",
+      employeeCode: l.sourceValues?.["Mã NV"] || "—",
+      note: `Đợt trước ngày ${l.sourceValues?.["Ngày PV"] || "—"}: ${l.sourceValues?.["Tình trạng"] || "Bỏ ĐT"} (Đã gộp vào đợt chính thức)`,
+    }));
+
+    const anyApproved = group.some((item) => item.isApproved);
+    mainSourceRows.push({
+      ...winner,
+      isApproved: winner.isApproved || anyApproved,
+      previousAttempts,
+    });
+  }
+
+  // The recruitment identity is CCCD + interview day; company/code can change after review.
+  const sourceKey = (card: string, v: any) => {
+    const day = dateKey(String(v["Ngày PV"] || ""));
+    return day && card
+      ? [card.replace(/\s+/g, ""), day].join("|")
+      : [
+          card,
+          String(v["Nhà máy PV"] || ""),
+          String(v["Ngày PV"] || ""),
+          String(v["Mã NV"] || ""),
+        ].join("|");
+  };
+  const visibleRecruitments = new Set<string>();
+  const currentSourceRows = mainSourceRows
+    .map((r) => {
+      const worker = people.get(r.idCard);
+      const day = dateKey(String(r.sourceValues["Ngày PV"] || ""));
+      const assignment = day
+        ? worker?.assignments.find((a) => dateKey(a.interviewDate) === day)
+        : null;
+      if (!worker || !assignment) return r;
+      return {
+        ...r,
+        sourceValues: workerSourceView(worker, assignment, true).values,
+        assignments: [assignmentValues(assignment)],
+      };
+    })
+    .filter((r) => {
+      const key = sourceKey(r.idCard, r.sourceValues);
+      if (visibleRecruitments.has(key)) return false;
+      visibleRecruitments.add(key);
+      return true;
+    });
+
+  const sourcedKeys = new Set(
+    currentSourceRows.map((r) => sourceKey(r.idCard, r.sourceValues)),
+  );
+
+  const canonical = workers
+    .flatMap((w) =>
+      w.assignments.map((a) => {
+        const source = workerSourceView(w, a, true);
+        const rev = splitImportReview(source.warnings);
+        const hasApprovalEvent = a.events?.some((e: any) =>
+          /duyệt.*(trùng|bổ sung|ghi đè|chính thức)|duyệt cảnh báo/i.test(
+            e.note || "",
           ),
         );
-        const isDuplicateLogCardMatch =
-          Boolean(card && approvedCards.has(card)) &&
-          Boolean(code) &&
-          !["bỏ đt", "chưa có mã", "chưa có"].includes(code.toLowerCase());
-
+        const hasApprovedBonus = a.bonusRecords?.some(
+          (b: any) => b.status === "APPROVED" || Boolean(b.approvedAt),
+        );
+        const hasDuplicateLog = approvedCards.has(w.idCard);
         const isApproved =
-          isDirectApproved ||
-          isExplicitLogRow ||
-          isAssignmentApproved ||
-          isDuplicateLogCardMatch;
-
+          Boolean(hasApprovalEvent) ||
+          Boolean(hasApprovedBonus) ||
+          Boolean(hasDuplicateLog) ||
+          resolvedIds.has(`${w.id}-${a.id}`);
         return {
-          id: `source-${s.id}-${r.row}`,
-          sourceId: s.id,
-          sourceValues: values,
+          id: `${w.id}-${a.id}`,
+          workerId: w.id,
+          fullName: w.fullName,
+          idCard: w.idCard,
+          phone: w.phone,
+          assignments: [
+            {
+              ...assignmentValues(a),
+            },
+          ],
+          updatedAt: w.updatedAt,
+          workerValues: workerValues(w),
+          assignmentCount: w.assignments.length,
+          bankAccounts: w.bankAccounts
+            ? w.bankAccounts.map((b: any) => ({
+                accountNumber: b.accountNumber,
+                bankName: b.bankName,
+                accountHolderName: b.accountHolderName,
+              }))
+            : [],
+          sourceValues: source.values,
           sourceWarnings: rev.warnings.map((i) => i.message),
           sourceDuplicates: rev.duplicates.map((i) => i.message),
-          sourceFile: s.file,
-          sourceRow: r.row,
-          workerId: worker?.id,
-          fullName: values["Họ và tên"],
-          idCard: card,
-          updatedAt: worker?.updatedAt,
-          workerValues: worker ? workerValues(worker) : null,
-          assignments: cleanAssignments,
-          bankAccounts: cleanBanks,
-          isSourceRow: true,
+          sourceFile: source.hasSource
+            ? "Import trước khi lưu bản nguồn"
+            : "Hồ sơ nội bộ",
           isApproved,
         };
       }),
-    );
+    )
+    .filter((r) => !sourcedKeys.has(sourceKey(r.idCard, r.sourceValues)));
 
-    const pendingDuplicateRows = sourceRows.filter(
-      (r) => r.sourceDuplicates.length > 0,
-    );
-    const unmergedSourceRows = sourceRows.filter(
-      (r) => !r.sourceDuplicates.length,
-    );
+  const bonusRowsByCccd = new Map<string, any[]>();
+  for (const b of bonusRows) {
+    const card = String(
+      b.values["Số CCCD"] || b.values["số CCCD"] || b.values.CCCD || "",
+    ).trim();
+    if (!card) continue;
+    let list = bonusRowsByCccd.get(card);
+    if (!list) {
+      list = [];
+      bonusRowsByCccd.set(card, list);
+    }
+    list.push(b);
+  }
 
-    const scoreCandidateRow = (row: any): number => {
-      let score = 0;
-      if (row.isApproved) score += 1000;
-      const status = String(row.sourceValues?.["Tình trạng"] || "")
-        .toLowerCase()
-        .trim();
-      const trainStatus = String(row.sourceValues?.["Tình trạng đào tạo"] || "")
-        .toLowerCase()
-        .trim();
-      const code = String(row.sourceValues?.["Mã NV"] || "")
+  // Đếm số đợt làm việc/phỏng vấn của từng CCCD (trong CSDL và trong các nguồn Excel)
+  const returningCards = new Set<string>();
+  const cardAttemptCount = new Map<string, number>();
+
+  for (const w of workers) {
+    if (w.idCard && w.assignments && w.assignments.length >= 2) {
+      returningCards.add(w.idCard);
+      cardAttemptCount.set(w.idCard, w.assignments.length);
+    }
+  }
+
+  const cardBatches = new Map<string, Set<string>>();
+  for (const r of unmergedSourceRows) {
+    const card = r.idCard;
+    if (!card) continue;
+    const fac = cleanFactory(r.sourceValues?.["Nhà máy PV"] || "");
+    const d =
+      dateKey(String(r.sourceValues?.["Ngày PV"] || "")) ||
+      String(r.sourceValues?.["Ngày PV"] || "");
+    const key = d || `${fac}|${r.id}`;
+    let s = cardBatches.get(card);
+    if (!s) {
+      s = new Set();
+      cardBatches.set(card, s);
+    }
+    s.add(key);
+  }
+
+  for (const [card, s] of cardBatches.entries()) {
+    const currentCount = cardAttemptCount.get(card) || 0;
+    const total = Math.max(currentCount, s.size);
+    cardAttemptCount.set(card, total);
+    if (total >= 2) {
+      returningCards.add(card);
+    }
+  }
+
+  const rows = [...currentSourceRows, ...canonical].map((r) => {
+    const candidateBonuses = bonusRowsByCccd.get(r.idCard);
+    let rewardSource = candidateBonuses
+      ? candidateBonuses.filter((b) =>
+          matchFactory(
+            String(b.values["Công ty"] || ""),
+            String(r.sourceValues["Nhà máy PV"] || ""),
+          ),
+        )
+      : [];
+    if (rewardSource.length > 1) {
+      const rowCode = String(r.sourceValues?.["Mã NV"] || "")
         .trim()
         .toLowerCase();
-
-      // Active / successful recruitment
-      if (
-        [
-          "nh",
-          "lv",
-          "đang làm việc",
-          "làm việc",
-          "ok",
-          "hết phí",
-          "đi làm",
-        ].some((s) => status.includes(s) || trainStatus.includes(s))
-      ) {
-        score += 500;
-      }
-      // Negative / dropped / failed
-      if (
-        [
-          "bỏ đt",
-          "bỏ đào tạo",
-          "trượt",
-          "k đạt",
-          "không đạt",
-          "hủy",
-          "ko đi làm",
-          "nghỉ việc",
-        ].some((s) => status.includes(s) || trainStatus.includes(s))
-      ) {
-        score -= 300;
-      }
-      // Real employee code
-      if (
-        code &&
-        !["bỏ đt", "chưa có mã", "chưa có", "—", "-", ""].includes(code)
-      ) {
-        score += 200;
-      }
-      // Later interview date preferred
-      const pv = String(row.sourceValues?.["Ngày PV"] || "");
-      const d = dateKey(pv);
-      if (d) {
-        const time = new Date(d).getTime();
-        if (!isNaN(time)) score += Math.floor(time / 86400000) / 1000;
-      }
-      return score;
-    };
-
-    const mainSourceRows: any[] = [];
-    const groupedByWorkerFactoryMonth = new Map<string, any[]>();
-
-    for (const r of unmergedSourceRows) {
-      const card = r.idCard;
-      if (!card) {
-        mainSourceRows.push(r);
-        continue;
-      }
-      const factory = cleanFactory(r.sourceValues?.["Nhà máy PV"] || "");
-      const m =
-        dateKey(String(r.sourceValues?.["Ngày PV"] || ""))?.slice(0, 7) ||
-        dateKey(String(r.sourceValues?.["Ngày NH"] || ""))?.slice(0, 7) ||
-        String(r.sourceValues?.["Tháng nhận việc"] || "")
+      const rowDate = dateKey(String(r.sourceValues?.["Ngày PV"] || ""));
+      const exactMatches = rewardSource.filter((b) => {
+        const bCode = String(
+          b.values?.["Mã nhân viên"] || b.values?.["Mã NV"] || "",
+        )
           .trim()
           .toLowerCase();
-      const day = dateKey(String(r.sourceValues?.["Ngày PV"] || ""));
-      const groupKey = day
-        ? `${card}|${day}`
-        : `${card}|${factory}|${m}|${r.id}`;
-
-      let list = groupedByWorkerFactoryMonth.get(groupKey);
-      if (!list) {
-        list = [];
-        groupedByWorkerFactoryMonth.set(groupKey, list);
-      }
-      list.push(r);
-    }
-
-    for (const group of groupedByWorkerFactoryMonth.values()) {
-      if (group.length === 1) {
-        mainSourceRows.push(group[0]);
-        continue;
-      }
-      const sorted = [...group].sort(
-        (a, b) => scoreCandidateRow(b) - scoreCandidateRow(a),
-      );
-      const winner = sorted[0];
-      const losers = sorted.slice(1);
-
-      const previousAttempts = losers.map((l) => ({
-        sourceRow: l.sourceRow,
-        interviewDate: l.sourceValues?.["Ngày PV"] || "—",
-        status: l.sourceValues?.["Tình trạng"] || "—",
-        trainingStatus: l.sourceValues?.["Tình trạng đào tạo"] || "—",
-        employeeCode: l.sourceValues?.["Mã NV"] || "—",
-        note: `Đợt trước ngày ${l.sourceValues?.["Ngày PV"] || "—"}: ${l.sourceValues?.["Tình trạng"] || "Bỏ ĐT"} (Đã gộp vào đợt chính thức)`,
-      }));
-
-      const anyApproved = group.some((item) => item.isApproved);
-      mainSourceRows.push({
-        ...winner,
-        isApproved: winner.isApproved || anyApproved,
-        previousAttempts,
+        const bDate = dateKey(String(b.values?.["Ngày PV"] || ""));
+        if (rowCode && bCode && rowCode === bCode) return true;
+        if (rowDate && bDate && rowDate === bDate) return true;
+        return false;
       });
+      if (exactMatches.length > 0) {
+        rewardSource = exactMatches;
+      }
     }
 
-    // The recruitment identity is CCCD + interview day; company/code can change after review.
-    const sourceKey = (card: string, v: any) => {
-      const day = dateKey(String(v["Ngày PV"] || ""));
-      return day && card
-        ? [card.replace(/\s+/g, ""), day].join("|")
-        : [
-            card,
-            String(v["Nhà máy PV"] || ""),
-            String(v["Ngày PV"] || ""),
-            String(v["Mã NV"] || ""),
-          ].join("|");
+    const isRet =
+      returningCards.has(r.idCard) ||
+      Boolean(r.previousAttempts && r.previousAttempts.length > 0) ||
+      Boolean(r.assignmentCount && r.assignmentCount >= 2);
+    const rehireCount =
+      cardAttemptCount.get(r.idCard) ||
+      (r.previousAttempts
+        ? r.previousAttempts.length + 1
+        : r.assignmentCount || (isRet ? 2 : 1));
+
+    return {
+      ...r,
+      rewardSource,
+      isReturning: Boolean(isRet),
+      rehireCount,
     };
-    const visibleRecruitments = new Set<string>();
-    const currentSourceRows = mainSourceRows
-      .map((r) => {
-        const worker = people.get(r.idCard);
-        const day = dateKey(String(r.sourceValues["Ngày PV"] || ""));
-        const assignment = day
-          ? worker?.assignments.find((a) => dateKey(a.interviewDate) === day)
-          : null;
-        if (!worker || !assignment) return r;
-        return {
-          ...r,
-          sourceValues: workerSourceView(worker, assignment, true).values,
-          assignments: [assignmentValues(assignment)],
-        };
-      })
-      .filter((r) => {
-        const key = sourceKey(r.idCard, r.sourceValues);
-        if (visibleRecruitments.has(key)) return false;
-        visibleRecruitments.add(key);
-        return true;
-      });
+  });
 
-    const sourcedKeys = new Set(
-      currentSourceRows.map((r) => sourceKey(r.idCard, r.sourceValues)),
-    );
+  const linkedRewards = new Set(
+    rows.flatMap((r) => r.rewardSource.map((b) => b.id)),
+  );
+  const unlinkedBonusRows = bonusRows.filter((b) => !linkedRewards.has(b.id));
 
-    const canonical = workers
-      .flatMap((w) =>
-        w.assignments.map((a) => {
-          const source = workerSourceView(w, a, true);
-          const rev = splitImportReview(source.warnings);
-          const hasApprovalEvent = a.events?.some((e: any) =>
-            /duyệt.*(trùng|bổ sung|ghi đè|chính thức)|duyệt cảnh báo/i.test(
-              e.note || "",
-            ),
-          );
-          const hasApprovedBonus = a.bonusRecords?.some(
-            (b: any) => b.status === "APPROVED" || Boolean(b.approvedAt),
-          );
-          const hasDuplicateLog = approvedCards.has(w.idCard);
-          const isApproved =
-            Boolean(hasApprovalEvent) ||
-            Boolean(hasApprovedBonus) ||
-            Boolean(hasDuplicateLog) ||
-            resolvedIds.has(`${w.id}-${a.id}`);
-          return {
-            id: `${w.id}-${a.id}`,
-            workerId: w.id,
-            fullName: w.fullName,
-            idCard: w.idCard,
-            phone: w.phone,
-            assignments: [
-              {
-                ...assignmentValues(a),
-              },
-            ],
-            updatedAt: w.updatedAt,
-            workerValues: workerValues(w),
-            assignmentCount: w.assignments.length,
-            bankAccounts: w.bankAccounts
-              ? w.bankAccounts.map((b: any) => ({
-                  accountNumber: b.accountNumber,
-                  bankName: b.bankName,
-                  accountHolderName: b.accountHolderName,
-                }))
-              : [],
-            sourceValues: source.values,
-            sourceWarnings: rev.warnings.map((i) => i.message),
-            sourceDuplicates: rev.duplicates.map((i) => i.message),
-            sourceFile: source.hasSource
-              ? "Import trước khi lưu bản nguồn"
-              : "Hồ sơ nội bộ",
-            isApproved,
-          };
-        }),
-      )
-      .filter((r) => !sourcedKeys.has(sourceKey(r.idCard, r.sourceValues)));
+  const options: Record<string, string[]> = {};
+  for (const column of [
+    "Nhà máy PV",
+    "Tình trạng",
+    "Tháng nhận việc",
+    "Tuyển dụng",
+    "Giới tính",
+    "Loại HĐ",
+    "Tình trạng đào tạo",
+  ])
+    options[column] = [
+      ...new Set(
+        rows.map((r) => String(r.sourceValues[column] ?? "")).filter(Boolean),
+      ),
+    ].sort();
 
-    const bonusRowsByCccd = new Map<string, any[]>();
-    for (const b of bonusRows) {
-      const card = String(
-        b.values["Số CCCD"] || b.values["số CCCD"] || b.values.CCCD || "",
-      ).trim();
-      if (!card) continue;
-      let list = bonusRowsByCccd.get(card);
-      if (!list) {
-        list = [];
-        bonusRowsByCccd.set(card, list);
-      }
-      list.push(b);
+  let pendingDuplicateCount = 0;
+  let systemWarningCount = 0;
+  for (const s of sources) {
+    for (const r of s.rows) {
+      const rawW = r.warnings || [];
+      const rawD = r.duplicates || [];
+      if (!rawW.length && !rawD.length) continue;
+      const rev = splitImportReview([...rawW, ...rawD]);
+      if (rev.duplicates.length > 0) pendingDuplicateCount++;
+      if (rev.warnings.length > 0) systemWarningCount++;
     }
+  }
 
-    // Đếm số đợt làm việc/phỏng vấn của từng CCCD (trong CSDL và trong các nguồn Excel)
-    const returningCards = new Set<string>();
-    const cardAttemptCount = new Map<string, number>();
-
-    for (const w of workers) {
-      if (w.idCard && w.assignments && w.assignments.length >= 2) {
-        returningCards.add(w.idCard);
-        cardAttemptCount.set(w.idCard, w.assignments.length);
-      }
-    }
-
-    const cardBatches = new Map<string, Set<string>>();
-    for (const r of unmergedSourceRows) {
-      const card = r.idCard;
-      if (!card) continue;
-      const fac = cleanFactory(r.sourceValues?.["Nhà máy PV"] || "");
-      const d =
-        dateKey(String(r.sourceValues?.["Ngày PV"] || "")) ||
-        String(r.sourceValues?.["Ngày PV"] || "");
-      const key = d || `${fac}|${r.id}`;
-      let s = cardBatches.get(card);
-      if (!s) {
-        s = new Set();
-        cardBatches.set(card, s);
-      }
-      s.add(key);
-    }
-
-    for (const [card, s] of cardBatches.entries()) {
-      const currentCount = cardAttemptCount.get(card) || 0;
-      const total = Math.max(currentCount, s.size);
-      cardAttemptCount.set(card, total);
-      if (total >= 2) {
-        returningCards.add(card);
-      }
-    }
-
-    const rows = [...currentSourceRows, ...canonical].map((r) => {
-      const candidateBonuses = bonusRowsByCccd.get(r.idCard);
-      let rewardSource = candidateBonuses
-        ? candidateBonuses.filter((b) =>
-            matchFactory(
-              String(b.values["Công ty"] || ""),
-              String(r.sourceValues["Nhà máy PV"] || ""),
-            ),
-          )
-        : [];
-      if (rewardSource.length > 1) {
-        const rowCode = String(r.sourceValues?.["Mã NV"] || "")
-          .trim()
-          .toLowerCase();
-        const rowDate = dateKey(String(r.sourceValues?.["Ngày PV"] || ""));
-        const exactMatches = rewardSource.filter((b) => {
-          const bCode = String(
-            b.values?.["Mã nhân viên"] || b.values?.["Mã NV"] || "",
-          )
-            .trim()
-            .toLowerCase();
-          const bDate = dateKey(String(b.values?.["Ngày PV"] || ""));
-          if (rowCode && bCode && rowCode === bCode) return true;
-          if (rowDate && bDate && rowDate === bDate) return true;
-          return false;
-        });
-        if (exactMatches.length > 0) {
-          rewardSource = exactMatches;
-        }
-      }
-
-      const isRet =
-        returningCards.has(r.idCard) ||
-        Boolean(r.previousAttempts && r.previousAttempts.length > 0) ||
-        Boolean(r.assignmentCount && r.assignmentCount >= 2);
-      const rehireCount =
-        cardAttemptCount.get(r.idCard) ||
-        (r.previousAttempts
-          ? r.previousAttempts.length + 1
-          : r.assignmentCount || (isRet ? 2 : 1));
-
-      return {
-        ...r,
-        rewardSource,
-        isReturning: Boolean(isRet),
-        rehireCount,
-      };
-    });
-
-    const linkedRewards = new Set(
-      rows.flatMap((r) => r.rewardSource.map((b) => b.id)),
-    );
-    const unlinkedBonusRows = bonusRows.filter((b) => !linkedRewards.has(b.id));
-
-    const options: Record<string, string[]> = {};
-    for (const column of [
-      "Nhà máy PV",
-      "Tình trạng",
-      "Tháng nhận việc",
-      "Tuyển dụng",
-      "Giới tính",
-      "Loại HĐ",
-      "Tình trạng đào tạo",
-    ])
-      options[column] = [
-        ...new Set(
-          rows.map((r) => String(r.sourceValues[column] ?? "")).filter(Boolean),
-        ),
-      ].sort();
-
-    let pendingDuplicateCount = 0;
-    let systemWarningCount = 0;
-    for (const s of sources) {
-      for (const r of s.rows) {
-        const rawW = r.warnings || [];
-        const rawD = r.duplicates || [];
-        if (!rawW.length && !rawD.length) continue;
-        const rev = splitImportReview([...rawW, ...rawD]);
-        if (rev.duplicates.length > 0) pendingDuplicateCount++;
-        if (rev.warnings.length > 0) systemWarningCount++;
-      }
-    }
-
-    return { rows, options, pendingDuplicateCount, systemWarningCount, unlinkedBonusRows, bonusSourceRows: bonusRows.length, sourceRowCount: mainSourceRows.length,
-      warningRows: rows.filter(r => r.sourceWarnings.length).length, approvedRows: rows.filter(r => r.isApproved).length,
-      returningRows: rows.filter(r => r.isReturning).length, duplicateRows: rows.filter(r => r.sourceDuplicates.length).length };
+  return {
+    rows,
+    options,
+    pendingDuplicateCount,
+    systemWarningCount,
+    unlinkedBonusRows,
+    bonusSourceRows: bonusRows.length,
+    sourceRowCount: mainSourceRows.length,
+    warningRows: rows.filter((r) => r.sourceWarnings.length).length,
+    approvedRows: rows.filter((r) => r.isApproved).length,
+    returningRows: rows.filter((r) => r.isReturning).length,
+    duplicateRows: rows.filter((r) => r.sourceDuplicates.length).length,
+  };
 }
 
 export async function GET(request: NextRequest) {
@@ -664,8 +668,23 @@ export async function GET(request: NextRequest) {
   if (denied) return denied;
   try {
     const archived = request.nextUrl.searchParams.get("archived") === "true";
-    const { rows, options, pendingDuplicateCount, systemWarningCount, unlinkedBonusRows, bonusSourceRows, sourceRowCount,
-      warningRows, approvedRows, returningRows, duplicateRows } = await cachedRead("worker-source-rows:" + archived, await readDataVersion(), () => buildWorkerRows(archived));
+    const {
+      rows,
+      options,
+      pendingDuplicateCount,
+      systemWarningCount,
+      unlinkedBonusRows,
+      bonusSourceRows,
+      sourceRowCount,
+      warningRows,
+      approvedRows,
+      returningRows,
+      duplicateRows,
+    } = await cachedRead(
+      "worker-source-rows:" + archived,
+      await readDataVersion(),
+      () => buildWorkerRows(archived),
+    );
     const p = request.nextUrl.searchParams;
 
     // --- TÁCH THAM SỐ CHỌN NHIỀU (MULTI-SELECT) DẠNG MẢNG ---
@@ -798,7 +817,9 @@ export async function GET(request: NextRequest) {
       options,
       pendingDuplicateCount,
       systemWarningCount,
-      ...(p.get("view") === "list" ? { unlinkedBonusRowCount: unlinkedBonusRows.length } : { unlinkedBonusRows }),
+      ...(p.get("view") === "list"
+        ? { unlinkedBonusRowCount: unlinkedBonusRows.length }
+        : { unlinkedBonusRows }),
       bonusSourceRows,
       totalRows: rows.length,
       sourceRows: sourceRowCount,
