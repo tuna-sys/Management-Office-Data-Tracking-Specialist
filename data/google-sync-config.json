@@ -1,18 +1,18 @@
 {
   "autoSyncEnabled": false,
   "syncIntervalSeconds": 60,
-  "activeSourceId": "gs-1792751339283",
+  "activeSourceId": "gs-1793790713127",
   "sources": [
     {
-      "id": "gs-1792751339283",
+      "id": "gs-1793790713127",
       "name": "Bảng tính 1WuTo4ji",
-      "url": "https://docs.google.com/spreadsheets/d/1WuTo4jiBNg7rxdjDCbFmE6nQ3k4z3WJfV3rs5V1VXNw/edit?usp=sharing",
-      "spreadsheetId": "1WuTo4jiBNg7rxdjDCbFmE6nQ3k4z3WJfV3rs5V1VXNw",
+      "url": "https://docs.google.com/spreadsheets/d/16DWeNNdjVVp8xR4TioVx1NG0JtaY20W6I-25zLt5B1s/edit?gid=0#gid=0",
+      "spreadsheetId": "16DWeNNdjVVp8xR4TioVx1NG0JtaY20W6I-25zLt5B1s",
       "smartMerge": true,
       "importType": "AUTO",
       "lastStatus": "IDLE",
       "lastMessage": "Chưa đồng bộ",
-      "createdAt": "2026-10-23T10:28:59.283Z"
+      "createdAt": "2026-11-04T11:11:53.127Z"
     }
   ]
 }

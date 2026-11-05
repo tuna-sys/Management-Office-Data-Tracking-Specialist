@@ -394,6 +394,8 @@ export async function POST(request: NextRequest) {
       detectedTongSheet = "";
       detectedBonusSheet = "";
 
+      const isAuxiliaryBonusSheet = (normalizedName: string) =>
+        /^(tk|kpi)thuong$/.test(normalizedName);
       function detectWorkbookKinds(wb: XLSX.WorkBook) {
         let hasTong = false;
         let hasBonus = false;
@@ -437,6 +439,12 @@ export async function POST(request: NextRequest) {
         for (const sName of wb.SheetNames) {
           if (allTongSheets.includes(sName) || allBonusSheets.includes(sName))
             continue;
+          const normalizedName = sName
+            .normalize("NFD")
+            .replace(/\p{Diacritic}/gu, "")
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, "");
+          if (isAuxiliaryBonusSheet(normalizedName)) continue;
           const s = wb.Sheets[sName];
           if (!s) continue;
           const m = readHeaderRows(s);
@@ -641,6 +649,8 @@ export async function POST(request: NextRequest) {
         .normalize("NFD")
         .replace(/\p{Diacritic}/gu, "")
         .toLowerCase();
+
+      if (/^(tk|kpi)thuong$/.test(sNorm.replace(/[^a-z0-9]/g, ""))) continue;
 
       if (
         hStr.includes("thưởng lần 1") ||
