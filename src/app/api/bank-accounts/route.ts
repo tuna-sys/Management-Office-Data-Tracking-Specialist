@@ -250,7 +250,10 @@ export async function DELETE(request: NextRequest) {
   }
   if (body?.all !== true || body?.confirmAll !== true)
     return NextResponse.json(
-      { success: false, message: "Cần xác nhận xóa toàn bộ tài khoản ngân hàng" },
+      {
+        success: false,
+        message: "Cần xác nhận xóa toàn bộ tài khoản ngân hàng",
+      },
       { status: 400 },
     );
 
