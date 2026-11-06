@@ -235,3 +235,45 @@ export async function PUT(request: NextRequest) {
     );
   }
 }
+
+export async function DELETE(request: NextRequest) {
+  const denied = await guard(request);
+  if (denied) return denied;
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      { success: false, message: "JSON không hợp lệ" },
+      { status: 400 },
+    );
+  }
+  if (body?.all !== true || body?.confirmAll !== true)
+    return NextResponse.json(
+      { success: false, message: "Cần xác nhận xóa toàn bộ tài khoản ngân hàng" },
+      { status: 400 },
+    );
+
+  const actor = (await identity(request))!;
+  try {
+    const deletedCount = await prisma.$transaction(async (tx) => {
+      const count = await tx.bankAccount.count();
+      await tx.bankAccount.deleteMany();
+      await tx.auditLog.create({
+        data: {
+          action: "DELETE",
+          module: "BANK",
+          operator: actor.username,
+          details: `Xóa toàn bộ ${count} tài khoản ngân hàng; không xóa hồ sơ người lao động`,
+        },
+      });
+      return count;
+    });
+    return NextResponse.json({ success: true, deletedCount });
+  } catch {
+    return NextResponse.json(
+      { success: false, message: "Không thể xóa toàn bộ tài khoản ngân hàng" },
+      { status: 500 },
+    );
+  }
+}

@@ -97,6 +97,47 @@ const server = {
     ).status,
     400,
   );
+  const bankAccounts = [{ id: "bank-1" }, { id: "bank-2" }];
+  const bankAudits = [];
+  let deletedWorkers = false;
+  const bankRoute = load("src/app/api/bank-accounts/route.ts", {
+    ...server,
+    "@/lib/prisma": {
+      prisma: {
+        $transaction: async (callback) =>
+          callback({
+            bankAccount: {
+              count: async () => bankAccounts.length,
+              deleteMany: async () => {
+                const count = bankAccounts.length;
+                bankAccounts.length = 0;
+                return { count };
+              },
+            },
+            worker: {
+              deleteMany: async () => {
+                deletedWorkers = true;
+              },
+            },
+            auditLog: { create: async ({ data }) => bankAudits.push(data) },
+          }),
+      },
+    },
+  });
+  const deleteRequest = (body) => ({ json: async () => body });
+  assert.equal(
+    (await bankRoute.DELETE(deleteRequest({ all: true }))).status,
+    400,
+  );
+  const deletedAccounts = await bankRoute.DELETE(
+    deleteRequest({ all: true, confirmAll: true }),
+  );
+  assert.equal(deletedAccounts.status, 200);
+  assert.equal(deletedAccounts.body.deletedCount, 2);
+  assert.equal(bankAccounts.length, 0);
+  assert.equal(deletedWorkers, false);
+  assert.equal(bankAudits[0].action, "DELETE");
+  assert.equal(bankAudits[0].module, "BANK");
   let current = { ...record, id: "test", updatedAt: new Date() };
   let auditFailure = false;
   let race = false;

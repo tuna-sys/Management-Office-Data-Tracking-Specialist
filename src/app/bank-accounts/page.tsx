@@ -14,6 +14,7 @@ import {
   Space,
   Badge,
   Tooltip,
+  Popconfirm,
 } from "antd";
 import {
   CreditCard,
@@ -25,6 +26,7 @@ import {
   RefreshCw,
   Building2,
   Download,
+  Trash2,
 } from "lucide-react";
 const POPULAR_BANKS = [
   "Vietcombank",
@@ -56,6 +58,7 @@ export default function BankAccountsPage() {
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
   const fetchAccounts = async () => {
     try {
       setLoading(true);
@@ -184,6 +187,28 @@ export default function BankAccountsPage() {
       message.error("Lỗi thêm tài khoản");
     } finally {
       setSubmitting(false);
+    }
+  };
+  const handleDeleteAllAccounts = async () => {
+    try {
+      setDeletingAll(true);
+      const res = await fetch("/api/bank-accounts", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ all: true, confirmAll: true }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        message.error(json.message || "Không thể xóa tài khoản ngân hàng");
+        return;
+      }
+      message.success(`Đã xóa ${json.deletedCount} tài khoản ngân hàng`);
+      setCurrentPage(1);
+      void fetchAccounts();
+    } catch {
+      message.error("Lỗi kết nối khi xóa tài khoản ngân hàng");
+    } finally {
+      setDeletingAll(false);
     }
   };
   const columns = [
@@ -350,7 +375,24 @@ export default function BankAccountsPage() {
             ngân hàng; lệnh chi được chặn cho đến khi đủ bằng chứng.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Popconfirm
+            title="Xóa toàn bộ tài khoản ngân hàng?"
+            description="Thao tác này xóa tất cả STK trong hệ thống, không chỉ các dòng đang lọc. Hồ sơ người lao động vẫn được giữ nguyên. Không thể hoàn tác."
+            okText="Xóa toàn bộ STK"
+            cancelText="Hủy"
+            okButtonProps={{ danger: true, loading: deletingAll }}
+            onConfirm={handleDeleteAllAccounts}
+          >
+            <Button
+              danger
+              disabled={!canWrite}
+              loading={deletingAll}
+              icon={<Trash2 className="w-4 h-4" />}
+            >
+              Xóa toàn bộ STK
+            </Button>
+          </Popconfirm>
           <Button
             type="primary"
             disabled={!canWrite}
